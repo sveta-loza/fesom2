@@ -53,7 +53,7 @@ module recom_config
 !=============================================================================
 
   Integer :: ivphy = 1, ivdia = 2, ivdet = 3, ivdetsc = 4, ivcoc = 5, ivpha = 6
- 
+
 !=============================================================================
 
   integer, dimension(8)  :: recom_remin_tracer_id   = (/1001, 1002, 1003, 1018, 1019, 1022, 1302, 1402/)
@@ -469,7 +469,7 @@ module recom_config
 !! *** Phytoplankton C ***
   Real(kind=8)                 :: lossC         = 0.10d0          ! [1/day] Phytoplankton loss of carbon 
   Real(kind=8)                 :: lossC_d       = 0.10d0
-  Real(kind=8)                 :: lossC_c       = 0.10d0          
+  Real(kind=8)                 :: lossC_c       = 0.10d0
   Real(kind=8)                 :: lossC_p       = 0.10d0          ! Phaeocystis
   Real(kind=8)                 :: f_ovf         = 0.0d0           !sl [-] Carbon overflow: extra DOC exudation f_ovf*(1-qN)*Cphot, all PFTs,
                                                                     !   qN = N-quota limiter recom_limiter(NMinSlope,NCmin_X,quota_X), i.e.
@@ -1619,7 +1619,7 @@ Module REcoM_declarations
   Real(kind=8)  :: rTref                  ! [1/K] Reciproque value of reference temp for Arrhenius function
   Real(kind=8)  :: rTloc                  ! [1/K] Reciproque of local ocean temp
   Real(kind=8)  :: arrFunc                ! []    Temp dependence of rates (also for Phaeocystis)
-  Real(kind=8)  :: CoccoTFunc
+  Real(kind=8)  :: CoccoTFunc             ! []    Temp dependence of coccolithophores
   Real(kind=8)  :: Temp_diatoms           ! []    Temp dependence of diatoms
   Real(kind=8)  :: Temp_phyto             ! []    Temp dependence of small phyto
   Real(kind=8)  :: Temp_cocco             ! []    Temp dependence of coccolithophores
@@ -1678,7 +1678,7 @@ Module REcoM_declarations
   Real(kind=8)  :: Cphot, Cphot_dia, Cphot_cocco, Cphot_phaeo         ! [1/day] C-specific rate of photosynthesis
 !!------------------------------------------------------------------------------
 !! *** Assimilation ***
-  Real(kind=8)  :: V_cm                                                     ! scaling factor for temperature dependent maximum of C-specific N-uptake
+  Real(kind=8)  :: V_cm                                               ! scaling factor for temperature dependent maximum of C-specific N-uptake
   Real(kind=8)  :: limitFacN,limitFacN_dia,limitFacN_cocco, limitFacN_phaeo ! Factor that regulates N-assimilation. Calc from function recom_limiter
   Real(kind=8)  :: limitFacSi
   Real(kind=8)  :: N_assim, N_assim_dia, N_assim_Cocco, N_assim_phaeo       ! [mmol N/(mmol C * day)] C specific N utilization rate
@@ -1729,7 +1729,7 @@ Module REcoM_declarations
      Real(kind=8)  :: MicZooNsq2                         ! NEW Zoo3
      Real(kind=8)  :: varpzMicZoo2, fMicZooN2            ! NEW Zoo3
      Real(kind=8)  :: food2, foodsq2                     ! [(mmol N)2/m6]
-     Real(kind=8)  :: grazingFlux_phy2, grazingFlux_Dia2, grazingFlux_Cocco2, grazingFlux_Phaeo2, grazingFlux_het2 ! [mmol N / (m3 * day)  (NEW changed term) 
+     Real(kind=8)  :: grazingFlux_phy2, grazingFlux_Dia2, grazingFlux_Cocco2, grazingFlux_Phaeo2, grazingFlux_het2 ! [mmol N / (m3 * day)  (NEW changed term)
      Real(kind=8)  :: grazingFlux_miczoo2                ! NEW Zoo3
      Real(kind=8)  :: grazingFlux2
      Real(kind=8)  :: Zoo2RespFlux                       ! Zooplankton respiration                   
@@ -1798,6 +1798,7 @@ Module REcoM_declarations
   Real(kind=8),allocatable,dimension(:) :: vertNPPd, vertGPPd, vertNNAd, vertChldegd
   Real(kind=8),allocatable,dimension(:) :: vertNPPc, vertGPPc, vertNNAc, vertChldegc
   Real(kind=8),allocatable,dimension(:) :: vertNPPp, vertGPPp, vertNNAp, vertChldegp     ! Phaeocystis
+  Real(kind=8),allocatable,dimension(:) :: vertgrazmeso_tot, vertgrazmeso_n, vertgrazmeso_d, vertgrazmeso_c
   Real(kind=8),allocatable,dimension(:) :: vertrespmeso, vertrespmacro, vertrespmicro
   Real(kind=8),allocatable,dimension(:) :: vertcalcdiss, vertcalcif
   Real(kind=8),allocatable,dimension(:) :: vertaggn, vertaggd, vertaggc, vertaggp

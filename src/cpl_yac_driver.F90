@@ -111,7 +111,9 @@ contains
          yearnew, month, day_in_month, &
          INT(timenew)/3600, MODULO(INT(timenew), 3600)/60, MODULO(INT(timenew), 60), &
          INT(MODULO(timenew, 1.0_WP)*1000)
-
+   
+    ! dt_str is required by yac
+    WRITE(dt_str, '(I4.4)') INT(dt)
     CALL yac_fdef_datetime(startdatetime)
 
     ! find boundary nodes

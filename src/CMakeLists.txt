@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(fesom LANGUAGES C CXX Fortran VERSION 2.0.0)
+#project(fesom LANGUAGES C CXX Fortran VERSION 2.0.0)
+project(fesim LANGUAGES C CXX Fortran VERSION 2.0.0)
 set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/../cmake ${CMAKE_MODULE_PATH})
 
 include(fesom_setup)
@@ -178,9 +179,10 @@ add_custom_target(fesom_version_info-generated.F90 ALL
 #   list(REMOVE_ITEM sources_Fortran ${src_home}/cpl_driver.F90)
 #endif()
 list(REMOVE_ITEM sources_Fortran ${src_home}/fvom_init.F90 ${src_home}/oce_local.F90 ${src_home}/gen_comm.F90)
-list(REMOVE_ITEM sources_Fortran ${src_home}/fesom_main.F90)
+list(REMOVE_ITEM sources_Fortran ${src_home}/fesim_main.F90)
 
 find_package( MPI REQUIRED COMPONENTS C Fortran )
+
 find_package( NETCDF REQUIRED COMPONENTS C Fortran )
 
 # depends on the metis library
@@ -200,7 +202,7 @@ if(BUILD_NETCDF)
 endif()
 
 target_include_directories(${PROJECT_NAME} PUBLIC $<BUILD_INTERFACE:${CMAKE_Fortran_MODULE_DIRECTORY}>)
-target_include_directories(${PROJECT_NAME} PUBLIC $<INSTALL_INTERFACE:module/fesom>)
+target_include_directories(${PROJECT_NAME} PUBLIC $<INSTALL_INTERFACE:module/fesim>)
 target_link_libraries(${PROJECT_NAME} PRIVATE MPI::MPI_Fortran)
 
 set_target_properties(${PROJECT_NAME} PROPERTIES LINKER_LANGUAGE Fortran)
@@ -232,10 +234,20 @@ if(${ASYNC_ICEBERGS})
    target_compile_definitions(${PROJECT_NAME} PRIVATE __async_icebergs)
 endif()
 
+# __yac_atm: atmosphere is coupled to the ocean via YAC (ICON case). When OFF,
+# the ocean reads atm forcing from files and forwards the raw atm state to FESIM,
+# which runs its own bulk (Stage 4 config #2). Must match the FESOM build's
+# USE_YAC_ATM. Default ON preserves the ICON behaviour.
+option(USE_YAC_ATM "Atmosphere coupled to the ocean via YAC (ICON). OFF = FESIM bulks raw atm state from the ocean." ON)
+
 if(${USE_YAC})
   include(${CMAKE_CURRENT_LIST_DIR}/../cmake/FindYAC.cmake)
   target_compile_definitions(${PROJECT_NAME} PRIVATE __yac __coupled)
-  list(APPEND sources_Fortran ${src_home}/cpl_yac_driver.F90)
+  if(${USE_YAC_ATM})
+    target_compile_definitions(${PROJECT_NAME} PRIVATE __yac_atm)
+  endif()
+  list(APPEND sources_Fortran ${src_home}/yac_grid_utils.F90
+                              ${src_home}/ocean_coupling_interface.F90)
 endif()
 
 if(${OIFS_COUPLED})
@@ -248,6 +260,27 @@ endif()
 
 if(ENABLE_IFS_INTERFACE)
    target_compile_definitions(${PROJECT_NAME} PRIVATE __ifsinterface)
+endif()
+
+# __ifs_fwd (Stage 4 config #1): the ocean is driven by IFS and forwards the IFS
+# atm fluxes to FESIM over YAC; FESIM receives the fluxes directly (no bulk),
+# computes ice surface temperature + albedo, and relays them back to the ocean
+# (onward to IFS). Must match the ocean build's USE_IFS_FWD. FESIM itself never
+# links to IFS, so this must NOT pull in ENABLE_IFS_INTERFACE (which would compile
+# the IFS driver files). Requires USE_YAC; incompatible with USE_YAC_ATM. OFF for
+# the ICON and standalone builds.
+option(USE_IFS_FWD "Receive forwarded IFS atm fluxes from the ocean (Stage 4 config #1)." OFF)
+if(USE_IFS_FWD)
+  if(NOT USE_YAC)
+    message(FATAL_ERROR "USE_IFS_FWD requires USE_YAC=ON (FESIM couples to the ocean over YAC).")
+  endif()
+  if(USE_YAC_ATM)
+    message(FATAL_ERROR "USE_IFS_FWD is incompatible with USE_YAC_ATM (that is the ICON path).")
+  endif()
+  if(ENABLE_IFS_INTERFACE)
+    message(FATAL_ERROR "USE_IFS_FWD must NOT be combined with ENABLE_IFS_INTERFACE: FESIM does not link to IFS.")
+  endif()
+  target_compile_definitions(${PROJECT_NAME} PRIVATE __ifs_fwd)
 endif()
 
 if(VERBOSE)
@@ -266,8 +299,12 @@ if(${CISO_COUPLED})
    target_compile_definitions(${PROJECT_NAME} PRIVATE __ciso)
 endif()
 
-if(${FESOM_PROFILING})
-   target_compile_definitions(${PROJECT_NAME} PRIVATE FESOM_PROFILING)
+#if(${FESOM_PROFILING})
+#   target_compile_definitions(${PROJECT_NAME} PRIVATE FESOM_PROFILING)
+#endif()
+
+if(${FESIM_PROFILING})
+	target_compile_definitions(${PROJECT_NAME} PRIVATE FESIM_PROFILING)
 endif()
 
 # CMAKE_Fortran_COMPILER_ID will also work if a wrapper is being used (e.g. mpif90 wraps ifort -> compiler id is Intel)
@@ -474,7 +511,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE ${YAC_Fortran_LIBRARIES})
 
    
 # fesom.x executable
-add_executable(${PROJECT_NAME}.x ${src_home}/fesom_main.F90)
+add_executable(${PROJECT_NAME}.x ${src_home}/fesim_main.F90)
 target_link_libraries(${PROJECT_NAME}.x PUBLIC ${PROJECT_NAME})
 
 # When BUILD_NETCDF is enabled, explicitly link NetCDF libraries to the executable
@@ -515,4 +552,4 @@ if(BUILD_MESHDIAG)
     set(additional_targets ${additional_targets} fesom_meshdiag)
 endif()
 
-fesom_export(TARGETS ${PROJECT_NAME} fesom.x ${additional_targets})
+fesom_export(TARGETS ${PROJECT_NAME} fesim.x ${additional_targets})

@@ -103,7 +103,7 @@ TYPE T_ICE_ATMCOUPL
 
     !___________________________________________________________________________
     real(kind=WP), allocatable, dimension(:)    :: oce_flx_h, ice_flx_h, tmpoce_flx_h, tmpice_flx_h
-#if defined (__oifs) || defined (__ifsinterface) || defined(__yac)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd) || defined(__yac)
     !___________________________________________________________________________
     real(kind=WP), allocatable, dimension(:)    :: ice_alb, enthalpyoffuse, flx_qres, flx_qcon
     ! !!! DONT FORGET ice_temp rhs_tempdiv rhs_temp is advected for oifs !!! --> becomes additional ice
@@ -146,7 +146,7 @@ TYPE T_ICE
 
     !___________________________________________________________________________
     ! total number of ice tracers (default=3, 1=area, 2=mice, 3=msnow, (4=ice_temp)
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
     integer                                     :: num_itracers=4
 #else
 !    integer                                     :: num_itracers=3
@@ -346,7 +346,7 @@ subroutine WRITE_T_ICE_ATMCOUPL(tcoupl, unit)
     call write_bin_array(tcoupl%ice_flx_h,      unit, iostat, iomsg)
     call write_bin_array(tcoupl%tmpoce_flx_h,   unit, iostat, iomsg)
     call write_bin_array(tcoupl%tmpice_flx_h,   unit, iostat, iomsg)
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
     call write_bin_array(tcoupl%ice_alb,        unit, iostat, iomsg)
     call write_bin_array(tcoupl%enthalpyoffuse, unit, iostat, iomsg)
 #endif /* (__oifs) */
@@ -366,7 +366,7 @@ subroutine READ_T_ICE_ATMCOUPL(tcoupl, unit)
     call read_bin_array(tcoupl%ice_flx_h, unit, iostat, iomsg)
     call read_bin_array(tcoupl%tmpoce_flx_h, unit, iostat, iomsg)
     call read_bin_array(tcoupl%tmpice_flx_h, unit, iostat, iomsg)
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
     call read_bin_array(tcoupl%ice_alb, unit, iostat, iomsg)
     call read_bin_array(tcoupl%enthalpyoffuse, unit, iostat, iomsg)
 #endif /* (__oifs) */
@@ -588,6 +588,7 @@ subroutine ice_init(ice, partit, mesh)
     read(nm_unit, nml=ice_dyn  , iostat=iost)
     read(nm_unit, nml=ice_therm, iostat=iost)
     close(nm_unit)
+    if (mype==0) write(*,*) '     file   : ', 'namelist.ice',' read ok'
 
     !___________________________________________________________________________
     ! set parameters in ice derived type from namelist.ice --> namelist /ice_dyn/
@@ -605,6 +606,7 @@ subroutine ice_init(ice, partit, mesh)
     ice%alpha_evp       = alpha_evp
     ice%beta_evp        = beta_evp
     ice%c_aevp          = c_aevp
+    if (mype==0) write(*,*) '   parameters set 1 from   : ', 'namelist.ice',' ok'
 
     ! set parameters in ice derived type from namelist.ice --> namelist /ice_therm/
     ice%thermo%con      = con
@@ -617,6 +619,7 @@ subroutine ice_init(ice, partit, mesh)
     ice%thermo%armin    = armin
     ice%thermo%emiss_ice= emiss_ice
     ice%thermo%emiss_wat= emiss_wat
+    if (mype==0) write(*,*) '   parameters set 1.2 from   : ', 'namelist.ice',' ok'
     ice%thermo%albsn    = albsn
     ice%thermo%albsnm   = albsnm
     ice%thermo%albi     = albi
@@ -627,14 +630,14 @@ subroutine ice_init(ice, partit, mesh)
     ice%thermo%open_water_albedo=open_water_albedo
     ice%thermo%c_melt   = c_melt
     ice%thermo%h_cutoff = h_cutoff    
+    if (mype==0) write(*,*) '   parameters set 1.3 from   : ', 'namelist.ice',' ok'
     ice%thermo%cc       =ice%thermo%rhowat*4190.0  ! Volumetr. heat cap. of water [J/m**3/K](cc = rhowat*cp_water)
     ice%thermo%cl       =ice%thermo%rhoice*3.34e5  ! Volumetr. latent heat of ice fusion [J/m**3](cl=rhoice*Lf)
-
+    if (mype==0) write(*,*) '   parameters set 2 from   : ', 'namelist.ice',' ok'
     !___________________________________________________________________________
     ! define local vertice & elem array size
-    elem_size=myDim_elem2D+eDim_elem2D
-    node_size=myDim_nod2D +eDim_nod2D
-
+    elem_size=myDim_elem2D +eDim_elem2D 
+    node_size=myDim_nod2D  +eDim_nod2D  
     !___________________________________________________________________________
     ! allocate/initialise arrays in ice derived type
     ! initialise velocity and stress related arrays in ice derived type
@@ -674,7 +677,7 @@ subroutine ice_init(ice, partit, mesh)
         ice%alpha_evp_array = ice%alpha_evp
         ice%beta_evp_array  = ice%alpha_evp
     end if
-
+    if (mype==0) write(*,*) '   initialisation/allocation   : ',' ok'
     !___________________________________________________________________________
     ! initialise surface ocean arrays in ice derived type
     allocate(ice%srfoce_u(             node_size))
@@ -692,7 +695,7 @@ subroutine ice_init(ice, partit, mesh)
     allocate(ice%flx_h( node_size))
     ice%flx_fw           = 0.0_WP
     ice%flx_h            = 0.0_WP
-    
+    if (mype==0) write(*,*) '  initialise surface ocean   : ',' ok'
     !___________________________________________________________________________
     ! initialse data array of ice derived type containing "ice tracer" that have
     ! to be advected: a_ice (index=1), m_ice (index=2), m_snow (index=3),
@@ -714,7 +717,7 @@ subroutine ice_init(ice, partit, mesh)
         ice%data(n)%valuesl        = 0.0_WP
         if (n==4) ice%data(n)%values = 265.15_WP
     end do
-
+    if (mype==0) write(*,*) '  initialise ice tracers   : ',' ok'
     !___________________________________________________________________________
     ! initialse work array of ice derived type
     allocate(ice%work%fct_tmax(        node_size))
@@ -727,9 +730,13 @@ subroutine ice_init(ice, partit, mesh)
     ice%work%fct_plus    = 0.0_WP
     ice%work%fct_minus   = 0.0_WP
     ice%work%fct_fluxes  = 0.0_WP
-
+    if (mype==0) write(*,*) '  initialise ice derived 1  : ',' ok'
+    if (mype==0) write(*,*) '  allocate massmatrix nn_num(1), nn_num(myDim_nod2D) : ',nn_num(1),nn_num(myDim_nod2D)
+    if (mype==0) write(*,*) '  allocate massmatrix sum(nn_num(1:myDim_nod2D) : ',sum(nn_num(1:myDim_nod2D))
+ 
     allocate(ice%work%fct_massmatrix(sum(nn_num(1:myDim_nod2D))))
     ice%work%fct_massmatrix = 0.0_WP
+    if (mype==0) write(*,*) '  initialise ice derived 2  : ',' ok'
 
     allocate(ice%work%sigma11(         elem_size))
     allocate(ice%work%sigma12(         elem_size))
@@ -743,6 +750,7 @@ subroutine ice_init(ice, partit, mesh)
     ice%work%eps11       = 0.0_WP
     ice%work%eps12       = 0.0_WP
     ice%work%eps22       = 0.0_WP
+    if (mype==0) write(*,*) '  initialise ice derived 3  : ',' ok'
 
     allocate(ice%work%ice_strength(    elem_size))
     allocate(ice%work%inv_areamass(    node_size))
@@ -750,7 +758,7 @@ subroutine ice_init(ice, partit, mesh)
     ice%work%ice_strength= 0.0_WP
     ice%work%inv_areamass= 0.0_WP
     ice%work%inv_mass    = 0.0_WP
-
+    if (mype==0) write(*,*) '  initialise ice derived   : ',' ok'
     !___________________________________________________________________________
     ! initialse thermo array of ice derived type
     allocate(ice%thermo%ustar(         node_size))
@@ -763,7 +771,7 @@ subroutine ice_init(ice, partit, mesh)
     ice%thermo%thdgr     = 0.0_WP
     ice%thermo%thdgrsn   = 0.0_WP
     ice%thermo%thdgr_old = 0.0_WP
-
+    if (mype==0) write(*,*) '  initialse thermo array   : ',' ok'
     !___________________________________________________________________________
     ! initialse coupling array of ice derived type 
 #if defined (__oasis) || defined (__ifsinterface) || defined (__yac)
@@ -775,7 +783,8 @@ subroutine ice_init(ice, partit, mesh)
     ice%atmcoupl%ice_flx_h     = 0.0_WP
     ice%atmcoupl%tmpoce_flx_h  = 0.0_WP
     ice%atmcoupl%tmpice_flx_h  = 0.0_WP
-#if defined (__oifs) || defined (__ifsinterface)
+    if (mype==0) write(*,*) '  initialse coupling array   : ',' ok'
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
     allocate(ice%atmcoupl%ice_alb(       node_size))
     allocate(ice%atmcoupl%enthalpyoffuse(node_size))
     ice%atmcoupl%ice_alb       = 0.6_WP
@@ -801,7 +810,7 @@ subroutine ice_init(ice, partit, mesh)
             if (myList_edge2D(n) <= mesh%edge2D_in) cycle
             mesh%bc_index_nod2D(ed)=0._WP
         end do
-    
+        if (mype==0) write(*,*) '  mesh allocated / end ice_init '
 end subroutine ice_init  
 !
 !

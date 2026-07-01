@@ -66,7 +66,7 @@ subroutine thermodynamics(ice, partit, mesh)
   real(kind=WP), dimension(:)  , pointer :: a_ice_old, m_ice_old, m_snow_old, thdgr_old 
   real(kind=WP), dimension(:)  , pointer :: S_oc_array, T_oc_array, u_w, v_w
   real(kind=WP), dimension(:)  , pointer :: fresh_wa_flux, net_heat_flux
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
   real(kind=WP), dimension(:) , pointer  :: ice_temp, ice_alb, enthalpyoffuse, ice_heat_qres, ice_heat_qcon
 #endif
 #if defined (__oasis) || defined (__ifsinterface) || defined (__yac)
@@ -94,7 +94,7 @@ subroutine thermodynamics(ice, partit, mesh)
   v_w           => ice%srfoce_v(:)
   fresh_wa_flux => ice%flx_fw(:)
   net_heat_flux => ice%flx_h(:)
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
   ice_temp      => ice%data(4)%values(:)
   ice_alb       => ice%atmcoupl%ice_alb(:)
   enthalpyoffuse=> ice%atmcoupl%enthalpyoffuse(:)
@@ -128,7 +128,7 @@ subroutine thermodynamics(ice, partit, mesh)
      h       = m_ice(inod)
      hsn     = m_snow(inod)
 
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
      a2ohf   = oce_heat_flux(inod) + shortwave(inod) + enthalpyoffuse(inod)
 #else
      a2ohf   = oce_heat_flux(inod) + shortwave(inod)
@@ -151,7 +151,7 @@ subroutine thermodynamics(ice, partit, mesh)
         rsf     = 0._WP
      end if
 
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
 
      !---- For AWI-CM3 we calculate ice surface temp and albedo in fesom,
      ! then send those to OpenIFS where they are used to calucate the 
@@ -265,7 +265,7 @@ contains
 
     !---- atmospheric heat fluxes (provided by the atmosphere model)
 
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
     Qatmice = -qres-qcon
 #else
     Qatmice = -a2ihf
@@ -299,8 +299,8 @@ contains
     !---- NOTE: evaporation and sublimation represent potential fluxes and
     !---- must be area-weighted (like the heat fluxes); in contrast,
     !---- precipitation (snow and rain) and runoff are effective fluxes
-!already weighted in IFS coupling
-#if !defined (__ifsinterface)
+!already weighted in IFS coupling (also in __ifs_fwd: IFS area-weights on send)
+#if !defined (__ifsinterface) && !defined (__ifs_fwd)
     subli  = A*subli
     evap   = (1._WP-A)*evap
 #endif
@@ -345,7 +345,7 @@ contains
     !---- snow melt rate over sea ice (dsnow <= 0)
     !---- if there is atmospheric melting over sea ice, first melt any
     !---- snow that is present, but do not melt more snow than available
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
     !---- new condition added - surface temperature must be
     !----                       larger than 273K to melt snow
     if (t.gt.273_WP) then

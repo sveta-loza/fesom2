@@ -113,6 +113,7 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
                                        nrecv                  => OCN_NRECV, &
                                        cpl_send_collection_size => ocn_send_collection_size, &
                                        cpl_recv_collection_size => ocn_recv_collection_size, &
+                                       OCN_SEND_ICE_STRESS, OCN_SEND_ICE_FLUX, &
                                        OCN_RECV_SST_FEOM, &
                                        OCN_RECV_OCEAN_TO_ICE_BUNDLE, OCN_RECV_OCEAN_TO_ICE_UV
 #if defined (__yac_atm)
@@ -221,6 +222,20 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
         exchange(:,4) = ice_temp(1:myDim_nod2d)           ! ice surface temperature [K] -> IFS
         exchange(:,5) = ice_alb(1:myDim_nod2d)            ! ice albedo [0-1] -> IFS
 #endif
+     elseif (i.eq.OCN_SEND_ICE_STRESS) then
+        ! ice->ocean momentum stress (drag), sent in ALL configs; computed by
+        ! oce_fluxes_mom from EVP ice velocity + received ocean velocity. Lags by
+        ! ~1 coupling step (consistent with src_lag=1). Already in the rotated
+        ! model frame; the ocean uses it directly in stress_node_surf.
+        exchange(:,1) = ice%stress_iceoce_x(1:myDim_nod2d) ! [Pa]
+        exchange(:,2) = ice%stress_iceoce_y(1:myDim_nod2d) ! [Pa]
+     elseif (i.eq.OCN_SEND_ICE_FLUX) then
+        ! FESIM's net heat + freshwater flux to the ocean, ALL configs. FESIM runs
+        ! the same ice thermo as monolithic FESOM2 (fed the atm fluxes from
+        ! ICON/IFS/forcing), so this reproduces the standard-FESOM ocean surface
+        ! flux; ocean applies via oce_fluxes (heat_flux=-flx_h, water_flux=-flx_fw).
+        exchange(:,1) = ice%flx_h(1:myDim_nod2d)   ! net_heat_flux [W/m2]
+        exchange(:,2) = ice%flx_fw(1:myDim_nod2d)  ! fresh_wa_flux [m/s]
      endif
      if (mype==0) write(*,*) 'ice2oce: field ', i, ' max val:', maxval(exchange)
      call ocn_cpl_send(i, exchange(:,1:cpl_send_collection_size(i)), action)
@@ -284,22 +299,19 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
         ! internal units and already rotated to the FESOM/FESIM grid. Unpack 1:1
         ! into the thermo arrays — NO unit conversion, NO rotation (do_rotate_*
         ! stay .false. so the post-loop rotation block does not fire).
+        ! stress_atmoce is NOT forwarded (ocean-momentum quantity, unused in FESIM).
         stress_atmice_x(1:myDim_nod2d) = exchange(:,1)   ! [Pa]
         stress_atmice_y(1:myDim_nod2d) = exchange(:,2)   ! [Pa]
-        stress_atmoce_x(1:myDim_nod2d) = exchange(:,3)   ! [Pa]
-        stress_atmoce_y(1:myDim_nod2d) = exchange(:,4)   ! [Pa]
-        oce_heat_flux(1:myDim_nod2d)   = exchange(:,5)   ! [W/m2]
-        ice_heat_flux(1:myDim_nod2d)   = exchange(:,6)   ! [W/m2]
-        shortwave(1:myDim_nod2d)       = exchange(:,7)   ! [W/m2]
-        prec_rain(1:myDim_nod2d)       = exchange(:,8)   ! [m/s]
-        prec_snow(1:myDim_nod2d)       = exchange(:,9)   ! [m/s]
-        evap_no_ifrac(1:myDim_nod2d)   = exchange(:,10)  ! [m/s]
-        sublimation(1:myDim_nod2d)     = exchange(:,11)  ! [m/s]
-        enthalpyoffuse(1:myDim_nod2d)  = exchange(:,12)  ! [W/m2]
+        oce_heat_flux(1:myDim_nod2d)   = exchange(:,3)   ! [W/m2]
+        ice_heat_flux(1:myDim_nod2d)   = exchange(:,4)   ! [W/m2]
+        shortwave(1:myDim_nod2d)       = exchange(:,5)   ! [W/m2]
+        prec_rain(1:myDim_nod2d)       = exchange(:,6)   ! [m/s]
+        prec_snow(1:myDim_nod2d)       = exchange(:,7)   ! [m/s]
+        evap_no_ifrac(1:myDim_nod2d)   = exchange(:,8)   ! [m/s]
+        sublimation(1:myDim_nod2d)     = exchange(:,9)   ! [m/s]
+        enthalpyoffuse(1:myDim_nod2d)  = exchange(:,10)  ! [W/m2]
         call exchange_nod(stress_atmice_x, partit)
         call exchange_nod(stress_atmice_y, partit)
-        call exchange_nod(stress_atmoce_x, partit)
-        call exchange_nod(stress_atmoce_y, partit)
         call exchange_nod(oce_heat_flux, partit)
         call exchange_nod(ice_heat_flux, partit)
         call exchange_nod(shortwave, partit)
@@ -355,9 +367,14 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
 
   if ((do_rotate_oce_wind .AND. do_rotate_ice_wind) .AND. rotated_grid) then
      do n=1, myDim_nod2D+eDim_nod2D
+        ! ICON sends the atm stresses in the geographic frame (forwarded raw by the
+        ! ocean), so they need one g2r into the FESOM rotated frame.
         call vector_g2r(stress_atmoce_x(n), stress_atmoce_y(n), coord_nod2D(1, n), coord_nod2D(2, n), 0)
         call vector_g2r(stress_atmice_x(n), stress_atmice_y(n), coord_nod2D(1, n), coord_nod2D(2, n), 0)
-        call vector_g2r(u_w(n), v_w(n), coord_nod2D(1, n), coord_nod2D(2, n), 0)
+        ! NB: u_w/v_w (the ocean surface velocity) are NOT rotated here — the ocean
+        ! sends them already in the rotated model frame and ice shares the same
+        ! fesom_grid, so a g2r would double-rotate them. (If ocean and ice ever use
+        ! different grids, rotate r2g on the ocean send + g2r on receive instead.)
      end do
      do_rotate_oce_wind=.false.
      do_rotate_ice_wind=.false.

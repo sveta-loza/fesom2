@@ -42,9 +42,16 @@ module ocean_coupling_interface
   character(len=*), parameter, public :: OCN_GRID_NAME = "fesim_grid"
 
   ! --- public field-index parameters ------------------------------------
-  ! Send slots (1-based).
+  ! Send slots (1-based). Sent in ALL configs (the ice->ocean momentum stress is
+  ! ice-model-derived regardless of atm source).
   integer, parameter, public :: OCN_SEND_SEA_ICE_BUNDLE       = 1
-  integer, parameter, public :: OCN_NSEND                     = 1
+  integer, parameter, public :: OCN_SEND_ICE_STRESS           = 2
+  ! FESIM's net heat + freshwater flux to the ocean, sent in ALL configs. FESIM
+  ! runs the same ice thermodynamics the monolithic FESOM2 ran (fed the atm fluxes
+  ! from ICON/IFS/forcing), so ice%flx_h/flx_fw reproduce the standard-FESOM ocean
+  ! surface flux; the ocean applies them via the unchanged oce_fluxes.
+  integer, parameter, public :: OCN_SEND_ICE_FLUX             = 3
+  integer, parameter, public :: OCN_NSEND                     = 3
 
   ! Recv slots (1-based). What the ocean forwards from the atmosphere depends on
   ! __yac_atm (must match the FESOM-side ice_coupling_interface send layout).
@@ -61,11 +68,11 @@ module ocean_coupling_interface
   integer, parameter, public :: OCN_NRECV                     = 8
 #elif defined(__ifs_fwd)
   ! IFS (Stage 4 config #1): receive the IFS atm fluxes the ocean forwards as a
-  ! single 12-component bundle, already in FESIM internal units + rotated (NO
+  ! single 10-component bundle, already in FESIM internal units + rotated (NO
   ! conversion on receive). Must match the FESOM ice_coupling_interface send.
-  ! Components: 1 stress_atmice_x 2 stress_atmice_y 3 stress_atmoce_x
-  !   4 stress_atmoce_y 5 oce_heat_flux 6 ice_heat_flux 7 shortwave 8 prec_rain
-  !   9 prec_snow 10 evap_no_ifrac 11 sublimation 12 enthalpyoffuse
+  ! Components: 1 stress_atmice_x 2 stress_atmice_y 3 oce_heat_flux
+  !   4 ice_heat_flux 5 shortwave 6 prec_rain 7 prec_snow 8 evap_no_ifrac
+  !   9 sublimation 10 enthalpyoffuse   (stress_atmoce is NOT forwarded)
   integer, parameter, public :: OCN_RECV_ATM_ICE_FLUX         = 2
   integer, parameter, public :: OCN_RECV_OCEAN_TO_ICE_BUNDLE  = 3
   integer, parameter, public :: OCN_RECV_OCEAN_TO_ICE_UV      = 4
@@ -84,15 +91,17 @@ module ocean_coupling_interface
   ! Collection sizes per field (indexed by slot constants above).
   ! IFS config #1 also relays ice surface temperature + albedo up to the ocean
   ! (onward to IFS), so the sea-ice bundle carries 5 components there.
+! sea_ice_bundle (3 or 5 for IFS) + ice_to_ocean_stress (2: stress_iceoce_x/y)
+! + ice_to_ocean_flux (2: net_heat_flux, fresh_wa_flux) in standalone only.
 #if defined(__ifs_fwd)
-  integer, parameter, public :: ocn_send_collection_size(OCN_NSEND) = [5]
+  integer, parameter, public :: ocn_send_collection_size(OCN_NSEND) = [5, 2, 2]
 #else
-  integer, parameter, public :: ocn_send_collection_size(OCN_NSEND) = [3]
+  integer, parameter, public :: ocn_send_collection_size(OCN_NSEND) = [3, 2, 2]
 #endif
 #if defined(__yac_atm)
   integer, parameter, public :: ocn_recv_collection_size(OCN_NRECV) = [1, 2, 2, 3, 4, 2, 2, 2]
 #elif defined(__ifs_fwd)
-  integer, parameter, public :: ocn_recv_collection_size(OCN_NRECV) = [1, 12, 2, 2]
+  integer, parameter, public :: ocn_recv_collection_size(OCN_NRECV) = [1, 10, 2, 2]
 #else
   integer, parameter, public :: ocn_recv_collection_size(OCN_NRECV) = [1, 9, 2, 2]
 #endif
@@ -100,7 +109,9 @@ module ocean_coupling_interface
   ! YAC field names per slot (32-char strings, padded). Public so downstream
   ! diagnostic/flux-correction code can print field names.
   character(len=32), parameter, public :: ocn_send_names(OCN_NSEND) = [character(len=32) :: &
-       'sea_ice_bundle' ]
+       'sea_ice_bundle', &
+       'ice_to_ocean_stress', &
+       'ice_to_ocean_flux' ]
 #if defined(__yac_atm)
   character(len=32), parameter, public :: ocn_recv_names(OCN_NRECV) = [character(len=32) :: &
        'sst_feom_to_ice', &

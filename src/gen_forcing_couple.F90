@@ -114,7 +114,8 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
                                      ICE_SEND_TAUX, ICE_SEND_TAUY, &
                                      ICE_SEND_FRESH_WATER, ICE_SEND_HEAT_FLUX, &
                                      ICE_SEND_ATM_SEA_ICE_BUNDLE, &
-                                     ICE_RECV_SEA_ICE_BUNDLE
+                                     ICE_RECV_SEA_ICE_BUNDLE, ICE_RECV_ICE_STRESS, &
+                                     ICE_RECV_ICE_FLUX
   use gen_bulk
   use force_flux_consv_interface
   USE g_support, only: integrate_nod
@@ -270,6 +271,18 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
         call exchange_nod(m_ice, partit)
         call exchange_nod(m_snow, partit)
         call exchange_nod(a_ice, partit)
+     elseif (i.eq.ICE_RECV_ICE_STRESS) then
+        ! ice->ocean drag from FESIM; oce_fluxes_mom uses it in stress_node_surf.
+        ice%stress_iceoce_x(1:myDim_nod2d) = exchange(:,1)  ! [Pa]
+        ice%stress_iceoce_y(1:myDim_nod2d) = exchange(:,2)  ! [Pa]
+        call exchange_nod(ice%stress_iceoce_x, partit)
+        call exchange_nod(ice%stress_iceoce_y, partit)
+     elseif (i.eq.ICE_RECV_ICE_FLUX) then
+        ! FESIM's net heat + freshwater flux; oce_fluxes applies (heat_flux=-flx_h).
+        ice%flx_h(1:myDim_nod2d)  = exchange(:,1)  ! net_heat_flux [W/m2]
+        ice%flx_fw(1:myDim_nod2d) = exchange(:,2)  ! fresh_wa_flux [m/s]
+        call exchange_nod(ice%flx_h, partit)
+        call exchange_nod(ice%flx_fw, partit)
      endif
   end do
 
@@ -298,8 +311,8 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
         exchange(:,1) = tracers%data(2)%values(1, 1:myDim_nod2d)     ! sea surface salinity [psu]
         exchange(:,2) = dynamics%eta_n(1:myDim_nod2d)             ! see surface hieght [m]
      elseif (i.eq.ICE_SEND_OCEAN_TO_ICE_UV) then
-        exchange(:,1) = dynamics%uv(1,1,1:myDim_nod2d)            ! surface_velocity u comp. [m/s]
-        exchange(:,2) = dynamics%uv(2,1,1:myDim_nod2d)            ! surface velocity v comp [m/s]
+        exchange(:,1) = dynamics%uvnode(1,1,1:myDim_nod2d)            ! surface_velocity u comp. [m/s]
+        exchange(:,2) = dynamics%uvnode(2,1,1:myDim_nod2d)            ! surface velocity v comp [m/s]
      elseif (i.eq.ICE_SEND_TAUX) then
         exchange(:,1:ice_send_collection_size(ICE_SEND_TAUX)) = fwd_taux         ! raw atm taux forwarded
      elseif (i.eq.ICE_SEND_TAUY) then
@@ -893,7 +906,8 @@ subroutine exchange_oce_ice_yac(istep, ice, tracers, dynamics, partit, mesh)
                                      ice_send_collection_size, ice_recv_collection_size, &
                                      ICE_SEND_SST_FEOM, ICE_SEND_OCEAN_TO_ICE_BUNDLE, &
                                      ICE_SEND_OCEAN_TO_ICE_UV, ICE_SEND_ATM_STATE, &
-                                     ICE_RECV_SEA_ICE_BUNDLE
+                                     ICE_RECV_SEA_ICE_BUNDLE, ICE_RECV_ICE_STRESS, &
+                                     ICE_RECV_ICE_FLUX
   implicit none
   integer,        intent(in)            :: istep
   type(t_ice)   , intent(inout), target :: ice
@@ -931,6 +945,18 @@ subroutine exchange_oce_ice_yac(istep, ice, tracers, dynamics, partit, mesh)
         call exchange_nod(m_ice, partit)
         call exchange_nod(m_snow, partit)
         call exchange_nod(a_ice, partit)
+     elseif (i.eq.ICE_RECV_ICE_STRESS) then
+        ice%stress_iceoce_x(1:myDim_nod2d) = exchange(:,1)  ! [Pa]
+        ice%stress_iceoce_y(1:myDim_nod2d) = exchange(:,2)  ! [Pa]
+        call exchange_nod(ice%stress_iceoce_x, partit)
+        call exchange_nod(ice%stress_iceoce_y, partit)
+     elseif (i.eq.ICE_RECV_ICE_FLUX) then
+        ! Standalone: FESIM's net heat + freshwater flux; oce_fluxes applies them
+        ! (heat_flux=-ice%flx_h, water_flux=-ice%flx_fw), same as the monolithic.
+        ice%flx_h(1:myDim_nod2d)  = exchange(:,1)  ! net_heat_flux [W/m2]
+        ice%flx_fw(1:myDim_nod2d) = exchange(:,2)  ! fresh_wa_flux [m/s]
+        call exchange_nod(ice%flx_h, partit)
+        call exchange_nod(ice%flx_fw, partit)
      endif
   end do
 
@@ -943,8 +969,8 @@ subroutine exchange_oce_ice_yac(istep, ice, tracers, dynamics, partit, mesh)
         exchange(:,1) = tracers%data(2)%values(1, 1:myDim_nod2d)      ! SSS [psu]
         exchange(:,2) = dynamics%eta_n(1:myDim_nod2d)                 ! SSH [m]
      elseif (i.eq.ICE_SEND_OCEAN_TO_ICE_UV) then
-        exchange(:,1) = dynamics%uv(1,1,1:myDim_nod2d)               ! surface u [m/s]
-        exchange(:,2) = dynamics%uv(2,1,1:myDim_nod2d)               ! surface v [m/s]
+        exchange(:,1) = dynamics%uvnode(1,1,1:myDim_nod2d)               ! surface u [m/s]
+        exchange(:,2) = dynamics%uvnode(2,1,1:myDim_nod2d)               ! surface v [m/s]
      elseif (i.eq.ICE_SEND_ATM_STATE) then
         ! Raw atmospheric state from the forcing files (atmdata, refreshed by
         ! sbc_do in update_atm_forcing this step). FESIM converts units on recv.
@@ -987,14 +1013,14 @@ subroutine exchange_oce_ice_ifs(istep, ice, tracers, dynamics, partit, mesh)
   use MOD_ICE
   use MOD_DYN
   use g_comm_auto
-  use o_arrays,         only: stress_atmoce_x, stress_atmoce_y
   use g_forcing_arrays, only: shortwave, prec_rain, prec_snow, evap_no_ifrac, sublimation
   use ice_coupling_interface, only: ice_cpl_send, ice_cpl_recv, &
                                      ICE_NSEND, ICE_NRECV, &
                                      ice_send_collection_size, ice_recv_collection_size, &
                                      ICE_SEND_SST_FEOM, ICE_SEND_OCEAN_TO_ICE_BUNDLE, &
                                      ICE_SEND_OCEAN_TO_ICE_UV, ICE_SEND_ATM_ICE_FLUX, &
-                                     ICE_RECV_SEA_ICE_BUNDLE
+                                     ICE_RECV_SEA_ICE_BUNDLE, ICE_RECV_ICE_STRESS, &
+                                     ICE_RECV_ICE_FLUX
   implicit none
   integer,        intent(in)            :: istep
   type(t_ice)   , intent(inout), target :: ice
@@ -1045,6 +1071,17 @@ subroutine exchange_oce_ice_ifs(istep, ice, tracers, dynamics, partit, mesh)
         call exchange_nod(a_ice, partit)
         call exchange_nod(ice_temp, partit)
         call exchange_nod(ice_alb, partit)
+     elseif (i.eq.ICE_RECV_ICE_STRESS) then
+        ice%stress_iceoce_x(1:myDim_nod2d) = exchange(:,1)  ! [Pa]
+        ice%stress_iceoce_y(1:myDim_nod2d) = exchange(:,2)  ! [Pa]
+        call exchange_nod(ice%stress_iceoce_x, partit)
+        call exchange_nod(ice%stress_iceoce_y, partit)
+     elseif (i.eq.ICE_RECV_ICE_FLUX) then
+        ! FESIM's net heat + freshwater flux; oce_fluxes applies (heat_flux=-flx_h).
+        ice%flx_h(1:myDim_nod2d)  = exchange(:,1)  ! net_heat_flux [W/m2]
+        ice%flx_fw(1:myDim_nod2d) = exchange(:,2)  ! fresh_wa_flux [m/s]
+        call exchange_nod(ice%flx_h, partit)
+        call exchange_nod(ice%flx_fw, partit)
      endif
   end do
 
@@ -1057,23 +1094,22 @@ subroutine exchange_oce_ice_ifs(istep, ice, tracers, dynamics, partit, mesh)
         exchange(:,1) = tracers%data(2)%values(1, 1:myDim_nod2d)      ! SSS [psu]
         exchange(:,2) = dynamics%eta_n(1:myDim_nod2d)                 ! SSH [m]
      elseif (i.eq.ICE_SEND_OCEAN_TO_ICE_UV) then
-        exchange(:,1) = dynamics%uv(1,1,1:myDim_nod2d)               ! surface u [m/s]
-        exchange(:,2) = dynamics%uv(2,1,1:myDim_nod2d)               ! surface v [m/s]
+        exchange(:,1) = dynamics%uvnode(1,1,1:myDim_nod2d)               ! surface u [m/s]
+        exchange(:,2) = dynamics%uvnode(2,1,1:myDim_nod2d)               ! surface v [m/s]
      elseif (i.eq.ICE_SEND_ATM_ICE_FLUX) then
         ! Atm fluxes as deposited by the IFS interface this step, forwarded 1:1
         ! (already FESOM internal units + rotated; FESIM does not re-convert).
+        ! stress_atmoce is NOT forwarded — it drives ocean momentum, handled here.
         exchange(:,1)  = stress_atmice_x(1:myDim_nod2d) ! [Pa]
         exchange(:,2)  = stress_atmice_y(1:myDim_nod2d) ! [Pa]
-        exchange(:,3)  = stress_atmoce_x(1:myDim_nod2d) ! [Pa]
-        exchange(:,4)  = stress_atmoce_y(1:myDim_nod2d) ! [Pa]
-        exchange(:,5)  = oce_heat_flux(1:myDim_nod2d)   ! [W/m2]
-        exchange(:,6)  = ice_heat_flux(1:myDim_nod2d)   ! [W/m2]
-        exchange(:,7)  = shortwave(1:myDim_nod2d)       ! [W/m2]
-        exchange(:,8)  = prec_rain(1:myDim_nod2d)       ! [m/s]
-        exchange(:,9)  = prec_snow(1:myDim_nod2d)       ! [m/s]
-        exchange(:,10) = evap_no_ifrac(1:myDim_nod2d)   ! [m/s]
-        exchange(:,11) = sublimation(1:myDim_nod2d)     ! [m/s]
-        exchange(:,12) = enthalpyoffuse(1:myDim_nod2d)  ! [W/m2]
+        exchange(:,3)  = oce_heat_flux(1:myDim_nod2d)   ! [W/m2]
+        exchange(:,4)  = ice_heat_flux(1:myDim_nod2d)   ! [W/m2]
+        exchange(:,5)  = shortwave(1:myDim_nod2d)       ! [W/m2]
+        exchange(:,6)  = prec_rain(1:myDim_nod2d)       ! [m/s]
+        exchange(:,7)  = prec_snow(1:myDim_nod2d)       ! [m/s]
+        exchange(:,8)  = evap_no_ifrac(1:myDim_nod2d)   ! [m/s]
+        exchange(:,9)  = sublimation(1:myDim_nod2d)     ! [m/s]
+        exchange(:,10) = enthalpyoffuse(1:myDim_nod2d)  ! [W/m2]
      endif
      call ice_cpl_send(i, exchange(:,1:ice_send_collection_size(i)), action)
   enddo

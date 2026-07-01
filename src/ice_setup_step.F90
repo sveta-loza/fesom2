@@ -105,9 +105,6 @@ subroutine ice_timestep(step, ice, partit, mesh)
     use ice_fct_interfaces
     use ice_thermodynamics_interfaces
     use cavity_interfaces
-#if defined (__icepack)
-    use icedrv_main,   only: step_icepack
-#endif
 #if defined (FESOM_PROFILING)
     use fesom_profiler
 #endif
@@ -119,9 +116,6 @@ subroutine ice_timestep(step, ice, partit, mesh)
     !___________________________________________________________________________
     integer                               :: i
     REAL(kind=WP)                         :: t0,t1, t2, t3
-#if defined (__icepack)
-    real(kind=WP)                         :: time_evp, time_advec, time_therm
-#endif
     !___________________________________________________________________________
     ! pointer on necessary derived types
     real(kind=WP), dimension(:), pointer  :: u_ice, v_ice
@@ -172,9 +166,6 @@ subroutine ice_timestep(step, ice, partit, mesh)
 #if defined (FESOM_PROFILING)
     call fesom_profiler_start("ice_dynamics")
 #endif
-#if defined (__icepack)
-    call step_icepack(ice, mesh, time_evp, time_advec, time_therm) ! EVP, advection and thermodynamic parts
-#else
 
     !$ACC UPDATE DEVICE (ice%work%fct_massmatrix) &
     !$ACC DEVICE (ice%delta_min, ice%Tevp_inv, ice%cd_oce_ice) &
@@ -297,7 +288,6 @@ subroutine ice_timestep(step, ice, partit, mesh)
     ! ===== Thermodynamic part
     if (flag_debug .and. mype==0)  print *, achar(27)//'[36m'//'     --> call thermodynamics...'//achar(27)//'[0m'
     call thermodynamics(ice, partit, mesh)
-#endif /* (__icepack) */
 
 
     !___________________________________________________________________________
@@ -322,15 +312,9 @@ subroutine ice_timestep(step, ice, partit, mesh)
     rtime_tot = rtime_tot + (t3-t0)
     if(mod(step,logfile_outfreq)==0 .and. mype==0) then
         write(*,*) '___ICE STEP EXECUTION TIMES____________________________'
-#if defined (__icepack)
-        write(*,"(A, ES10.3)") '	Ice Dyn.        :', time_evp
-                write(*,"(A, ES10.3)") '        Ice Advect.     :', time_advec
-                write(*,"(A, ES10.3)") '        Ice Thermodyn.  :', time_therm
-#else
         write(*,"(A, ES10.3)") '	Ice Dyn.        :', t1-t0
         write(*,"(A, ES10.3)") '	Ice Advect.     :', t2-t1
         write(*,"(A, ES10.3)") '	Ice Thermodyn.  :', t3-t2
-#endif /* (__icepack) */
         write(*,*) '   _______________________________'
         write(*,"(A, ES10.3)") '	Ice TOTAL       :', t3-t0
         write(*,*)

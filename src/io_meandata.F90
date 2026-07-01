@@ -1496,9 +1496,6 @@ function mesh_dimname_from_dimsize(size, partit, mesh) result(name)
     USE MOD_PARTIT
     USE MOD_PARSUP
     use diagnostics
-#if defined (__icepack)
-    use icedrv_main,   only: ncat ! number of ice thickness cathegories
-#endif
     implicit none
     integer       :: size
     type(t_mesh)  , intent(in) :: mesh
@@ -1515,10 +1512,6 @@ function mesh_dimname_from_dimsize(size, partit, mesh) result(name)
         name='nz1'
     elseif (size==std_dens_N) then
         name='ndens'
-#if defined (__icepack)
-    elseif (size==ncat) then
-        name='ncat'
-#endif
     else
         name='unknown'
         if (partit%mype==0) write(*,*) 'WARNING: unknown dimension in mean I/O with size of ', size
@@ -1548,10 +1541,6 @@ subroutine create_new_file(entry, ice, dynamics, partit, mesh)
     
     type(Meandata), intent(inout) :: entry
     character(len=*), parameter :: global_attributes_prefix = "FESOM_"    
-#if defined(__icepack)
-    integer, allocatable :: ncat_arr(:)
-    integer              :: ii
-#endif
 
     ! Serial output implemented so far
     if (partit%mype/=entry%root_rank) return
@@ -1656,15 +1645,6 @@ subroutine create_new_file(entry, ice, dynamics, partit, mesh)
         call assert_nf( nf90_put_var(entry%ncid, entry%dimvarID(1), abs(mesh%zbar)), __LINE__)
     elseif (entry%dimname(1)=='nz1') then
         call assert_nf( nf90_put_var(entry%ncid, entry%dimvarID(1), abs(mesh%Z)), __LINE__)
-#if defined(__icepack)    
-    elseif (entry%dimname(1)=='ncat') then
-        allocate(ncat_arr(entry%glsize(1)))
-        do ii= 1, entry%glsize(1)
-            ncat_arr(ii)=ii
-        end do        
-        call assert_nf( nf90_put_var(entry%ncid, entry%dimvarID(1), ncat_arr), __LINE__)    
-        deallocate(ncat_arr)
-#endif
     elseif (entry%dimname(1)=='ndens') then
         call assert_nf( nf90_put_var(entry%ncid, entry%dimvarID(1), std_dens), __LINE__)
     else
@@ -1893,9 +1873,6 @@ subroutine output(istep, ice, dynamics, tracers, partit, mesh)
 #if defined(__MULTIO)
     use iom
 #endif
-#if defined (__icepack)
-    use icedrv_main,    only: ini_mean_icepack_io
-#endif
     implicit none
     integer       :: istep
     logical, save :: lfirst=.true.
@@ -1923,9 +1900,6 @@ ctime=timeold+(dayold-1.)*86400
         !PS if (partit%flag_debug .and. partit%mype==0)  print *, achar(27)//'[32m'//' -I/O-> call ini_mean_io'//achar(27)//'[0m'
         call ini_mean_io(ice, dynamics, tracers, partit, mesh)
         
-#if defined (__icepack)
-        call ini_mean_icepack_io(mesh) !icapack has its copy of p_partit => partit
-#endif
 
         !PS if (partit%flag_debug .and. partit%mype==0)  print *, achar(27)//'[33m'//' -I/O-> call init_io_gather'//achar(27)//'[0m'
         call init_io_gather(partit)

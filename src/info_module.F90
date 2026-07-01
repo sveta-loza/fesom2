@@ -17,11 +17,7 @@ contains
   ! it will probably become outdated at some point and should be reviewed
   ! the result will reflect the status of definitions as they are set when *this file* had been compiled
   subroutine print_definitions()
-#ifdef __icepack
-      print '(g0)', '__icepack is ON'
-#else
       print '(g0)', '__icepack is OFF'
-#endif  
 #ifdef __oasis
       print '(g0)', '__oasis is ON'
 #else

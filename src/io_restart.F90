@@ -15,9 +15,6 @@ MODULE io_RESTART
   use MOD_PARSUP
   use fortran_utils
   use mpi
-#if defined(__icepack)
-  use icedrv_main
-#endif 
 #if defined(__recom)
   use recom_glovar
   use recom_config
@@ -35,9 +32,6 @@ MODULE io_RESTART
   
   type(restart_file_group) , save :: ice_files
   
-#if defined(__icepack)
-  type(restart_file_group) , save, public :: icepack_files
-#endif  
 
 #if defined(__recom)
   type(restart_file_group) , save :: bio_files
@@ -331,11 +325,7 @@ subroutine read_initial_conditions(which_readr, ice, dynamics, tracers, partit, 
   ! Initialize file groups for reading
   call ini_ocean_io(dynamics, tracers, partit, mesh)
   if (use_ice) then
-#if defined(__icepack)    
-      call ini_icepack_io(partit, mesh)
-#else
       call ini_ice_io  (ice, partit, mesh)
-#endif        
   end if     
 #if defined(__recom)
   if (REcoM_restart) call ini_bio_io(tracers, partit, mesh)
@@ -388,13 +378,8 @@ subroutine read_initial_conditions(which_readr, ice, dynamics, tracers, partit, 
     
     ! Read ICE/ICEPACK restart
     if (use_ice) then
-#if defined(__icepack)   
-        if (partit%mype==RAW_RESTART_METADATA_RANK) print *, achar(27)//'[1;33m'//' --> read restarts from netcdf file: icepack'//achar(27)//'[0m'
-        call read_netcdf_restarts(nc_restart_path('icepack', yearold, RestartInPath), icepack_files, partit%MPI_COMM_FESOM, partit%mype)
-#else            
         if (partit%mype==RAW_RESTART_METADATA_RANK) print *, achar(27)//'[1;33m'//' --> read restarts from netcdf file: ice'//achar(27)//'[0m'
         call read_netcdf_restarts(read_ice_path, ice_files, partit%MPI_COMM_FESOM, partit%mype)            
-#endif
     end if 
 
 #if defined(__recom)
@@ -476,11 +461,7 @@ subroutine write_initial_conditions(istep, nstart, ntotal, which_readr, ice, dyn
     initialized_io = .true.
     call ini_ocean_io(dynamics, tracers, partit, mesh)
     if (use_ice) then
-#if defined(__icepack)
-        call ini_icepack_io(yearnew, partit, mesh)
-#else        
         call ini_ice_io(ice, partit, mesh)        
-#endif        
     end if     
 #if defined(__recom)
     if (use_REcoM) call ini_bio_io(tracers, partit, mesh)
@@ -519,13 +500,8 @@ subroutine write_initial_conditions(istep, nstart, ntotal, which_readr, ice, dyn
     
     ! Write ICE/ICEPACK restart
     if(use_ice) then
-#if defined(__icepack)        
-        if (partit%mype==RAW_RESTART_METADATA_RANK) print *, achar(27)//'[1;33m'//' --> write restarts to netcdf file: icepack'//achar(27)//'[0m'
-        call write_netcdf_restarts(write_icepack_path, icepack_files, istep)
-#else
         if (partit%mype==RAW_RESTART_METADATA_RANK) print *, achar(27)//'[1;33m'//' --> write restarts to netcdf file: ice'//achar(27)//'[0m'
         call write_netcdf_restarts(write_ice_path, ice_files, istep)
-#endif 
     end if
 
 #if defined(__recom)

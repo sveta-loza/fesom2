@@ -61,9 +61,6 @@ subroutine oce_fluxes_mom(ice, dynamics, partit, mesh)
     USE g_CONFIG
     use g_comm_auto
     use cavity_interfaces    
-#if defined (__icepack)
-    use icedrv_main,   only: icepack_to_fesom
-#endif
     implicit none
     type(t_ice)   , intent(inout), target :: ice
     type(t_dyn)   , intent(in)   , target :: dynamics
@@ -93,10 +90,6 @@ subroutine oce_fluxes_mom(ice, dynamics, partit, mesh)
     ! ==================
     !___________________________________________________________________________
 
-#if defined (__icepack)
-     call icepack_to_fesom(nx_in=(myDim_nod2D+eDim_nod2D), &
-                           aice_out=a_ice)
-#endif
     !___________________________________________________________________________
     ! compute total surface stress (iceoce+atmoce) on nodes 
 
@@ -108,6 +101,13 @@ subroutine oce_fluxes_mom(ice, dynamics, partit, mesh)
         if (ulevels_nod2d(n)>1) cycle
         
         !_______________________________________________________________________
+#if defined(__yac)
+        ! Split (FESIM is a separate YAC component): stress_iceoce_x/y were
+        ! RECEIVED from FESIM (ice_coupling_interface, ICE_RECV_ICE_STRESS) —
+        ! FESIM computes the ice-ocean drag from its EVP velocity + the ocean
+        ! velocity and already applies the a_ice>0.001 threshold. Do NOT recompute
+        ! here (the ocean has no ice velocity). Use the received value directly.
+#else
         if(a_ice(n)>0.001_WP) then
             aux=sqrt((u_ice(n)-u_w(n))**2+(v_ice(n)-v_w(n))**2)*density_0*ice%cd_oce_ice
             stress_iceoce_x(n) = aux * (u_ice(n)-u_w(n))
@@ -116,7 +116,8 @@ subroutine oce_fluxes_mom(ice, dynamics, partit, mesh)
             stress_iceoce_x(n)=0.0_WP
             stress_iceoce_y(n)=0.0_WP
         end if
-        
+#endif
+
         stress_node_surf(1,n) = stress_iceoce_x(n)*a_ice(n) + stress_atmoce_x(n)*(1.0_WP-a_ice(n))
         stress_node_surf(2,n) = stress_iceoce_y(n)*a_ice(n) + stress_atmoce_y(n)*(1.0_WP-a_ice(n))
     end do
@@ -260,10 +261,6 @@ subroutine oce_fluxes(ice, dynamics, tracers, partit, mesh)
     use g_forcing_arrays
     use g_support
     use cavity_interfaces
-#if defined (__icepack)
-    use icedrv_main,   only: icepack_to_fesom,    &
-                            init_flux_atm_ocn
-#endif
     use iceberg_params
     use iceberg_ocean_coupling
     use cavity_interfaces
@@ -355,48 +352,12 @@ subroutine oce_fluxes(ice, dynamics, tracers, partit, mesh)
     ! ~~~~|~~~~|~~~~
     !     V    |
     !     
-#if defined (__icepack)
-
-    call icepack_to_fesom (nx_in         = (myDim_nod2D+eDim_nod2D), &
-                           aice_out      = a_ice,                    &
-                           vice_out      = m_ice,                    &
-                           vsno_out      = m_snow,                   &
-                           fhocn_tot_out = net_heat_flux,            &
-                           fresh_tot_out = fresh_wa_flux,            &
-                           fsalt_out     = real_salt_flux,           &
-                           dhs_dt_out    = thdgrsn,                  &
-                           dhi_dt_out    = thdgr,                    &
-                           evap_ocn_out  = evaporation,              &
-                           evap_out      = ice_sublimation           )
-
-!$OMP PARALLEL DO
-    do n=1, myDim_nod2d+eDim_nod2d  
-        ! Heat flux 
-        heat_flux(n)       = - net_heat_flux(n)
-
-        ! Freshwater flux (convert units from icepack to fesom)
-        water_flux(n)      = - (fresh_wa_flux(n) * inv_rhowat) - runoff(n)
-
-        ! Evaporation (convert units from icepack to fesom)
-        evaporation(n)     = - evaporation(n) * (1.0_WP - a_ice(n)) * inv_rhowat
-
-        ! Ice-Sublimation is added to to the freshwater in icepack --> see 
-        ! icepack_therm_vertical.90 --> subroutine thermo_vertical(...): Line: 453
-        ! freshn = freshn + evapn - (rhoi*dhi + rhos*dhs) / dt , evapn==sublimation
-        ice_sublimation(n) = - ice_sublimation(n) * inv_rhowat
-    end do
-!$OMP END PARALLEL DO
-
-    call init_flux_atm_ocn()
-
-#else
 !$OMP PARALLEL DO
     do n=1, myDim_nod2d+eDim_nod2d  
        heat_flux(n)   = -net_heat_flux(n)
        water_flux(n)  = -fresh_wa_flux(n)
     end do
 !$OMP END PARALLEL DO
-#endif
 
     if (use_icebergs) then
         call icb2fesom(mesh, partit, ice)
@@ -546,11 +507,7 @@ subroutine oce_fluxes(ice, dynamics, tracers, partit, mesh)
         flux(n) = evaporation(n)                     &
                   -ice_sublimation(n)                 & ! the ice2atmos subplimation does not contribute to the freshwater flux into the ocean
                   +prec_rain(n)                       &                  
-#if defined (__icepack)
-                  +prec_snow(n)*(1.0_WP-a_ice(n))     &
-#else
                   +prec_snow(n)*(1.0_WP-a_ice_old(n)) &
-#endif
 
 #if defined (__oasis) || defined (__ifsinterface)
                   +residualifwflx(n)                  & ! balance residual ice flux only in coupled case

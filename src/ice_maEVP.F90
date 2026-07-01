@@ -91,9 +91,6 @@ subroutine stress_tensor_m(ice, partit, mesh)
     use o_param
     use mod_mesh
     use g_config
-#if defined (__icepack)
-    use icedrv_main,   only: rdg_conv_elem, rdg_shear_elem, strength
-#endif
     implicit none
     type(t_ice)   , intent(inout), target :: ice
     type(t_partit), intent(inout), target :: partit
@@ -163,11 +160,7 @@ subroutine stress_tensor_m(ice, partit, mesh)
         delta=eps1**2+vale*(eps2**2+4.0_WP*eps12(elem)**2)
         delta=sqrt(delta)
 
-#if defined (__icepack)
-        pressure = sum(strength(elnodes))*val3/max(delta,ice%delta_min)
-#else
         pressure=ice%pstar*msum*exp(-ice%c_pressure*(1.0_WP-asum))/max(delta,ice%delta_min)
-#endif
         r1=pressure*(eps1-max(delta,ice%delta_min))
         r2=pressure*eps2*vale
         r3=pressure*eps12(elem)*vale
@@ -180,10 +173,6 @@ subroutine stress_tensor_m(ice, partit, mesh)
         sigma11(elem)=0.5_WP*(si1+si2)
         sigma22(elem)=0.5_WP*(si1-si2)
 
-#if defined (__icepack)
-        rdg_conv_elem(elem)  = -min((eps11(elem)+eps22(elem)),0.0_WP)
-        rdg_shear_elem(elem) = 0.5_WP*(delta - abs(eps11(elem)+eps22(elem)))
-#endif
     end do
 !$OMP END PARALLEL DO
     ! Equations solved in terms of si1, si2, eps1, eps2 are (43)-(45) of
@@ -435,10 +424,6 @@ subroutine EVPdynamics_m(ice, partit, mesh)
     use g_config
     use o_arrays
     use g_comm_auto
-#if defined (__icepack)
-    use icedrv_main,   only: rdg_conv_elem, rdg_shear_elem, strength
-    use icedrv_main,   only: icepack_to_fesom
-#endif
     implicit none
     type(t_ice)   , intent(inout), target :: ice
     type(t_partit), intent(inout), target :: partit
@@ -470,9 +455,6 @@ subroutine EVPdynamics_m(ice, partit, mesh)
     real(kind=WP), dimension(:), pointer  :: elevation
     real(kind=WP), dimension(:), pointer  :: stress_atmice_x, stress_atmice_y
     real(kind=WP), dimension(:), pointer  :: u_ice_aux, v_ice_aux
-#if defined (__icepack)
-    real(kind=WP), dimension(:), pointer  :: a_ice_old, m_ice_old, m_snow_old
-#endif
     real(kind=WP)              , pointer  :: rhoice, rhosno, inv_rhowat
 #include "associate_part_def.h"
 #include "associate_mesh_def.h"
@@ -500,11 +482,6 @@ subroutine EVPdynamics_m(ice, partit, mesh)
     stress_atmice_y => ice%stress_atmice_y(:)
     u_ice_aux       => ice%uice_aux(:)
     v_ice_aux       => ice%vice_aux(:)
-#if defined (__icepack)
-    a_ice_old       => ice%data(1)%values_old(:)
-    m_ice_old       => ice%data(2)%values_old(:)
-    m_snow_old      => ice%data(3)%values_old(:)
-#endif
     rhoice          => ice%thermo%rhoice
     rhosno          => ice%thermo%rhosno
     inv_rhowat      => ice%thermo%inv_rhowat
@@ -521,16 +498,6 @@ subroutine EVPdynamics_m(ice, partit, mesh)
     u_ice_aux=u_ice    ! Initialize solver variables
     v_ice_aux=v_ice
 
-#if defined (__icepack)
-    a_ice_old(:)  = a_ice(:)
-    m_ice_old(:)  = a_ice(:)
-    m_snow_old(:) = m_snow(:)
-
-    call icepack_to_fesom (nx_in=(myDim_nod2D+eDim_nod2D), &
-                            aice_out=a_ice,                 &
-                            vice_out=m_ice,                 &
-                            vsno_out=m_snow)
-#endif
 
     !NR inlined, to have all initialization in one place.
     !  call ssh2rhs
@@ -673,10 +640,6 @@ subroutine EVPdynamics_m(ice, partit, mesh)
 !$OMP END PARALLEL DO
     !___________________________________________________________________________
     ! Ice EVPdynamics Iteration main loop:
-#if defined (__icepack)
-    rdg_conv_elem(:)  = 0.0_WP
-    rdg_shear_elem(:) = 0.0_WP
-#endif
     do shortstep=1, steps
         !NR inlining, to make it easier to have local arrays and fuse loops
         !NR    call stress_tensor_m
@@ -722,10 +685,6 @@ subroutine EVPdynamics_m(ice, partit, mesh)
                 sigma11(el) = det1*sigma11(el) + 0.5_WP*pressure*(eps1 - delta + eps2*vale)
                 sigma22(el) = det1*sigma22(el) + 0.5_WP*pressure*(eps1 - delta - eps2*vale)
 
-#if defined (__icepack)
-                rdg_conv_elem(el)  = -min((eps11(el)+eps22(el)),0.0_WP)
-                rdg_shear_elem(el) = 0.5_WP*(delta - abs(eps11(el)+eps22(el)))
-#endif
 
                 !  end do   ! fuse loops
                 ! Equations solved in terms of si1, si2, eps1, eps2 are (43)-(45) of
@@ -895,9 +854,6 @@ subroutine find_alpha_field_a(ice, partit, mesh)
     USE MOD_MESH
     use o_param
     use g_config
-#if defined (__icepack)
-    use icedrv_main,   only: strength
-#endif
     implicit none
     type(t_ice)   , intent(inout), target :: ice
     type(t_partit), intent(inout), target :: partit
@@ -967,12 +923,8 @@ subroutine find_alpha_field_a(ice, partit, mesh)
         delta=eps1**2+vale*(eps2**2+4.0_WP*eps12(elem)**2)
         delta=sqrt(delta)
 
-#if defined (__icepack)
-        pressure = sum(strength(elnodes))*val3/(delta+ice%delta_min)/msum
-#else
         pressure = ice%pstar*exp(-ice%c_pressure*(1.0_WP-asum))/(delta+ice%delta_min) ! no multiplication
                                                                        ! with thickness (msum)
-#endif
         !adjust c_aevp such, that alpha_evp_array and beta_evp_array become in acceptable range
         alpha_evp_array(elem)=max(50.0_WP,sqrt(ice%ice_dt*ice%c_aevp*pressure/rhoice/elem_area(elem)))
         ! /voltriangle(elem) for FESOM1.4
@@ -993,9 +945,6 @@ subroutine stress_tensor_a(ice, partit, mesh)
     use o_param
     use mod_mesh
     use g_config
-#if defined (__icepack)
-    use icedrv_main,   only: rdg_conv_elem, rdg_shear_elem, strength
-#endif
     implicit none
     type(t_ice)   , intent(inout), target :: ice
     type(t_partit), intent(inout), target :: partit
@@ -1069,11 +1018,7 @@ subroutine stress_tensor_a(ice, partit, mesh)
         delta=eps1**2+vale*(eps2**2+4.0_WP*eps12(elem)**2)
         delta=sqrt(delta)
 
-#if defined (__icepack)
-        pressure = sum(strength(elnodes))*val3/(delta+ice%delta_min)
-#else
         pressure=ice%pstar*msum*exp(-ice%c_pressure*(1.0_WP-asum))/(delta+ice%delta_min)
-#endif
 
         r1=pressure*(eps1-delta)
         r2=pressure*eps2*vale
@@ -1087,10 +1032,6 @@ subroutine stress_tensor_a(ice, partit, mesh)
         sigma11(elem)=0.5_WP*(si1+si2)
         sigma22(elem)=0.5_WP*(si1-si2)
 
-#if defined (__icepack)
-        rdg_conv_elem(elem)  = -min((eps11(elem)+eps22(elem)),0.0_WP)
-        rdg_shear_elem(elem) = 0.5_WP*(delta - abs(eps11(elem)+eps22(elem)))
-#endif
     end do ! --> do elem=1,myDim_elem2D
     ! Equations solved in terms of si1, si2, eps1, eps2 are (43)-(45) of
     ! Boullion et al Ocean Modelling 2013, but in an implicit mode:
@@ -1115,9 +1056,6 @@ subroutine EVPdynamics_a(ice, partit, mesh)
     use g_config, only: use_cavity
     use g_comm_auto
     use ice_maEVP_interfaces
-#if defined (__icepack)
-    use icedrv_main,   only: rdg_conv_elem, rdg_shear_elem
-#endif
     implicit none
     type(t_ice),    intent(inout), target :: ice
     type(t_partit), intent(inout), target :: partit
@@ -1165,10 +1103,6 @@ subroutine EVPdynamics_a(ice, partit, mesh)
     v_ice_aux=v_ice
     call ssh2rhs(ice, partit, mesh)
 
-#if defined (__icepack)
-    rdg_conv_elem(:)  = 0.0_WP
-    rdg_shear_elem(:) = 0.0_WP
-#endif
 
     do shortstep=1, steps
         call stress_tensor_a(ice, partit, mesh)

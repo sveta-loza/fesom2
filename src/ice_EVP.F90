@@ -50,9 +50,6 @@ subroutine stress_tensor(ice, partit, mesh)
     USE MOD_MESH
     use o_param
     use g_CONFIG
-#if defined (__icepack)
-    use icedrv_main,   only: rdg_conv_elem, rdg_shear_elem, strength
-#endif
     implicit none
     type(t_partit), intent(inout), target :: partit
     type(t_ice)   , intent(inout), target :: ice
@@ -156,10 +153,6 @@ subroutine stress_tensor(ice, partit, mesh)
             sigma11(el) = 0.5_WP*(si1+si2)
             sigma22(el) = 0.5_WP*(si1-si2)
 
-#if defined (__icepack)
-            rdg_conv_elem(el)  = -min((eps11(el)+eps22(el)),0.0_WP)
-            rdg_shear_elem(el) = 0.5_WP*(delta - abs(eps11(el)+eps22(el)))
-#endif
         endif
     end do
 #ifndef ENABLE_OPENACC
@@ -337,10 +330,6 @@ subroutine EVPdynamics(ice, partit, mesh)
     USE g_CONFIG
     USE g_comm_auto
     use ice_EVP_interfaces
-#if defined (__icepack)
-    use icedrv_main,   only: rdg_conv_elem, rdg_shear_elem, strength
-    use icedrv_main,   only: icepack_to_fesom
-#endif
     IMPLICIT NONE
     type(t_ice)   , intent(inout), target :: ice
     type(t_partit), intent(inout), target :: partit
@@ -370,9 +359,6 @@ subroutine EVPdynamics(ice, partit, mesh)
     real(kind=WP), dimension(:), pointer  :: u_w, v_w, elevation
     real(kind=WP), dimension(:), pointer  :: stress_atmice_x, stress_atmice_y
     real(kind=WP), dimension(:), pointer  :: inv_areamass, inv_mass, ice_strength
-#if defined (__icepack)
-    real(kind=WP), dimension(:), pointer  :: a_ice_old, m_ice_old, m_snow_old
-#endif
     real(kind=WP)              , pointer  :: inv_rhowat, rhosno, rhoice
 #include "associate_part_def.h"
 #include "associate_mesh_def.h"
@@ -394,11 +380,6 @@ subroutine EVPdynamics(ice, partit, mesh)
     elevation       => ice%srfoce_ssh(:)
     stress_atmice_x => ice%stress_atmice_x(:)
     stress_atmice_y => ice%stress_atmice_y(:)
-#if defined (__icepack)
-    a_ice_old       => ice%data(1)%values_old(:)
-    m_ice_old       => ice%data(2)%values_old(:)
-    m_snow_old      => ice%data(3)%values_old(:)
-#endif
     rhosno          => ice%thermo%rhosno
     rhoice          => ice%thermo%rhoice
     inv_rhowat      => ice%thermo%inv_rhowat
@@ -409,15 +390,6 @@ subroutine EVPdynamics(ice, partit, mesh)
 
     !___________________________________________________________________________
     ! If Icepack is used, always update the tracers
-#if defined (__icepack)
-    a_ice_old(:)  = a_ice(:)
-    m_ice_old(:)  = a_ice(:)
-    m_snow_old(:) = m_snow(:)
-    call icepack_to_fesom (nx_in=(myDim_nod2D+eDim_nod2D), &
-                            aice_out=a_ice,                 &
-                            vice_out=m_ice,                 &
-                            vsno_out=m_snow)
-#endif
 
     !___________________________________________________________________________
     rdt=ice%ice_dt/(1.0*ice%evp_rheol_steps)
@@ -514,11 +486,7 @@ subroutine EVPdynamics(ice, partit, mesh)
 
                 !_______________________________________________________________
                 ! Hunke and Dukowicz c*h*p*
-#if defined (__icepack)
                 ice_strength(el) = ice%pstar*msum*exp(-ice%c_pressure*(1.0_WP-asum))
-#else
-                ice_strength(el) = ice%pstar*msum*exp(-ice%c_pressure*(1.0_WP-asum))
-#endif
                 ice_strength(el) = 0.5_WP*ice_strength(el)
 
                 !_______________________________________________________________
@@ -591,11 +559,7 @@ subroutine EVPdynamics(ice, partit, mesh)
                 asum = sum(a_ice(elnodes))/3.0_WP
 
                 ! ===== Hunke and Dukowicz c*h*p*
-#if defined (__icepack)
                 ice_strength(el) = ice%pstar*msum*exp(-ice%c_pressure*(1.0_WP-asum))
-#else
-                ice_strength(el) = ice%pstar*msum*exp(-ice%c_pressure*(1.0_WP-asum))
-#endif
                 ice_strength(el) = 0.5_WP*ice_strength(el)
 
                 ! use rhs_m and rhs_a for storing the contribution from elevation:
@@ -645,10 +609,6 @@ subroutine EVPdynamics(ice, partit, mesh)
 #endif
     !___________________________________________________________________________
     ! End of Precomputing --> And the ice stepping starts
-#if defined (__icepack)
-    rdg_conv_elem(:)  = 0.0_WP
-    rdg_shear_elem(:) = 0.0_WP
-#endif
     do shortstep=1, ice%evp_rheol_steps
         !_______________________________________________________________________
         !TODO: temporary workaround for cray16.0.1.1 bug

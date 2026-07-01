@@ -40,9 +40,6 @@ module fesom_main_storage_module
   use Toy_Channel_Soufflet, only: compute_zonal_mean
   ! Define icepack module
 
-#if defined (__icepack)
-  use icedrv_main,          only: set_icepack, init_icepack, alloc_icepack
-#endif
 
 #if defined (__oasis)
   use cpl_driver
@@ -391,16 +388,6 @@ contains
 #endif
 #endif
 
-#if defined (__icepack)
-        !=====================
-        ! Setup icepack
-        !=====================
-        if (f%mype==0) write(*,*) 'Icepack: reading namelists from namelist.icepack'
-        call set_icepack(f%ice, f%partit)
-        call alloc_icepack
-        call init_icepack(f%ice, f%tracers%data(1), f%mesh)
-        if (f%mype==0) write(*,*) 'Icepack: setup complete'
-#endif
         call clock_newyear                        ! check if it is a new year
         if (f%mype==0) f%t6=MPI_Wtime()
         !___READ INITIAL CONDITIONS IF THIS IS A RESTART RUN________________________

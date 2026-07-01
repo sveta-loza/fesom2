@@ -86,8 +86,15 @@ if(${ENABLE_OPENMP})
    find_package(OpenMP REQUIRED COMPONENTS Fortran)
 endif()
 
-option(USE_ICEPACK "Use ICEPACK" OFF)
-message(STATUS "USE_ICEPACK: ${USE_ICEPACK}")
+# Icepack (sea-ice column physics) lives ONLY in the FESIM sea-ice component
+# (TerraDT ocean/ice split). The ocean is ice-model-agnostic and receives ice
+# state from FESIM over YAC, so it must never build icepack. Reject an explicit
+# request rather than silently ignoring it.
+if(USE_ICEPACK)
+   message(FATAL_ERROR "USE_ICEPACK is not supported in the ocean component "
+                       "(fesom2-yac). Icepack is the FESIM sea-ice model; build "
+                       "it in the fesim tree instead.")
+endif()
 
 
 # option to trigger building a library version of FESOM
@@ -107,9 +114,6 @@ message(STATUS "ENABLE_IFS_INTERFACE: ${ENABLE_IFS_INTERFACE}")
 
 set(ENABLE_MULTIO_DEFAULT OFF)
 if(ENABLE_IFS_INTERFACE)
-   if(USE_ICEPACK)
-      message(FATAL_ERROR "Could not enable IFS interface as it is incompatible with USE_ICEPACK")
-   endif()
    if( NOT DEFINED ENABLE_MULTIO )
      find_package(multio QUIET)
      if( multio_FOUND )
@@ -141,11 +145,7 @@ set(FESOM_INSTALL_PREFIX "${CMAKE_CURRENT_BINARY_DIR}/../.." CACHE FILEPATH "dir
 # get our source files
 set(src_home ${CMAKE_CURRENT_SOURCE_DIR}) # path to src directory starting from the dir containing our CMakeLists.txt
 file(GLOB sources_Fortran ${src_home}/*.F90)
-if(USE_ICEPACK)
-   file(GLOB sources_ice_pack ${src_home}/icepack_drivers/*.F90
-                              ${src_home}/icepack_drivers/Icepack/columnphysics/*.F90)
-   list(APPEND sources_Fortran ${sources_ice_pack})
-elseif(ENABLE_IFS_INTERFACE) # ICEPACK + IFS_INTERFACE NOT SUPPORTED (YET)
+if(ENABLE_IFS_INTERFACE)
    if(ENABLE_MULTIO)
       list(APPEND sources_Fortran ${src_home}/ifs_interface/iom.F90)
    endif()
@@ -232,22 +232,58 @@ if(${ASYNC_ICEBERGS})
    target_compile_definitions(${PROJECT_NAME} PRIVATE __async_icebergs)
 endif()
 
+# __yac_atm: atmosphere is coupled to the ocean via YAC (ICON case). When OFF,
+# the ocean reads atmospheric forcing from files while sea ice stays YAC-coupled
+# to the ocean (standalone FESOM-FESIM, Stage 4 config #2). Default ON preserves
+# the ICON build behaviour. Only meaningful when USE_YAC is ON.
+option(USE_YAC_ATM "Couple the atmosphere to the ocean via YAC (ICON). OFF = atm from forcing files." ON)
+
 if(${USE_YAC})
   include(${CMAKE_CURRENT_LIST_DIR}/../cmake/FindYAC.cmake)
   target_compile_definitions(${PROJECT_NAME} PRIVATE __yac __coupled)
-  list(APPEND sources_Fortran ${src_home}/cpl_yac_driver.F90)
+  if(${USE_YAC_ATM})
+    target_compile_definitions(${PROJECT_NAME} PRIVATE __yac_atm)
+  endif()
+  list(APPEND sources_Fortran ${src_home}/yac_grid_utils.F90
+                              ${src_home}/yac_component_runtime.F90
+                              ${src_home}/atm_coupling_interface.F90
+                              ${src_home}/ice_coupling_interface.F90)
 endif()
 
 if(${OIFS_COUPLED})
    target_compile_definitions(${PROJECT_NAME} PRIVATE __oifs)
 endif()
 
-if(USE_ICEPACK)
-   target_compile_definitions(${PROJECT_NAME} PRIVATE __icepack)
-endif()
 
 if(ENABLE_IFS_INTERFACE)
    target_compile_definitions(${PROJECT_NAME} PRIVATE __ifsinterface)
+endif()
+
+# __ifs_fwd (Stage 4 config #1): the atmosphere reaches the ocean through the IFS
+# interface, and the ocean forwards the IFS-provided atm fluxes to the standalone
+# FESIM sea-ice component over YAC (and relays FESIM's ice_temp/ice_alb back to
+# IFS). Only meaningful with USE_YAC ON and the IFS interface enabled; the IFS
+# fluxes are packed straight from the arrays nemogcmcoup_* fills, so it requires
+# ENABLE_IFS_INTERFACE. Must be OFF for the ICON (__yac_atm) and standalone builds.
+option(USE_IFS_FWD "Forward IFS atm fluxes from the ocean to FESIM over YAC (Stage 4 config #1)." OFF)
+# IFS_FWD_COMPILE_PROBE: allow building the __ifs_fwd code WITHOUT the IFS
+# interface, purely to compile-check the config #1 additions on machines that lack
+# the OpenIFS/OASIS coupling libraries (parinter/scripremap/... needed by
+# ifs_interface). A probe build is NOT runnable (the IFS interface never fills the
+# flux arrays, and ice%data(4) is not sized without __ifsinterface) — it only
+# verifies the new sources compile.
+option(IFS_FWD_COMPILE_PROBE "Compile __ifs_fwd sources without ENABLE_IFS_INTERFACE (compile-check only, not runnable)." OFF)
+if(USE_IFS_FWD)
+  if(NOT USE_YAC)
+    message(FATAL_ERROR "USE_IFS_FWD requires USE_YAC=ON (the ocean->ice channel is YAC).")
+  endif()
+  if(USE_YAC_ATM)
+    message(FATAL_ERROR "USE_IFS_FWD is incompatible with USE_YAC_ATM (that is the ICON atm-via-YAC path).")
+  endif()
+  if(NOT ENABLE_IFS_INTERFACE AND NOT IFS_FWD_COMPILE_PROBE)
+    message(FATAL_ERROR "USE_IFS_FWD requires ENABLE_IFS_INTERFACE=ON (fluxes come from the IFS interface). Set IFS_FWD_COMPILE_PROBE=ON only for a non-runnable compile check.")
+  endif()
+  target_compile_definitions(${PROJECT_NAME} PRIVATE __ifs_fwd)
 endif()
 
 if(VERBOSE)

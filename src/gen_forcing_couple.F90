@@ -74,7 +74,12 @@ module net_rec_from_atm_interface
 end module net_rec_from_atm_interface
 ! Routines for updating ocean surface forcing fields
 !-------------------------------------------------------------------------
-#if defined (__yac)
+! __yac_atm: the atmosphere is coupled to the ocean via YAC (ICON case) -> use
+! update_atm_forcing_yac. When __yac_atm is NOT defined the atmosphere reaches
+! the ocean from forcing files (or OASIS/IFS) via update_atm_forcing below; this
+! is the path used by the standalone FESOM-FESIM run (Stage 4 config #2), where
+! sea ice is still YAC-coupled to the ocean but the atmosphere is not.
+#if defined (__yac_atm)
 subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
   use o_PARAM
   use MOD_MESH
@@ -94,9 +99,25 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
   use g_sbf, only: sbc_do
   use g_sbf, only: atmdata, i_totfl, i_xwind, i_ywind, i_xstre, i_ystre, i_humi, i_qsr, i_qlw, i_tair, i_prec, i_mslp, i_cloud, i_snow, &
                                      l_xwind, l_ywind, l_xstre, l_ystre, l_humi, l_qsr, l_qlw, l_tair, l_prec, l_mslp, l_cloud, l_snow
-  use cpl_yac_driver
+  use atm_coupling_interface, only: atm_cpl_send, atm_cpl_recv, &
+                                     ATM_NSEND, ATM_NRECV, &
+                                     atm_send_collection_size, atm_recv_collection_size, &
+                                     ATM_SEND_SST_FEOM, ATM_SEND_OCEAN_SEA_ICE_BUNDLE, &
+                                     ATM_RECV_TAUX, ATM_RECV_TAUY, ATM_RECV_FRESH_WATER, &
+                                     ATM_RECV_HEAT_FLUX, ATM_RECV_ATM_SEA_ICE_BUNDLE, &
+                                     ATM_RECV_RIVER_RUNOFF
+  use ice_coupling_interface, only: ice_cpl_send, ice_cpl_recv, &
+                                     ICE_NSEND, ICE_NRECV, &
+                                     ice_send_collection_size, ice_recv_collection_size, &
+                                     ICE_SEND_SST_FEOM, ICE_SEND_OCEAN_TO_ICE_BUNDLE, &
+                                     ICE_SEND_OCEAN_TO_ICE_UV, &
+                                     ICE_SEND_TAUX, ICE_SEND_TAUY, &
+                                     ICE_SEND_FRESH_WATER, ICE_SEND_HEAT_FLUX, &
+                                     ICE_SEND_ATM_SEA_ICE_BUNDLE, &
+                                     ICE_RECV_SEA_ICE_BUNDLE
   use gen_bulk
   use force_flux_consv_interface
+  USE g_support, only: integrate_nod
 
   implicit none
   integer,        intent(in)            :: istep
@@ -109,10 +130,19 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
   integer                  :: i, itime,n2,n,nz,k,elem
   real(kind=WP)            :: i_coef, aux
   real(kind=WP)            :: dux, dvy,tx,ty,tvol
-  real(kind=WP)            :: t1, t2
+  real(kind=WP)            :: t1, t2, net
   real(kind=WP)                                    :: flux_global(2), flux_local(2), eff_vol(2)
   real(kind=WP), dimension(:,:), allocatable , save  :: exchange
   real(kind=WP), dimension(:), allocatable , save  :: mask !, weight
+  ! Save buffers for atm-recv data being forwarded to FESIM (Stage 3
+  ! rerouting). Allocated on first call; updated only when the
+  ! corresponding atm recv has action=.true.; resent to ice every step.
+  ! river_runoff is intentionally not buffered — it has no FESIM consumer.
+  real(kind=WP), dimension(:,:), allocatable , save  :: fwd_taux
+  real(kind=WP), dimension(:,:), allocatable , save  :: fwd_tauy
+  real(kind=WP), dimension(:,:), allocatable , save  :: fwd_fresh_water
+  real(kind=WP), dimension(:,:), allocatable , save  :: fwd_heat_flux
+  real(kind=WP), dimension(:,:), allocatable , save  :: fwd_atm_sea_ice_bundle
   logical                                          :: action
   logical                                          :: do_rotate_oce_wind=.false.
   logical                                          :: do_rotate_ice_wind=.false.
@@ -155,75 +185,142 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
   t1=MPI_Wtime()
   if (.NOT. ALLOCATED(exchange)) then
      ALLOCATE(exchange(myDim_nod2D, &
-          MAX(MAXVAL(cpl_send_collection_size), MAXVAL(cpl_recv_collection_size))))
+          MAX(MAXVAL(atm_send_collection_size), MAXVAL(atm_recv_collection_size), &
+              MAXVAL(ice_send_collection_size), MAXVAL(ice_recv_collection_size))))
      exchange = 0
+     ! Stage 3 forwarding buffers: shaped to the atm-recv collection sizes.
+     ALLOCATE(fwd_taux              (myDim_nod2D, atm_recv_collection_size(ATM_RECV_TAUX)))
+     ALLOCATE(fwd_tauy              (myDim_nod2D, atm_recv_collection_size(ATM_RECV_TAUY)))
+     ALLOCATE(fwd_fresh_water       (myDim_nod2D, atm_recv_collection_size(ATM_RECV_FRESH_WATER)))
+     ALLOCATE(fwd_heat_flux         (myDim_nod2D, atm_recv_collection_size(ATM_RECV_HEAT_FLUX)))
+     ALLOCATE(fwd_atm_sea_ice_bundle(myDim_nod2D, atm_recv_collection_size(ATM_RECV_ATM_SEA_ICE_BUNDLE)))
+     fwd_taux               = 0
+     fwd_tauy               = 0
+     fwd_fresh_water        = 0
+     fwd_heat_flux          = 0
+     fwd_atm_sea_ice_bundle = 0
   end if
-!  if (.NOT. ALLOCATED(mask)) then
-!     ALLOCATE(mask(myDim_nod2D))
-!     mask = 1.
-!  end if
-  do i=1,nsend
-     exchange  =0.
-     if (i.eq.1) then
-        exchange(:,1)=tracers%data(1)%values(1, 1:myDim_nod2d)+273.15 ! sea surface temperature [°K]
-     elseif (i.eq.2) then
-        exchange(:,1) = m_ice(1:myDim_nod2d)              ! ice thickness [m]
-        exchange(:,2) = m_snow(1:myDim_nod2d)             ! snow thickness
-        exchange(:,3) = a_ice(1:myDim_nod2d)              ! ice concentation [%]
-     endif
-     call cpl_yac_send(i, exchange(:,1:cpl_send_collection_size(i)), action)
-  enddo
-#ifdef VERBOSE
-  do i=1, nsend
-     if (mype==0) write(*,*) 'SEND: field ', i, ' max val:', maxval(exchange), ' . ACTION? ', action
-  enddo
-#endif
-  do i=1,nrecv
+
+  ! ---- recv from atmosphere ------------------------------------------------
+  do i=1,ATM_NRECV
      exchange =0.0
-     CALL cpl_yac_recv (i, exchange(:,1:cpl_recv_collection_size(i)), action)
+     CALL atm_cpl_recv(i, exchange(:,1:atm_recv_collection_size(i)), action)
 #ifdef VERBOSE
      if (mype==0) then
-        write(*,*) 'FESOM RECV: flux ', i, ', max val: ', maxval(exchange), ' . ACTION? ', action
+        write(*,*) 'FESOM atm RECV: flux ', i, ', max val: ', maxval(exchange), ' . ACTION? ', action
      end if
 #endif
      if (.not. action) cycle
-     !Do not apply a correction at first time step!
-     if (i.eq.1) then
+     if (i.eq.ATM_RECV_TAUX) then
         stress_atmoce_x(1:myDim_nod2d) =  exchange(:,1)                    ! taux_oce
         call exchange_nod(stress_atmoce_x, partit)
         stress_atmice_x(1:myDim_nod2d) =  exchange(:,2)                    ! taux_ice
         call exchange_nod(stress_atmice_x, partit)
         do_rotate_oce_wind=.true.
         do_rotate_ice_wind=.true.
-     elseif (i.eq.2) then
+        fwd_taux = exchange(:,1:atm_recv_collection_size(ATM_RECV_TAUX))
+     elseif (i.eq.ATM_RECV_TAUY) then
         stress_atmoce_y(1:myDim_nod2d) =  exchange(:,1)                    ! tauy_oce
         call exchange_nod(stress_atmoce_y, partit)
         stress_atmice_y(1:myDim_nod2d) =  exchange(:,2)                    ! tauy_ice
         call exchange_nod(stress_atmice_y, partit)
         do_rotate_oce_wind=.true.
         do_rotate_ice_wind=.true.
-     elseif (i.eq.3) then
+        fwd_tauy = exchange(:,1:atm_recv_collection_size(ATM_RECV_TAUY))
+     elseif (i.eq.ATM_RECV_FRESH_WATER) then
         prec_rain(1:myDim_nod2d)    =  exchange(:,1)/1000                   ! tot_prec ! kg m^(-2) s^(-1) -> m/s
         call exchange_nod(prec_rain, partit)
         prec_snow(1:myDim_nod2d)    =  exchange(:,2)/1000                    ! snowfall ! kg m^(-2) s^(-1) -> m/s
         call exchange_nod(prec_snow, partit)
         evap_no_ifrac(1:myDim_nod2d)     =  exchange(:,3)/1000               ! tot_evap ! kg m^(-2) s^(-1) -> m/s; change sign
         call exchange_nod(evap_no_ifrac, partit)
-     elseif (i.eq.4) then
+        fwd_fresh_water = exchange(:,1:atm_recv_collection_size(ATM_RECV_FRESH_WATER))
+     elseif (i.eq.ATM_RECV_HEAT_FLUX) then
         oce_heat_flux(1:myDim_nod2d)     = exchange(:,2) + exchange(:,3) + exchange(:,4) ! heat_oce
         call exchange_nod(oce_heat_flux, partit)
         shortwave(1:myDim_nod2d)         =  exchange(:,1)                ! heat_swr
         call exchange_nod(shortwave, partit)
-     elseif (i.eq.5) then
+        fwd_heat_flux = exchange(:,1:atm_recv_collection_size(ATM_RECV_HEAT_FLUX))
+     elseif (i.eq.ATM_RECV_ATM_SEA_ICE_BUNDLE) then
         ice_heat_flux(1:myDim_nod2d)     = (exchange(:,2) + exchange(:,1)) ! heat_ice
         call exchange_nod(ice_heat_flux, partit)
-!SL-- add river runoff ------------------------------
-!     elseif (i.eq.6) then
-!        runoff(1:myDim_nod2d)     = (exchange(:,1))/1000 ! river_runoff
-!        call exchange_nod(runoff, partit)
-!SL--------------------------------------------------
+        fwd_atm_sea_ice_bundle = exchange(:,1:atm_recv_collection_size(ATM_RECV_ATM_SEA_ICE_BUNDLE))
+     elseif (i.eq.ATM_RECV_RIVER_RUNOFF) then
+        runoff(1:myDim_nod2D) = exchange(:,1) * mesh%area_inv(1,1:myDim_nod2D)
+        call exchange_nod(runoff, partit)
+        call integrate_nod(runoff, net, partit, mesh)
+        if(mype==0) write(*,*) 'RUNOFF CHECK:', net
      endif
   end do
+
+  ! ---- recv from sea ice ---------------------------------------------------
+  do i=1,ICE_NRECV
+     exchange =0.0
+     CALL ice_cpl_recv(i, exchange(:,1:ice_recv_collection_size(i)), action)
+#ifdef VERBOSE
+     if (mype==0) then
+        write(*,*) 'FESOM ice RECV: flux ', i, ', max val: ', maxval(exchange), ' . ACTION? ', action
+     end if
+#endif
+     if (.not. action) cycle
+     if (i.eq.ICE_RECV_SEA_ICE_BUNDLE) then
+        m_ice(1:myDim_nod2d)       = exchange(:,1)  !  ice thickness [m]
+        m_snow(1:myDim_nod2d)      = exchange(:,2)  !  snow thickness [m]
+        a_ice(1:myDim_nod2d)       = exchange(:,3)  !  ice concentation [%]
+        call exchange_nod(m_ice, partit)
+        call exchange_nod(m_snow, partit)
+        call exchange_nod(a_ice, partit)
+     endif
+  end do
+
+  ! ---- send to atmosphere --------------------------------------------------
+  do i=1,ATM_NSEND
+     exchange  =0.
+     if (i.eq.ATM_SEND_SST_FEOM) then
+        exchange(:,1)=tracers%data(1)%values(1, 1:myDim_nod2d)+273.15 ! sea surface temperature [°K]
+     elseif (i.eq.ATM_SEND_OCEAN_SEA_ICE_BUNDLE) then
+        exchange(:,1) = m_ice(1:myDim_nod2d)              ! ice thickness [m]
+        exchange(:,2) = m_snow(1:myDim_nod2d)             ! snow thickness
+        exchange(:,3) = a_ice(1:myDim_nod2d)              ! ice concentation [%]
+     endif
+     call atm_cpl_send(i, exchange(:,1:atm_send_collection_size(i)), action)
+  enddo
+
+  ! ---- send to sea ice -----------------------------------------------------
+  ! Note: ICE_SEND_SST_FEOM is the duplicate of ATM_SEND_SST_FEOM. The ocean
+  ! sends the same SST data through both interfaces so each channel owns its
+  ! end-to-end YAC field.
+  do i=1,ICE_NSEND
+     exchange  =0.
+     if (i.eq.ICE_SEND_SST_FEOM) then
+        exchange(:,1)=tracers%data(1)%values(1, 1:myDim_nod2d)+273.15 ! sea surface temperature [°K]
+     elseif (i.eq.ICE_SEND_OCEAN_TO_ICE_BUNDLE) then
+        exchange(:,1) = tracers%data(2)%values(1, 1:myDim_nod2d)     ! sea surface salinity [psu]
+        exchange(:,2) = dynamics%eta_n(1:myDim_nod2d)             ! see surface hieght [m]
+     elseif (i.eq.ICE_SEND_OCEAN_TO_ICE_UV) then
+        exchange(:,1) = dynamics%uv(1,1,1:myDim_nod2d)            ! surface_velocity u comp. [m/s]
+        exchange(:,2) = dynamics%uv(2,1,1:myDim_nod2d)            ! surface velocity v comp [m/s]
+     elseif (i.eq.ICE_SEND_TAUX) then
+        exchange(:,1:ice_send_collection_size(ICE_SEND_TAUX)) = fwd_taux         ! raw atm taux forwarded
+     elseif (i.eq.ICE_SEND_TAUY) then
+        exchange(:,1:ice_send_collection_size(ICE_SEND_TAUY)) = fwd_tauy         ! raw atm tauy forwarded
+     elseif (i.eq.ICE_SEND_FRESH_WATER) then
+        exchange(:,1:ice_send_collection_size(ICE_SEND_FRESH_WATER)) = fwd_fresh_water
+     elseif (i.eq.ICE_SEND_HEAT_FLUX) then
+        exchange(:,1:ice_send_collection_size(ICE_SEND_HEAT_FLUX)) = fwd_heat_flux
+     elseif (i.eq.ICE_SEND_ATM_SEA_ICE_BUNDLE) then
+        exchange(:,1:ice_send_collection_size(ICE_SEND_ATM_SEA_ICE_BUNDLE)) = fwd_atm_sea_ice_bundle
+     endif
+     call ice_cpl_send(i, exchange(:,1:ice_send_collection_size(i)), action)
+  enddo
+#ifdef VERBOSE
+  do i=1, ATM_NSEND
+     if (mype==0) write(*,*) 'atm SEND: field ', i, ' max val:', maxval(exchange), ' . ACTION? ', action
+  enddo
+  do i=1, ICE_NSEND
+     if (mype==0) write(*,*) 'ice SEND: field ', i, ' max val:', maxval(exchange), ' . ACTION? ', action
+  enddo
+#endif
 
   if ((do_rotate_oce_wind .AND. do_rotate_ice_wind) .AND. rotated_grid) then
      do n=1, myDim_nod2D+eDim_nod2D
@@ -244,7 +341,7 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
 
 end subroutine update_atm_forcing_yac
 
-#else /* if not defined  __yac */
+#else /* if not defined __yac_atm: atm from files (incl. standalone FESOM-FESIM), OASIS or IFS */
 
 subroutine update_atm_forcing(istep, ice, tracers, dynamics, partit, mesh)
   use o_PARAM
@@ -769,6 +866,221 @@ end subroutine update_atm_forcing
 
 #endif
 
+!-------------------------------------------------------------------------
+! Ocean <-> sea-ice YAC exchange for the standalone FESOM-FESIM config
+! (Stage 4 config #2). The atmosphere is read from forcing files by
+! update_atm_forcing (called just before this, every step, so atmdata is
+! current). Here the ocean (a) receives ice state from FESIM and (b) sends
+! native ocean state plus the RAW atm STATE bundle; FESIM runs its own bulk.
+! Wire units = raw forcing-file units (atmdata) -> FESIM converts on receive.
+! Compiled only when sea ice is YAC-coupled but the atmosphere is NOT
+! (__yac without __yac_atm); the ICON path does the equivalent inside
+! update_atm_forcing_yac.
+#if defined (__yac) && !defined (__yac_atm) && !defined (__ifs_fwd)
+subroutine exchange_oce_ice_yac(istep, ice, tracers, dynamics, partit, mesh)
+  use o_PARAM
+  use MOD_MESH
+  USE MOD_PARTIT
+  USE MOD_PARSUP
+  use MOD_TRACER
+  use MOD_ICE
+  use MOD_DYN
+  use g_comm_auto
+  use g_sbf, only: atmdata, i_xwind, i_ywind, i_tair, i_humi, i_qsr, i_qlw, &
+                   i_prec, i_snow, i_mslp
+  use ice_coupling_interface, only: ice_cpl_send, ice_cpl_recv, &
+                                     ICE_NSEND, ICE_NRECV, &
+                                     ice_send_collection_size, ice_recv_collection_size, &
+                                     ICE_SEND_SST_FEOM, ICE_SEND_OCEAN_TO_ICE_BUNDLE, &
+                                     ICE_SEND_OCEAN_TO_ICE_UV, ICE_SEND_ATM_STATE, &
+                                     ICE_RECV_SEA_ICE_BUNDLE
+  implicit none
+  integer,        intent(in)            :: istep
+  type(t_ice)   , intent(inout), target :: ice
+  type(t_tracer), intent(in),    target :: tracers
+  type(t_partit), intent(inout), target :: partit
+  type(t_mesh),   intent(in),    target :: mesh
+  type(t_dyn)   , intent(in),    target :: dynamics
+  integer :: i
+  logical :: action
+  real(kind=WP), dimension(:,:), allocatable, save :: exchange
+  real(kind=WP), dimension(:), pointer :: a_ice, m_ice, m_snow
+#include "associate_part_def.h"
+#include "associate_mesh_def.h"
+#include "associate_part_ass.h"
+#include "associate_mesh_ass.h"
+  a_ice  => ice%data(1)%values(:)
+  m_ice  => ice%data(2)%values(:)
+  m_snow => ice%data(3)%values(:)
+
+  if (.NOT. ALLOCATED(exchange)) then
+     ALLOCATE(exchange(myDim_nod2D, &
+          MAX(MAXVAL(ice_send_collection_size), MAXVAL(ice_recv_collection_size))))
+     exchange = 0
+  end if
+
+  ! ---- recv ice state from FESIM ------------------------------------------
+  do i=1,ICE_NRECV
+     exchange = 0.0
+     CALL ice_cpl_recv(i, exchange(:,1:ice_recv_collection_size(i)), action)
+     if (.not. action) cycle
+     if (i.eq.ICE_RECV_SEA_ICE_BUNDLE) then
+        m_ice(1:myDim_nod2d)  = exchange(:,1)   ! ice thickness [m]
+        m_snow(1:myDim_nod2d) = exchange(:,2)   ! snow thickness [m]
+        a_ice(1:myDim_nod2d)  = exchange(:,3)   ! ice concentration [%]
+        call exchange_nod(m_ice, partit)
+        call exchange_nod(m_snow, partit)
+        call exchange_nod(a_ice, partit)
+     endif
+  end do
+
+  ! ---- send native ocean state + raw atm state to FESIM -------------------
+  do i=1,ICE_NSEND
+     exchange = 0.
+     if (i.eq.ICE_SEND_SST_FEOM) then
+        exchange(:,1)=tracers%data(1)%values(1, 1:myDim_nod2d)+273.15 ! SST [K]
+     elseif (i.eq.ICE_SEND_OCEAN_TO_ICE_BUNDLE) then
+        exchange(:,1) = tracers%data(2)%values(1, 1:myDim_nod2d)      ! SSS [psu]
+        exchange(:,2) = dynamics%eta_n(1:myDim_nod2d)                 ! SSH [m]
+     elseif (i.eq.ICE_SEND_OCEAN_TO_ICE_UV) then
+        exchange(:,1) = dynamics%uv(1,1,1:myDim_nod2d)               ! surface u [m/s]
+        exchange(:,2) = dynamics%uv(2,1,1:myDim_nod2d)               ! surface v [m/s]
+     elseif (i.eq.ICE_SEND_ATM_STATE) then
+        ! Raw atmospheric state from the forcing files (atmdata, refreshed by
+        ! sbc_do in update_atm_forcing this step). FESIM converts units on recv.
+        exchange(:,1) = atmdata(i_xwind, 1:myDim_nod2d)   ! u_wind    [m/s]
+        exchange(:,2) = atmdata(i_ywind, 1:myDim_nod2d)   ! v_wind    [m/s]
+        exchange(:,3) = atmdata(i_tair , 1:myDim_nod2d)   ! t_air     [K]
+        exchange(:,4) = atmdata(i_humi , 1:myDim_nod2d)   ! shum      [kg/kg]
+        exchange(:,5) = atmdata(i_qsr  , 1:myDim_nod2d)   ! shortwave [W/m2] down
+        exchange(:,6) = atmdata(i_qlw  , 1:myDim_nod2d)   ! longwave  [W/m2] down
+        exchange(:,7) = atmdata(i_prec , 1:myDim_nod2d)   ! prec_rain [kg/m2/s]
+        exchange(:,8) = atmdata(i_snow , 1:myDim_nod2d)   ! prec_snow [kg/m2/s]
+        exchange(:,9) = atmdata(i_mslp , 1:myDim_nod2d)   ! mslp      [Pa]
+     endif
+     call ice_cpl_send(i, exchange(:,1:ice_send_collection_size(i)), action)
+  enddo
+
+end subroutine exchange_oce_ice_yac
+#endif
+
+!
+!------------------------------------------------------------------------------------
+!
+! Ocean<->ice YAC exchange for Stage 4 config #1 (IFS atmosphere). The atmosphere
+! reaches the ocean through the IFS interface (nemogcmcoup_*), which deposits its
+! fluxes into the ocean's own arrays already in FESOM internal units (precip/evap
+! in m/s, stresses in Pa and already rotated to the FESOM grid, ice-fraction
+! weighted) and computes enthalpyoffuse. Here we (a) receive FESIM's ice state
+! INCLUDING ice surface temperature + albedo (relayed onward to IFS by
+! nemogcmcoup_lim2_get, which reads ice%data(4)/ice%atmcoupl%ice_alb) and (b)
+! forward those atm fluxes to FESIM 1:1 in a single 12-component bundle. FESIM does
+! NOT re-convert or re-rotate. Counterpart of update_atm_forcing_yac (ICON) and
+! exchange_oce_ice_yac (standalone); runs only in the __yac + __ifs_fwd build.
+#if defined (__yac) && defined (__ifs_fwd)
+subroutine exchange_oce_ice_ifs(istep, ice, tracers, dynamics, partit, mesh)
+  use o_PARAM
+  use MOD_MESH
+  USE MOD_PARTIT
+  USE MOD_PARSUP
+  use MOD_TRACER
+  use MOD_ICE
+  use MOD_DYN
+  use g_comm_auto
+  use o_arrays,         only: stress_atmoce_x, stress_atmoce_y
+  use g_forcing_arrays, only: shortwave, prec_rain, prec_snow, evap_no_ifrac, sublimation
+  use ice_coupling_interface, only: ice_cpl_send, ice_cpl_recv, &
+                                     ICE_NSEND, ICE_NRECV, &
+                                     ice_send_collection_size, ice_recv_collection_size, &
+                                     ICE_SEND_SST_FEOM, ICE_SEND_OCEAN_TO_ICE_BUNDLE, &
+                                     ICE_SEND_OCEAN_TO_ICE_UV, ICE_SEND_ATM_ICE_FLUX, &
+                                     ICE_RECV_SEA_ICE_BUNDLE
+  implicit none
+  integer,        intent(in)            :: istep
+  type(t_ice)   , intent(inout), target :: ice
+  type(t_tracer), intent(in),    target :: tracers
+  type(t_partit), intent(inout), target :: partit
+  type(t_mesh),   intent(in),    target :: mesh
+  type(t_dyn)   , intent(in),    target :: dynamics
+  integer :: i
+  logical :: action
+  real(kind=WP), dimension(:,:), allocatable, save :: exchange
+  real(kind=WP), dimension(:), pointer :: a_ice, m_ice, m_snow, ice_temp, ice_alb
+  real(kind=WP), dimension(:), pointer :: stress_atmice_x, stress_atmice_y
+  real(kind=WP), dimension(:), pointer :: oce_heat_flux, ice_heat_flux, enthalpyoffuse
+#include "associate_part_def.h"
+#include "associate_mesh_def.h"
+#include "associate_part_ass.h"
+#include "associate_mesh_ass.h"
+  a_ice           => ice%data(1)%values(:)
+  m_ice           => ice%data(2)%values(:)
+  m_snow          => ice%data(3)%values(:)
+  ice_temp        => ice%data(4)%values(:)
+  ice_alb         => ice%atmcoupl%ice_alb(:)
+  stress_atmice_x => ice%stress_atmice_x(:)
+  stress_atmice_y => ice%stress_atmice_y(:)
+  oce_heat_flux   => ice%atmcoupl%oce_flx_h(:)
+  ice_heat_flux   => ice%atmcoupl%ice_flx_h(:)
+  enthalpyoffuse  => ice%atmcoupl%enthalpyoffuse(:)
+
+  if (.NOT. ALLOCATED(exchange)) then
+     ALLOCATE(exchange(myDim_nod2D, &
+          MAX(MAXVAL(ice_send_collection_size), MAXVAL(ice_recv_collection_size))))
+     exchange = 0
+  end if
+
+  ! ---- recv ice state from FESIM (incl. ice_temp + ice_alb for IFS) --------
+  do i=1,ICE_NRECV
+     exchange = 0.0
+     CALL ice_cpl_recv(i, exchange(:,1:ice_recv_collection_size(i)), action)
+     if (.not. action) cycle
+     if (i.eq.ICE_RECV_SEA_ICE_BUNDLE) then
+        m_ice(1:myDim_nod2d)    = exchange(:,1)   ! ice thickness [m]
+        m_snow(1:myDim_nod2d)   = exchange(:,2)   ! snow thickness [m]
+        a_ice(1:myDim_nod2d)    = exchange(:,3)   ! ice concentration [%]
+        ice_temp(1:myDim_nod2d) = exchange(:,4)   ! ice surface temperature [K]
+        ice_alb(1:myDim_nod2d)  = exchange(:,5)   ! ice albedo [0-1]
+        call exchange_nod(m_ice, partit)
+        call exchange_nod(m_snow, partit)
+        call exchange_nod(a_ice, partit)
+        call exchange_nod(ice_temp, partit)
+        call exchange_nod(ice_alb, partit)
+     endif
+  end do
+
+  ! ---- send native ocean state + forwarded IFS atm fluxes to FESIM ---------
+  do i=1,ICE_NSEND
+     exchange = 0.
+     if (i.eq.ICE_SEND_SST_FEOM) then
+        exchange(:,1)=tracers%data(1)%values(1, 1:myDim_nod2d)+273.15 ! SST [K]
+     elseif (i.eq.ICE_SEND_OCEAN_TO_ICE_BUNDLE) then
+        exchange(:,1) = tracers%data(2)%values(1, 1:myDim_nod2d)      ! SSS [psu]
+        exchange(:,2) = dynamics%eta_n(1:myDim_nod2d)                 ! SSH [m]
+     elseif (i.eq.ICE_SEND_OCEAN_TO_ICE_UV) then
+        exchange(:,1) = dynamics%uv(1,1,1:myDim_nod2d)               ! surface u [m/s]
+        exchange(:,2) = dynamics%uv(2,1,1:myDim_nod2d)               ! surface v [m/s]
+     elseif (i.eq.ICE_SEND_ATM_ICE_FLUX) then
+        ! Atm fluxes as deposited by the IFS interface this step, forwarded 1:1
+        ! (already FESOM internal units + rotated; FESIM does not re-convert).
+        exchange(:,1)  = stress_atmice_x(1:myDim_nod2d) ! [Pa]
+        exchange(:,2)  = stress_atmice_y(1:myDim_nod2d) ! [Pa]
+        exchange(:,3)  = stress_atmoce_x(1:myDim_nod2d) ! [Pa]
+        exchange(:,4)  = stress_atmoce_y(1:myDim_nod2d) ! [Pa]
+        exchange(:,5)  = oce_heat_flux(1:myDim_nod2d)   ! [W/m2]
+        exchange(:,6)  = ice_heat_flux(1:myDim_nod2d)   ! [W/m2]
+        exchange(:,7)  = shortwave(1:myDim_nod2d)       ! [W/m2]
+        exchange(:,8)  = prec_rain(1:myDim_nod2d)       ! [m/s]
+        exchange(:,9)  = prec_snow(1:myDim_nod2d)       ! [m/s]
+        exchange(:,10) = evap_no_ifrac(1:myDim_nod2d)   ! [m/s]
+        exchange(:,11) = sublimation(1:myDim_nod2d)     ! [m/s]
+        exchange(:,12) = enthalpyoffuse(1:myDim_nod2d)  ! [W/m2]
+     endif
+     call ice_cpl_send(i, exchange(:,1:ice_send_collection_size(i)), action)
+  enddo
+
+end subroutine exchange_oce_ice_ifs
+#endif
+
 !
 !------------------------------------------------------------------------------------
 !
@@ -799,7 +1111,9 @@ SUBROUTINE force_flux_consv(field2d, mask, n, h, do_stats, partit, mesh)
 #if defined(__oasis)
   use cpl_driver,	 only : nrecv, cpl_recv, a2o_fcorr_stat
 #elif defined(__yac)
-  use cpl_yac_driver,	 only : nrecv, cpl_recv, a2o_fcorr_stat
+  use atm_coupling_interface,	 only : nrecv     => ATM_NRECV, &
+                                        cpl_recv  => atm_recv_names, &
+                                        a2o_fcorr_stat
 #endif
   use o_PARAM,           only : mstep, WP
   use compute_residual_interface
@@ -1021,7 +1335,7 @@ SUBROUTINE net_rec_from_atm(action, partit)
 #if defined(__oasis)
   use cpl_driver
 #elif defined(__yac)
-  use cpl_yac_driver
+  use atm_coupling_interface, only: nrecv => ATM_NRECV, source_root, target_root
 #endif
   use o_PARAM, only: WP
   USE MOD_PARTIT

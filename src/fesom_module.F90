@@ -48,8 +48,14 @@ module fesom_main_storage_module
   use cpl_driver
 #endif
 #if defined (__yac)
-use cpl_yac_driver
+use atm_coupling_interface
+use ice_coupling_interface
+use yac_component_runtime, only: yac_runtime_enddef
 #endif
+!sl
+!#if defined (__yac_fesim)
+!use cpl_yac_driver_fesim
+!#endif
 
 ! define recom module
 #if defined (__recom)
@@ -162,8 +168,13 @@ contains
 
         call cpl_oasis3mct_init(f%partit,f%partit%MPI_COMM_FESOM)
 #elif defined (__yac)
-        call cpl_yac_init(f%partit%MPI_COMM_FESOM)
+        call atm_cpl_init(f%partit%MPI_COMM_FESOM)
 #endif
+
+!sl introduce __yac_fesim
+!#if defined (__yac_fesim)
+!        call cpl_yac_init_fesim(f%partit%MPI_COMM_FESOM)
+!#endif
 
         f%t1 = MPI_Wtime()
 
@@ -359,10 +370,25 @@ contains
             call allocate_icb(f%partit, f%mesh)
         endif
         ! --------------
-
+!sl
+!#if defined (__yac) || defined (__yac_fesim)
 #if defined (__yac)
-        call cpl_yac_define_unstr(f%partit, f%mesh)
-        if(f%mype==0)  write(*,*) 'FESOM ---->     cpl_yac_define_unstr nsend, nrecv:',nsend, nrecv
+        ! Atm YAC fields are registered only when the atmosphere is YAC-coupled
+        ! (ICON). In the standalone FESOM-FESIM run (__yac without __yac_atm) no
+        ! atmo component joins, so atm fields must NOT be registered or the YAC
+        ! enddef handshake would wait for a counterpart that never connects.
+#if defined (__yac_atm)
+        call atm_cpl_define(f%partit, f%mesh, INT(dt))
+#endif
+        call ice_cpl_define(f%partit, f%mesh, INT(dt))
+        call yac_runtime_enddef()
+#if defined (__yac_atm)
+        if(f%mype==0)  write(*,*) 'FESOM ---->     coupling defined. ATM nsend/nrecv:', &
+                                  ATM_NSEND, ATM_NRECV, ' ICE nsend/nrecv:', ICE_NSEND, ICE_NRECV
+#else
+        if(f%mype==0)  write(*,*) 'FESOM ---->     coupling defined (standalone, no atm YAC).', &
+                                  ' ICE nsend/nrecv:', ICE_NSEND, ICE_NRECV
+#endif
 #endif
 
 #if defined (__icepack)
@@ -661,19 +687,23 @@ contains
         if(use_ice) then
             !___compute fluxes from ocean to ice________________________________
             if (flag_debug .and. f%mype==0)  print *, achar(27)//'[34m'//' --> call ocean2ice(n)'//achar(27)//'[0m'
-            call ocean2ice(f%ice, f%dynamics, f%tracers, f%partit, f%mesh)
+!sl?            call ocean2ice(f%ice, f%dynamics, f%tracers, f%partit, f%mesh)
             
             !___compute update of atmospheric forcing____________________________
-            if (flag_debug .and. f%mype==0)  print *, achar(27)//'[34m'//' --> call update_atm_forcing(n)'//achar(27)//'[0m'
+            !slif (flag_debug .and. f%mype==0)  print *, achar(27)//'[34m'//' --> call update_atm_forcing(n)'//achar(27)//'[0m'
+            if (f%mype==0)  print *, achar(27)//'[34m'//' --> call update_atm_forcing(n)'//achar(27)//'[0m'
             f%t0_frc = MPI_Wtime()
 #if defined (FESOM_PROFILING)
         call fesom_profiler_start("update_atm_forcing")
 #endif
-#if defined (__yac)
-            call update_atm_forcing_yac(n, f%ice, f%tracers, f%dynamics, f%partit, f%mesh)
+#if defined (__yac_atm)
+!sl            call update_atm_forcing_yac(n, f%ice, f%tracers, f%dynamics, f%partit, f%mesh)
+            if (f%mype==0)  print *, achar(27)//'[34m'//' --> later update_atm_forcing(n)'//achar(27)//'[0m'
 #else
+            ! Not __yac_atm: pure-forced FESOM and standalone FESOM-FESIM both read
+            ! the ocean's own atmospheric forcing from files here, every step.
             call update_atm_forcing(n, f%ice, f%tracers, f%dynamics, f%partit, f%mesh)
-#endif 
+#endif
 #if defined (FESOM_PROFILING)
         call fesom_profiler_end("update_atm_forcing")
 #endif
@@ -689,9 +719,29 @@ contains
             if (flag_debug .and. f%mype==0)  print *, achar(27)//'[34m'//' --> call ice_timestep(n)'//achar(27)//'[0m'
             if (f%ice%ice_update) then
 #if defined (FESOM_PROFILING)
-        call fesom_profiler_start("ice_timestep")
+            call fesom_profiler_start("ice_timestep")
 #endif
-                call ice_timestep(n, f%ice, f%partit, f%mesh)
+            if (f%mype==0)  print *, achar(27)//'[34m'//' --> would call ice_timestep(n)'//achar(27)//'[0m'
+!sl                call ice_timestep(n, f%ice, f%partit, f%mesh)
+#if defined (__yac_atm)
+            ! ICON case: atm + ocean<->ice exchange done together (Stage 3).
+            if (f%mype==0)  print *, achar(27)//'[34m'//' --> now update_atm_forcing_yac'//achar(27)//'[0m'
+            call update_atm_forcing_yac(n, f%ice, f%tracers, f%dynamics, f%partit, f%mesh)
+#elif defined (__ifs_fwd) && defined (__yac)
+            ! IFS case (Stage 4 config #1): the IFS interface already deposited the
+            ! atm fluxes into the ocean's arrays this step; here we do the
+            ! ocean<->ice YAC exchange (recv ice state incl. ice_temp/ice_alb for
+            ! onward relay to IFS, send native ocean state + forwarded IFS fluxes).
+            if (f%mype==0)  print *, achar(27)//'[34m'//' --> now exchange_oce_ice_ifs'//achar(27)//'[0m'
+            call exchange_oce_ice_ifs(n, f%ice, f%tracers, f%dynamics, f%partit, f%mesh)
+#elif defined (__yac)
+            ! Standalone FESOM-FESIM (Stage 4 config #2): the ocean's own forcing
+            ! was already read from files above; here we do the ocean<->ice YAC
+            ! exchange (recv ice state, send native ocean state + raw atm state).
+            if (f%mype==0)  print *, achar(27)//'[34m'//' --> now exchange_oce_ice_yac'//achar(27)//'[0m'
+            call exchange_oce_ice_yac(n, f%ice, f%tracers, f%dynamics, f%partit, f%mesh)
+#endif
+
 #if defined (FESOM_PROFILING)
         call fesom_profiler_end("ice_timestep")
 #endif

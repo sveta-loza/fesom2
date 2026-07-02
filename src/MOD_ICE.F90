@@ -562,10 +562,14 @@ subroutine ice_init(ice, partit, mesh)
     namelist /ice_dyn/ whichEVP, Pstar, ellipse, c_pressure, delta_min, evp_rheol_steps, &
                        Cd_oce_ice, ice_gamma_fct, ice_diff, theta_io, ice_ave_steps, &
                        alpha_evp, beta_evp, c_aevp
-    logical        :: snowdist, new_iclasses
-    integer        :: open_water_albedo, iclasses
-    real(kind=WP)  :: Sice, h0, h0_s, emiss_ice, emiss_wat, albsn, albsnm, albi, &
-                      albim, albw, con, consn, hmin, armin, c_melt, h_cutoff
+    ! Defaults MUST match the t_ice_thermo component defaults: with -init=zero a namelist
+    ! variable omitted from namelist.ice would otherwise be read as 0 (e.g. iclasses=0 ->
+    ! rhice/real(iclasses)=0/0=NaN; armin=0 -> thick=h/0; h0_s=0 -> /lid_clo). See F5b.
+    logical        :: snowdist=.true., new_iclasses=.false.
+    integer        :: open_water_albedo=0, iclasses=7
+    real(kind=WP)  :: Sice=4.0_WP, h0=0.5_WP, h0_s=0.5_WP, emiss_ice=0.97_WP, emiss_wat=0.97_WP, &
+                      albsn=0.83_WP, albsnm=0.79_WP, albi=0.75_WP, albim=0.72_WP, albw=0.066_WP, &
+                      con=2.1656_WP, consn=0.31_WP, hmin=0.01_WP, armin=0.01_WP, c_melt=0.5_WP, h_cutoff=3.0_WP
     namelist /ice_therm/ Sice, iclasses, h0, h0_s, hmin, armin,  emiss_ice, emiss_wat, albsn, albsnm, albi, &
                          albim, albw, con, consn,  snowdist, new_iclasses, open_water_albedo, c_melt, h_cutoff
     !___________________________________________________________________________

@@ -131,7 +131,7 @@ END DO
 !$OMP END PARALLEL DO
 end subroutine cut_off
 
-#if !defined (__oasis) && !defined (__ifsinterface) && !defined (__yac)
+#if !defined (__oasis) && !defined (__ifsinterface) && !defined (__yac_atm) && !defined (__ifs_fwd)
 !_______________________________________________________________________________
 ! Sea-ice thermodynamics routines
 !
@@ -333,7 +333,7 @@ subroutine thermodynamics(ice, partit, mesh)
         end if
     end do
 !$OMP END DO
-!$OMP END PARALLEL 
+!$OMP END PARALLEL
 end subroutine thermodynamics
 !
 !
@@ -604,7 +604,7 @@ subroutine therm_ice(ithermp, h, hsn, A, fsh, flo, Ta, qa, rain, snow, runo, rss
     end if
     
     evap=evap+subli
-    
+
 end subroutine therm_ice
 !
 !
@@ -642,7 +642,7 @@ subroutine budget (ithermp, hice,hsn,t,ta,qa,fsh,flo,ug,S_oc,ch_i,ce_i,fh,subli)
     real(kind=WP)  hfsen,hfrad,hflat,hftot,subli         
     real(kind=WP)  alb             ! Albedo of sea ice
     real(kind=WP)  q1, q2	  ! coefficients for saturated specific humidity
-    real(kind=WP)  A1,A2,A3,B,C, d1, d2, d3   
+    real(kind=WP)  A1,A2,A3,B,C, d1, d2, d3
     real(kind=WP), external :: TFrez
     !___________________________________________________________________________
     real(kind=WP), pointer :: boltzmann, emiss_ice, tmelt, cl, clhi, con, cpair, &
@@ -704,6 +704,10 @@ subroutine budget (ithermp, hice,hsn,t,ta,qa,fsh,flo,ug,S_oc,ch_i,ce_i,fh,subli)
         C=C*(TFrez(S_oc)-t)                     ! downward conductivity term
         
         t=t+(A1+A2+C)/A3                        ! NEW ICE TEMPERATURE AS THE SUM OF ALL COMPONENTS
+        t=min(0.0_WP, max(t, -100.0_WP))       ! keep t physical each iter: prevents the
+                                               ! unbounded Newton from overshooting into
+                                               ! exp(q2/(t+tmelt)) / (t+tmelt)**4 overflow -> NaN
+                                               ! (cold-start Arctic nucleation, t_skin=0 guess)
     end do
     t=min(0.0_WP,t)
     
@@ -966,4 +970,4 @@ end function compute_solar_zenith_angle
 !
 !
 !_______________________________________________________________________________
-#endif /* #if !defined (__coupled) && !defined (__ifsinterface) */
+#endif /* self-bulk thermo: !__oasis && !__ifsinterface && !__yac_atm && !__ifs_fwd (standalone forced, incl. __yac) */

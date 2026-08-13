@@ -12,6 +12,8 @@ subroutine REcoM_Forcing(zNodes, n, Nn, state, SurfSW, Loc_slp, Temp, Sali, Sali
             , kspc_watercolumn                                         &
             , rhoSW_watercolumn                                        &
 #if defined(__RECOM_WAVEBANDS)
+            , oasim_ed                                                 &
+            , oasim_es                                                 &        
             , Light_watercolumn                                        &
 #endif            
             , PAR, ice, dynamics, tracers, partit, mesh)
@@ -80,7 +82,7 @@ subroutine REcoM_Forcing(zNodes, n, Nn, state, SurfSW, Loc_slp, Temp, Sali, Sali
 !sl    INTEGER :: myThid
     INTEGER :: kSurface, hFacC
     real(kind=8),dimension(mesh%nl-1,tlam,ed_num) :: Light_watercolumn
-    real(kind=8)                                  :: solz
+    real(kind=8)                                  :: solz = 30   ! please double check and think off
     real(kind=8)                                  :: PARadiation ! we have to find fesom-recom analogue
     Real(kind=8),dimension(tlam)                  :: PARwup
     Real(kind=8),dimension(tlam)                  :: PARwdn
@@ -290,6 +292,25 @@ endif
        ldiscEu = 0
        discEs = 0.
        discEu = 0.
+!------- get related local states ----------------------------------------
+       do k=1,Nr
+          phychl_k(1,k) = state(k,ipchl)
+          phychl_k(2,k) = state(k,idchl)
+          if (enable_coccos) then
+             phychl_k(3,k) = state(k,icchl)
+             phychl_k(4,k) = state(k,iphachl)
+          endif
+          phychl_k(1,k) = state(k,iphyc)
+          phychl_k(2,k) = state(k,idiac)
+          if (enable_coccos) then
+             phychl_k(3,k) = state(k,icocc)
+             phychl_k(4,k) = state(k,iphac)
+          endif
+          part_k(k) = state(k,idetc) + state(k,idetz2c)
+          if (RECOM_CDOM) then
+             cdom_k(k) = state(k,icdom)
+          endif
+       enddo
 !SL as proposed:
 !if (OASIM) then
 !      call recom_oasim_get_surface_light(...)

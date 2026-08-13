@@ -406,6 +406,8 @@ endif
            , kspc_watercolumn                                    & ! NEW DISS stoichiometric solubility product for calcite [mol^2/kg^2]
            , rhoSW_watercolumn                                   & ! NEW DISS in-situ density of seawater [mol/m^3]
 #if defined(__RECOM_WAVEBANDS)
+           , oasim_ed2D(n,:)                                     &
+           , oasim_es2D(n,:)                                     &
            , Light_watercolumn                                   & ! Light (Ed) variables
 #endif           
                            , PAR, ice, dynamics, tracers, partit, mesh)

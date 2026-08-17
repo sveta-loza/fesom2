@@ -417,7 +417,8 @@ endif
           PARwup_diag(ilam) = PARwup(ilam)
        enddo   ! ilam
 !sl          if (mype==0) write (*,*) ' PARadiation = ', PARadiation
-!sl       if (mype==0) write (*,*) ' Edwsf, Eswsf = ', Edwsf, Eswsf
+!sl          if (mype==0) write (*,*) ' wb_width = ', wb_width  ! why could it be 0
+!sl          if (mype==0) write (*,*) ' Edwsf = ', Edwsf
           PARwup_total = 0.
              do ilam = 1,tlam
              PARwup_total = PARwup_total + PARwup(ilam)

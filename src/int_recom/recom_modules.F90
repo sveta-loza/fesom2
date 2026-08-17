@@ -2333,7 +2333,7 @@ contains
 !BOP
 !     !ROUTINE: WAVEBANDS_INIT_FIXED
 !     !INTERFACE:
-       subroutine wavebands_init_fixed(mype)
+       subroutine wavebands_init_fixed(mype,wb_width)
 ! following CV
 ! subroutine wavebands_init_fixed(mype, partit, mesh)
 !     !DESCRIPTION: \bv
@@ -2419,6 +2419,7 @@ contains
         darwin_waves(11) = 650
         darwin_waves(12) = 675
         darwin_waves(13) = 700
+        darwin_waves(14) = 725
 !sl      ENDIF
 
 
@@ -2462,7 +2463,7 @@ contains
           STOP 'ABNORMAL END: S/R WAVEBANDS_INIT_FIXED 1'
         endif
       enddo
-      !sl if (mype==0) WRITE(*,*) '1 pwaves = ', pwaves
+      if (mype==0) WRITE(*,*) '1 pwaves = ', pwaves
       !sl WRITE(*,*) ' mype = ', mype, ' 2 pwaves = ', pwaves
 
 ! if waveband boundaries not given, compute from representative values
@@ -2512,7 +2513,7 @@ contains
           STOP 'ABNORMAL END: S/R WAVEBANDS_INIT_FIXED 2'
         endif
       enddo
-      !sl WRITE(*,*) ' mype = ', mype, ' 3 wb_Width = ', wb_width
+!sl      if (mype==0) WRITE(*,*) ' mype = ', mype, ' 3 wb_width = ', wb_width
       !sl double check the following      
 !     ...but require at least one non-zero-width band
       if (wb_totalWidth.LE.0.0d0) then

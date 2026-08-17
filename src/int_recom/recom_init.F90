@@ -324,7 +324,8 @@ subroutine recom_init(tracers, partit, mesh)
     Euz3D     = 0.d0
     Eutop3D   = 0.d0
     Estop3D   = 0.d0
-    call wavebands_init_fixed(mype)    
+    call wavebands_init_fixed(mype,wb_width)
+!sl    if (mype==0) write(*,*) 'init wb_width = ', wb_width    
 !   call wavebands_init_fixed(mype, partit, mesh)    
 ! CV insert missing call to wavebands_init_vari
      call wavebands_init_vari(mype)

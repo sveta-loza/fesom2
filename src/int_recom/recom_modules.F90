@@ -2632,7 +2632,7 @@ if (recom_debug) print *, achar(27)//'[36m'//'     --> surfacespec file'//achar(
        enddo
        close(iUnit)
 40     format(i5,f15.6)
-!sl      write(*,*) ' sf for mype = ', mype, sf
+!sl      if (mype==0) write(*,*) ' sf for mype = ', mype, sf
       else
         WRITE(msgBuf,'(A)')                                            &
      &      'WAVEBANDS_INIT_FIXED: need surface spectrum'

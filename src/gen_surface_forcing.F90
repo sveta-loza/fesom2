@@ -1799,9 +1799,9 @@ if (recom_debug .and. mype==0) print *, achar(27)//'[36m'//'     --> Atm_input'/
           i=month
           if (mstep > 1) i=i+1 
           if (i > 12) i=1
-          if(.not. allocated(oasim_surf)) allocate(oasim_surf(myDim_nod2D))
-          if(.not. allocated(oasim_es2D)) allocate(oasim_es2D(myDim_nod2D,tlam))
-          if(.not. allocated(oasim_ed2D)) allocate(oasim_ed2D(myDim_nod2D,tlam))
+          !sl if(.not. allocated(oasim_surf)) allocate(oasim_surf(myDim_nod2D))
+          !sl if(.not. allocated(oasim_es2D)) allocate(oasim_es2D(myDim_nod2D,tlam))
+          !sl if(.not. allocated(oasim_ed2D)) allocate(oasim_ed2D(myDim_nod2D,tlam))
           do nlam=1,tlam
              write(wavelen_str,'(i3)') pwaves(nlam)
              filename = TRIM(OASIM_path)//'Es_'//wavelen_str//'_'//TRIM(OASIM_file_pattern)

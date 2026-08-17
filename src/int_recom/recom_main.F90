@@ -392,6 +392,7 @@ endif
         end if
 
         if (recom_debug .and. mype==0) print *, achar(27)//'[36m'//'     --> REcoM_Forcing'//achar(27)//'[0m'
+!sl        if (mype==71) write(*,*) ' oasim_ed2D(n,:), oasim_es2D(n,:) = ', oasim_ed2D(n,:), oasim_es2D(n,:)
 
 ! ======================================================================================
 !******************************** RECOM FORCING ****************************************

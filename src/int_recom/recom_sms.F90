@@ -1411,9 +1411,11 @@ endif
            PARave = zero
            do nlam = 1,tlam
               PARave = PARave + (PARwlocal(nlam,k) / WtouEins(nlam))
+!              if (mype==0 .and. k == 1) write(*,*) 'PARwlocal = ', PARwlocal(nlam,k), WtouEins(nlam)  
            end do
            PARave = max(tiny, PARave)
 !          PARave = max(tiny,(PARlocal(k)/4.596))
+           PAR(k) = PARave
 #else /* not RECOM_WAVEBANDS */
             
 

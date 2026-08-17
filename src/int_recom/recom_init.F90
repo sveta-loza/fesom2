@@ -325,14 +325,17 @@ subroutine recom_init(tracers, partit, mesh)
     Eutop3D   = 0.d0
     Estop3D   = 0.d0
     call wavebands_init_fixed(mype)    
+!   call wavebands_init_fixed(mype, partit, mesh)    
+! CV insert missing call to wavebands_init_vari
+     call wavebands_init_vari(mype)
 !if (OASIM) then
-!SL as proposed
-    allocate(oasim_surf(node_size))
-    allocate(oasim_ed2D(node_size,tlam))
-    allocate(oasim_es2D(node_size,tlam))
-    oasim_surf = 0.d0
-    oasim_ed2D = 0.d0
-    oasim_es2D = 0.d0
+!SL as proposed but moved to gen_forcing
+!sl    allocate(oasim_surf(node_size))
+!sl    allocate(oasim_ed2D(node_size,tlam))
+!sl    allocate(oasim_es2D(node_size,tlam))
+!sl    oasim_surf = 0.d0
+!sl    oasim_ed2D = 0.d0
+!sl    oasim_es2D = 0.d0
 !   call recom_oasim_init(mesh, partit, mype)
 !endif   
 #endif

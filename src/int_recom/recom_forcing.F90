@@ -82,7 +82,7 @@ subroutine REcoM_Forcing(zNodes, n, Nn, state, SurfSW, Loc_slp, Temp, Sali, Sali
 !sl    INTEGER :: myThid
     INTEGER :: kSurface, hFacC
     real(kind=8),dimension(mesh%nl-1,tlam,ed_num) :: Light_watercolumn
-    real(kind=8)                                  :: solz = 30   ! please double check and think off
+    real(kind=8)                                  :: solz        ! please double check and think off
     real(kind=8)                                  :: PARadiation ! we have to find fesom-recom analogue
     Real(kind=8),dimension(tlam)                  :: PARwup
     Real(kind=8),dimension(tlam)                  :: PARwdn
@@ -270,6 +270,8 @@ endif
     call Cobeta(partit, mesh)  
 
     call Depth_calculations(n, Nn,SinkVel,zF,thick,recipthick, partit, mesh)
+    dz_k = thick
+    kSurface = one
 
 !SL as proposed moved from following down lines    
     !!---- lon
@@ -282,6 +284,7 @@ endif
 !======================================================================
 #if defined(__RECOM_WAVEBANDS)
        Nr = mesh%nl-1
+       darwin_radtrans_kmax = Nr
        idiscEs = 0
        jdiscEs = 0
        kdiscEs = 0
@@ -413,6 +416,7 @@ endif
           endif
           PARwup_diag(ilam) = PARwup(ilam)
        enddo   ! ilam
+!sl       if (mype==71) write (*,*) ' Edwsf, Eswsf = ', Edwsf, Eswsf 
           PARwup_total = 0.
              do ilam = 1,tlam
              PARwup_total = PARwup_total + PARwup(ilam)
@@ -422,7 +426,8 @@ if (RECOM_RADTRANS) then
 !     angle (in radians) at surface (solz=zenith_deg from RECOM_INSOLATION.F)
          sinszaw = sin(solz)/rn
          szaw = asin(sinszaw)
-         rmudl = 1.0/cos(szaw)    !avg cosine direct (1 over)
+!sl         rmudl = 1.0/cos(szaw)    !avg cosine direct (1 over)
+         rmudl = 1.0/cosAI(n)
          rmud = min(rmudl,1.5)
          rmud = max(rmud,0.0)
 end if   
@@ -433,8 +438,7 @@ if (.not. RECOM_RADTRANS) then
 !SL Confirm with Sergey or Dima about the grid design
 !SL !! zNodes !!
 !SL mind kSurface
-         kSurface = one
-         dz_k = thick
+!SL      kSurface = one
 !SL      hFacC = 1.d0 
          do k=1,Nr
            do ilam = 1,tlam
@@ -920,6 +924,8 @@ if (recom_debug .and. mype==0) print *, achar(27)//'[36m'//'     --> REcoM_sms'/
 !slendif
 #endif        
         , Lond, Latd, ice, dynamics, tracers, partit, mesh)
+
+!sl?        PAR = PARl
 
   state(1:nn,:)      = max(tiny,state(1:nn,:) + sms(1:nn,:))
 

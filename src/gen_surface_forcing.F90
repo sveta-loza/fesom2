@@ -1799,17 +1799,21 @@ if (recom_debug .and. mype==0) print *, achar(27)//'[36m'//'     --> Atm_input'/
           i=month
           if (mstep > 1) i=i+1 
           if (i > 12) i=1
+          if(.not. allocated(oasim_surf)) allocate(oasim_surf(myDim_nod2D))
+          if(.not. allocated(oasim_es2D)) allocate(oasim_es2D(myDim_nod2D,tlam))
+          if(.not. allocated(oasim_ed2D)) allocate(oasim_ed2D(myDim_nod2D,tlam))
           do nlam=1,tlam
              write(wavelen_str,'(i3)') pwaves(nlam)
              filename = TRIM(OASIM_path)//'Es_'//wavelen_str//'_'//TRIM(OASIM_file_pattern)
              if (mype==0) write(*,*) 'Reading OASIM spectral shortwave input for month ', i,' from ', trim(filename)
              call read_other_NetCDF(filename, OASIM_Es_varname, i, oasim_surf, .true., .true., partit, mesh)
-             oasim_es2d(:,nlam) = oasim_surf
+             oasim_es2D(:,nlam) = oasim_surf
              filename = TRIM(OASIM_path)//'Ed_'//wavelen_str//'_'//TRIM(OASIM_file_pattern)
              if (mype==0) write(*,*) 'Reading OASIM spectral shortwave input for month ', i,' from ', trim(filename)
              call read_other_NetCDF(filename, OASIM_Ed_varname, i, oasim_surf, .true., .true., partit, mesh)
-             oasim_ed2d(:,nlam) = oasim_surf
+             oasim_ed2D(:,nlam) = oasim_surf
           enddo
+          !sl deallocate(oasim_surf)
        endif
     endif
 #endif /* (__RECOM_WAVEBANDS) */

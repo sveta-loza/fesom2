@@ -2199,29 +2199,29 @@ module REcoM_spectral
 !sl         Real(kind=8)                 :: QYmax
 !sl         Real(kind=8)                 :: QYmax_d
 !sl if (RECOM_CALC_ACDOM) then
-         Real(kind=8)                 :: darwin_Sdom          ! used in acdom calculations
-         Real(kind=8)                 :: darwin_lambda_aCDOM  ! wavelength where aCDOM is given
-         Real(kind=8),dimension(tlam) :: excdom               ! CDOM exponent
-         Real(kind=8)                 :: cdomcoeff            ! specific CDOM absorption
-         Integer                      :: nlaCDOM              ! nl number where aCDOM is given used in acdom calculations
+         Real(kind=8)                 :: darwin_Sdom=0.021          ! used in acdom calculations
+         Real(kind=8)                 :: darwin_lambda_aCDOM=450.   ! wavelength where aCDOM is given
+         Real(kind=8),dimension(tlam) :: excdom                     ! CDOM exponent
+         Real(kind=8)                 :: cdomcoeff= 0.18            ! specific CDOM absorption
+         Integer                      :: nlaCDOM                    ! nl number where aCDOM is given used in acdom calculations
 !sl if (RECOM_CDOM) then
-         Real(kind=8)                 :: darwin_aCDOM_fac     ! ratio of aCDOM to (aphy+aw) at darwin_lambda_aCDOM
+         Real(kind=8)                 :: darwin_aCDOM_fac=0.2       ! ratio of aCDOM to (aphy+aw) at darwin_lambda_aCDOM
 !sl endif
 !sl else
          Real(kind=8),dimension(tlam) :: acdom
 !sl endif
 !sl if (RECOM_CALC_APART) then
-         Real(kind=8)                 :: darwin_Sapar          ! used in aPart calculations
-         Real(kind=8)                 :: darwin_lambda_aPart   ! wavelength where aPart is given
-         Real(kind=8),dimension(tlam) :: exapar                ! aPart exponent
-         Real(kind=8)                 :: aparcoeff             ! specific Particles absorption
-         Integer                      ::nlaAPAR                ! nl number where aPart is given used in aPart calculations
-         Real(kind=8)                 :: darwin_Sbpar          ! used in bPart calculations
-         Real(kind=8)                 :: darwin_lambda_bPart   ! wavelength where bPart is given
-         Real(kind=8),dimension(tlam) :: exbpar                ! bPart exponent
-         Real(kind=8)                 :: bparcoeff             ! specific Particles scatter
-         Integer                      :: nlaBPAR                ! nl number where bPart is given used in bPart calculations
-         Real(kind=8)                 :: bb_to_b               ! backscatter to total scatter ratio
+         Real(kind=8)                 :: darwin_Sapar=0.013         ! used in aPart calculations
+         Real(kind=8)                 :: darwin_lambda_aPart=440.   ! wavelength where aPart is given
+         Real(kind=8),dimension(tlam) :: exapar                     ! aPart exponent
+         Real(kind=8)                 :: aparcoeff=0.016            ! specific Particles absorption
+         Integer                      :: nlaAPAR                    ! nl number where aPart is given used in aPart calculations
+         Real(kind=8)                 :: darwin_Sbpar=0.5           ! used in bPart calculations
+         Real(kind=8)                 :: darwin_lambda_bPart=550.   ! wavelength where bPart is given
+         Real(kind=8),dimension(tlam) :: exbpar                     ! bPart exponent
+         Real(kind=8)                 :: bparcoeff=0.345            ! specific Particles scatter
+         Integer                      :: nlaBPAR                    ! nl number where bPart is given used in bPart calculations
+         Real(kind=8)                 :: bb_to_b=0.05               ! backscatter to total scatter ratio
 !sl else
          Real(kind=8),dimension(tlam) :: apart
          Real(kind=8),dimension(tlam) :: bpart
@@ -2229,10 +2229,10 @@ module REcoM_spectral
          Real(kind=8),dimension(tlam) :: apart_P
          Real(kind=8),dimension(tlam) :: bpart_P
          Real(kind=8),dimension(tlam) :: bbpart_P
-         Real(kind=8)                 :: darwin_part_size_P
+         Real(kind=8)                 :: darwin_part_size_P=1.06e-13 ! biomass/particle conversion for detritus [mmol C/particle]
 !sl endif
 !sl if (RECOM_CALC_REFLEC) then
-         Integer                      :: darwin_diag_acdom_ilam    ! waveband to write to diagnostic
+         Integer                      :: darwin_diag_acdom_ilam=450  ! waveband to write to diagnostic
 !sl endif
 
 !sl if (RECOM_RADTRANS) then
@@ -2261,7 +2261,7 @@ module REcoM_spectral
 !     &      ,darwin_radtrans_kmax
 !     &      ,darwin_radtrans_niter
 
-      Integer                      :: darwin_PAR_ilamLo, darwin_PAR_ilamHi
+      Integer                      :: darwin_PAR_ilamLo=1, darwin_PAR_ilamHi=13
       Integer                      :: darwin_radtrans_kmax
       Integer, parameter           :: darwin_radtrans_niter = -2
 !      COMMON /DARWIN_RADTRANS_PARM_R/
@@ -2271,12 +2271,13 @@ module REcoM_spectral
 !     &       darwin_bbphy,
 !     &       darwin_bbmin
 
-      Real(kind=8)                  :: darwin_radmodThresh
-      Real(kind=8)                  :: darwin_Dmax
-      Real(kind=8)                  :: darwin_rmus, darwin_rmuu
-      Real(kind=8)                  :: darwin_bbw
-      Real(kind=8)                  :: darwin_bbphy(tnabp)
-      Real(kind=8)                  :: darwin_bbmin
+      Real(kind=8)                  :: darwin_radmodThresh=1e-4  ! threshold for radiation calculations [W/m**2]
+      Real(kind=8)                  :: darwin_Dmax=500.0         ! maximum depth for downwelling radiation [m]
+      Real(kind=8)                  :: darwin_rmus=1.204819277   ! inverse average cosine of downward diffuse radiation [dimensionless 1.0/0.83]
+      Real(kind=8)                  :: darwin_rmuu=2.5           ! inverse average cosine of upward diffuse radiation [dimensionless 1.0/0.4]
+      Real(kind=8)                  :: darwin_bbw=0.5            ! backscatter to forward scattering ratio for water
+      Real(kind=8)                  :: darwin_bbphy(tnabp)=0.0   ! double check
+      Real(kind=8)                  :: darwin_bbmin=0.0002
 
 ! dependent/hardcoded parameters:
 !
@@ -2333,7 +2334,8 @@ contains
 !     !ROUTINE: WAVEBANDS_INIT_FIXED
 !     !INTERFACE:
        subroutine wavebands_init_fixed(mype)
-
+! following CV
+! subroutine wavebands_init_fixed(mype, partit, mesh)
 !     !DESCRIPTION: \bv
 !     *==========================================================*
 !     | SUBROUTINE WAVEBANDS_INIT_FIXED
@@ -2342,7 +2344,13 @@ contains
 !     \ev
 
 !     !USES:
+! following CV
+!     USE MOD_MESH
+!     use MOD_PARTIT ! to get MPI_COMM_FESOM
        implicit none
+! following CV
+!     type(t_mesh),   intent(in),    target :: mesh
+!     type(t_partit), intent(inout), target :: partit
 !sl#if defined(__RECOM_WAVEBANDS)
 !     == Global variables ===
 !#include "SIZE.h"
@@ -2415,7 +2423,7 @@ contains
 
 
 !sl      _BEGIN_MASTER(myThid)
-      if (mype == 0) then
+!sl      if (mype == 0) then
 !sl      rad = 180.0D0/pid        
 ! Quanta conversion
       planck = 6.6256d-34   !Plancks constant J sec
@@ -2433,7 +2441,7 @@ contains
         STOP 'ABNORMAL END: S/R RECOM_READPARMS'
        ENDIF
       enddo
-      if (mype==0) WRITE(*,*) ' 1 darwin_waves = ', darwin_waves    
+      !sl WRITE(*,*) ' mype = ', mype, ' 1 darwin_waves = ', darwin_waves    
 
 ! fill in missing waveband information:
 ! "representative values" darwin_waves need not be centered within
@@ -2454,7 +2462,8 @@ contains
           STOP 'ABNORMAL END: S/R WAVEBANDS_INIT_FIXED 1'
         endif
       enddo
-      if (mype==0) WRITE(*,*) '1 pwaves = ', pwaves
+      !sl if (mype==0) WRITE(*,*) '1 pwaves = ', pwaves
+      !sl WRITE(*,*) ' mype = ', mype, ' 2 pwaves = ', pwaves
 
 ! if waveband boundaries not given, compute from representative values
 ! these will be used to compute waveband widths
@@ -2474,8 +2483,7 @@ contains
          endif
        enddo
 
-      if (mype==0) WRITE(*,*) ' darwin_wavebands = ', darwin_wavebands
-      if (mype==0) WRITE(*,*) ' pwaves = ', pwaves
+      !sl WRITE(*,*) ' mype = ', mype,  ' 3 darwin_wavebands = ', darwin_wavebands
 
 ! waveband widths used to compute total PAR and alpha_mean
       wb_totalWidth = 0.0d0
@@ -2504,7 +2512,7 @@ contains
           STOP 'ABNORMAL END: S/R WAVEBANDS_INIT_FIXED 2'
         endif
       enddo
-      if (mype==0) WRITE(*,*) 'wb_Width = ', wb_width
+      !sl WRITE(*,*) ' mype = ', mype, ' 3 wb_Width = ', wb_width
       !sl double check the following      
 !     ...but require at least one non-zero-width band
       if (wb_totalWidth.LE.0.0d0) then
@@ -2519,7 +2527,7 @@ contains
 
 !  Water data files
       if (darwin_waterabsorbFile .NE. ' '  ) THEN
- if (recom_debug .and. mype==0) print *, achar(27)//'[36m'//'     --> Water data file'//achar(27)//'[0m'             
+ if (recom_debug) print *, achar(27)//'[36m'//'     --> Water data file'//achar(27)//'[0m'             
 !sl        CALL MDSFINDUNIT( iUnit, myThid )
         open(iUnit,file=darwin_waterabsorbFile,                 &
                                  status='old',form='formatted')
@@ -2542,7 +2550,7 @@ contains
         enddo
         close(iUnit)
 20      format(i5,f15.4,f10.4)
-if (recom_debug .and. mype==0) print *, achar(27)//'[36m'//'     --> end Water data file'//achar(27)//'[0m'
+if (recom_debug) print *, achar(27)//'[36m'//'     --> end Water data file'//achar(27)//'[0m'
       else
         WRITE(msgBuf,'(A)')                                           &
             'WAVEBANDS_INIT_FIXED: need to specify water absorption'
@@ -2555,7 +2563,7 @@ if (recom_debug .and. mype==0) print *, achar(27)//'[36m'//'     --> end Water d
 ! ANNA phyto input data files must have a column for absorption by PS pigs
 ! ANNA easiest way to 'turn off' PS for growth is to put same values in both abs columns
       if (darwin_phytoabsorbFile.NE. ' '  ) THEN
- if (recom_debug .and. mype==0) print *, achar(27)//'[36m'//'     --> phytoabsorb file'//achar(27)//'[0m'             
+ if (recom_debug) print *, achar(27)//'[36m'//'     --> phytoabsorb file'//achar(27)//'[0m'             
 !sl        CALL MDSFINDUNIT( iUnit, myThid )
         open(iUnit,file=darwin_phytoabsorbFile,                          &
                                          status='old',form='formatted')
@@ -2569,10 +2577,10 @@ if (recom_debug .and. mype==0) print *, achar(27)//'[36m'//'     --> end Water d
          do ilam  = 1,tlam
 if  (DAR_NONSPECTRAL_BACKSCATTERING_RATIO) then
           read(iUnit,30)splambda,sap,sap_ps,sbp
-          if (mype==0) write(*,*) ' DAR_NONSPECTRAL_BACKSCATTERING_RATIO ', splambda,sap,sap_ps,sbp
+          write(*,*) ' DAR_NONSPECTRAL_BACKSCATTERING_RATIO ', splambda,sap,sap_ps,sbp
 else
           read(iUnit,'(i4,3f10.4,f20.14)')splambda,sap,sap_ps,sbp,sbbp
-          if (mype==0) write(*,*) 'no DAR_NONSPECTRAL_BACKSCATTERING_RATIO ', splambda,sap,sap_ps,sbp,sbbp
+!          write(*,*) 'no DAR_NONSPECTRAL_BACKSCATTERING_RATIO ', splambda,sap,sap_ps,sbp,sbbp
 endif
           if (splambda.NE.pwaves(ilam)) then
            WRITE(msgBuf,'(2A)') 'WAVEBANDS_INIT_FIXED: ',                &
@@ -2602,7 +2610,7 @@ endif
 ! QQ Surface spectrum NEED IN HERE for initial use
 if (.not. OASIM) then
       if (darwin_surfacespecFile .NE. ' '  ) THEN
-if (recom_debug .and. mype==0) print *, achar(27)//'[36m'//'     --> surfacespec file'//achar(27)//'[0m'              
+if (recom_debug) print *, achar(27)//'[36m'//'     --> surfacespec file'//achar(27)//'[0m'              
 !sl       CALL MDSFINDUNIT( iUnit, myThid )
        open(iUnit,file=darwin_surfacespecFile,                      &
                                   status='old',form='formatted')
@@ -2635,7 +2643,7 @@ endif  ! no OASIM
 if (.not. RECOM_CALC_ACDOM) then
 ! if no file given then CDOM is zero
       if (darwin_acdomFile.NE. ' '  ) THEN
- if (recom_debug .and. mype==0) print *, achar(27)//'[36m'//'     --> acdom file'//achar(27)//'[0m'             
+ if (recom_debug) print *, achar(27)//'[36m'//'     --> acdom file'//achar(27)//'[0m'             
 !sl        CALL MDSFINDUNIT( iUnit, myThid )
         open(iUnit,file=darwin_acdomFile,                             &
                               status='old',form='formatted')
@@ -2918,7 +2926,7 @@ if (RECOM_RADTRANS) then
 endif
 
 !sl      _END_MASTER(myThid)
-     endif
+!sl     endif
 
 !Sl#endif /* RECOM_WAVEBANDS */
 
@@ -3571,6 +3579,7 @@ if (RECOM_RADTRANS) then
       DO WHILE (H(kbot).EQ.0 .AND. kbot.GT.1)
         kbot = kbot - 1
       ENDDO
+
       IF (H(kbot).EQ.0) kbot = kbot - 1
 
       DO nl = 1,tlam
@@ -3586,6 +3595,7 @@ if (RECOM_RADTRANS) then
        ENDDO
       ENDDO
       IF (kbot.GT.0) THEN
+!sl      if (mype==71) write(*,*) ' Edsf, Essf  = ', Edsf, Essf, darwin_radmodThresh        
        DO nl=1,tlam
         IF (Edsf(nl) .GE. darwin_radmodThresh .OR.        &
             Essf(nl) .GE. darwin_radmodThresh) THEN
@@ -3612,6 +3622,7 @@ if (RECOM_RADTRANS) then
           ed(k) = EXP(-cd*zd)
           e1(k) = EXP(-kappa1*zd)
          ENDDO
+!sl         if (mype==71) write(*,*) ' kappa1 = ', kappa1, zd, ed, 'kappa2 = ', kappa2, e1
 
 ! integrate Ed equation first
          Edtop(nl,1) = Edsf(nl)
@@ -3647,8 +3658,12 @@ if (RECOM_RADTRANS) then
          b3d(2*kbot) = 1.0d0  ! + A(2*kbot,2*kbot  )*c1(kbot)
          c3d(2*kbot) = 0.0d0  ! not used
          y3d(2*kbot) = 0.0d0  ! = 0
+!sl         if (mype==71) write(*,*) 'MONOD_RADTRANS_DIRECT, a3d = ', a3d
+!sl         if (mype==71) write(*,*) 'MONOD_RADTRANS_DIRECT, b3d = ', b3d
+!sl         if (mype==71) write(*,*) 'MONOD_RADTRANS_DIRECT, c3d = ', c3d
 
          CALL SOLVE_TRIDIAGONAL_PIVOT(Nn,a3d,b3d,c3d,y3d,2*kbot)
+!sl         if (mype==71) write(*,*) 'MONOD_RADTRANS_DIRECT, y3d = ', y3d
 
 ! compute irradiances
          DO k=1,kbot
@@ -3700,6 +3715,7 @@ endif
         tirrq(k) = tirrq(k) + tirrwq(nl,k)
        ENDDO
       ENDDO
+      !sl write(*,*) 'end MONOD_RADTRANS_DIRECT, tirrq(1) = ', tirrq(1),tirrq(Nn)
 
 endif !/* RECOM_RADTRANS */
 

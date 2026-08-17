@@ -1499,6 +1499,8 @@ endif
 
             end if
 #endif /* RECOM_WAVEBANDS */
+!sl consider the following in any case: PAR(k) = PARave
+!sl         PAR(k) = PARave
 #if defined(__RECOM_WAVEBANDS)
 ! ANNA if wavebands then uses spectral alphachl derived from spectral alpha * I
 !     so first get value for alphachl_nl * PARwlocal (value will depend on matchup between

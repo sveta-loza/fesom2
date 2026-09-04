@@ -1118,6 +1118,18 @@ CASE ('otracers  ')
          call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/),  'idetz2calc', 'idetz2calc', '[mmol/m3]', tracers%data(j)%values(:,:), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, partit, mesh)
          endif
 
+#if defined(__RECOM_WAVEBANDS)
+! Coloured dissolved organic matter. Its tracer ID is configuration dependent
+! (1031 with enable_3zoo2det and .not.enable_coccos, 1037 with both), so match
+! on recom_cdom_tracer_id rather than a literal. This branch must stay AHEAD of
+! the hard-coded 1029/1030/1031 cases below: without enable_coccos those IDs
+! are MicZooN, MicZooC and CDOM, not CoccoN, CoccoC and CoccoChl.
+      else if (RECOM_CDOM .and. tracers%data(j)%ID==recom_cdom_tracer_id) then
+         if (use_REcoM) then
+         call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/),  'CDOM', 'Coloured dissolved organic carbon', '[mmol/m3]', tracers%data(j)%values(:,:), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, partit, mesh)
+         endif
+#endif /* __RECOM_WAVEBANDS */
+
       else if (tracers%data(j)%ID==1029) then
          if (use_REcoM) then
          call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/),  'CoccoN', 'CoccoN', '[mmol/m3]', tracers%data(j)%values(:,:), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, partit, mesh)

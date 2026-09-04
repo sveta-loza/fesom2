@@ -270,8 +270,12 @@ endif
     call Cobeta(partit, mesh)  
 
     call Depth_calculations(n, Nn,SinkVel,zF,thick,recipthick, partit, mesh)
+#if defined(__RECOM_WAVEBANDS)
+    ! dz_k and kSurface are declared behind the RECOM_WAVEBANDS guard and are only used
+    ! by the radiative transfer code below.
     dz_k = thick
     kSurface = one
+#endif /* __RECOM_WAVEBANDS */
 
 !SL as proposed moved from following down lines    
     !!---- lon

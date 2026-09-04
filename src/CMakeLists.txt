@@ -241,7 +241,12 @@ endif()
 
 if(${RECOM_COUPLED})
 #   target_compile_definitions(${PROJECT_NAME} PRIVATE __recom USE_PRECISION=2) # __3Zoo2Det __coccos)# __usetp)
-  target_compile_definitions(${PROJECT_NAME} PRIVATE __recom USE_PRECISION=2 __RECOM_WAVEBANDS)
+  target_compile_definitions(${PROJECT_NAME} PRIVATE __recom USE_PRECISION=2)
+  # spectrally resolved underwater light. Defaults to ON (see the top-level CMakeLists.txt);
+  # configure with -DRECOM_WAVEBANDS=OFF for a non-spectral REcoM build.
+  if(${RECOM_WAVEBANDS})
+    target_compile_definitions(${PROJECT_NAME} PRIVATE __RECOM_WAVEBANDS)
+  endif()
 endif()
 
 if(${CISO_COUPLED})

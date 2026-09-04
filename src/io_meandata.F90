@@ -75,7 +75,11 @@ module io_MEANDATA
 !
 !--------------------------------------------------------------------------------------------
 !
-  type(Meandata), save, target   :: io_stream(150) ! todo: find a way to increase the array withhout move_alloc to keep the derived types in Meandata intact
+  ! Upper bound on the number of I/O streams. Note this is NOT io_listsize (the number of
+  ! entries in &nml_list): a single entry may expand into many streams -- each spectral
+  ! entry ('edz3d', 'esz3d', ...) expands into tlam=13 streams, one per waveband.
+  integer, parameter             :: max_io_streams=400
+  type(Meandata), save, target   :: io_stream(max_io_streams) ! todo: find a way to increase the array withhout move_alloc to keep the derived types in Meandata intact
   integer, save                  :: io_NSTREAMS=0
   real(kind=WP)                  :: ctime !current time in seconds from the beginning of the year
 !
@@ -882,37 +886,22 @@ CASE ('TSi_assimDia          ')
    endif
 
 #if defined (__RECOM_WAVEBANDS)
-   ! 3-d radiation output: 
-   ! I am unsure whether we can define a 3-dimensional output with def_stream; so for the moment
-   ! I define one output for each wave band, and in addition with fixed spectral ranges. This is
-   ! error-prone and should be changed.
+   ! 3-d spectral radiation output:
+   ! def_stream has no 3-d+waveband form, so every waveband is emitted as its own
+   ! 2-d+depth variable named <stream>_<wavelength>, e.g. 'edz3d_425'. A stream is
+   ! enabled by listing its BASE name ('edz3d', 'esz3d', 'euz3d', 'eutop3d', 'estop3d')
+   ! in &nml_list of namelist.io -- not the per-waveband variable name.
+   ! E?z3d(:,:,nlam) is a contiguous section (the waveband is the last dimension), so it
+   ! is safe for def_stream3D to keep a pointer to it.
 CASE ('edz3d                 ')
    if (use_REcoM .and. RECOM_RADTRANS) then
-      var_name = 'edz3d_400'
-      var_longname = 'Direct downwelling radiation at 400 nm'
-      call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/), var_name, var_longname, 'W/m2', Edz3d(:,:,1), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, partit, mesh)
-      var_name = 'edz3d_425'
-      var_longname = 'Direct downwelling radiation at 425 nm'
-      call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/), var_name, var_longname, 'W/m2', Edz3d(:,:,2), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, partit, mesh)
-      var_name = 'edz3d_450'
-      var_longname = 'Direct downwelling radiation at 450 nm'
-      call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/), var_name, var_longname, 'W/m2', Edz3d(:,:,3), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, partit, mesh)
-      var_name = 'edz3d_475'
-      var_longname = 'Direct downwelling radiation at 475 nm'
-      call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/), var_name, var_longname, 'W/m2', Edz3d(:,:,4), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, partit, mesh)
+      do nlam=1,tlam
+         write(wavelen_str, "(i3.3)") pwaves(nlam)
+         var_name = 'edz3d_'//wavelen_str
+         var_longname = 'Direct downwelling radiation at '//wavelen_str//' nm'
+         call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/), var_name, var_longname, 'W/m2', Edz3d(:,:,nlam), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, partit, mesh)
+      enddo
    endif
-!CASE ('edz3d                 ')
-!   if (use_REcoM .and. RECOM_RADTRANS) then
-!      do nlam=1,tlam
-!         write(wavelen_str, "(i3.3)") pwaves(nlam)
-!         var_name = 'edz3d_'//wavelen_str
-!         var_longname = 'Direct downwelling radiation at '//wavelen_str//' nm'
-!         if (mype==0) then
-!            write(*,*) 'Wavelength', pwaves(nlam), var_name
-!         endif
-!         call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/), var_name, var_longname, 'W/m2', Edz3d(:,:,nlam), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, partit, mesh)
-!      enddo
-!   endif
 CASE ('esz3d                 ')
    if (use_REcoM .and. RECOM_RADTRANS) then
       do nlam=1,tlam
@@ -2477,6 +2466,11 @@ subroutine associate_new_stream(name, entry)
     !___________________________________________________________________________
     ! add this instance to io_stream array
     io_NSTREAMS = io_NSTREAMS +1
+    if (io_NSTREAMS > size(io_stream)) then
+        print *,"cannot add I/O stream '"//name//"': more than ",size(io_stream), &
+            &" streams requested. Increase max_io_streams in io_meandata.F90 or shorten &
+            &&nml_list in namelist.io (mind that each spectral entry expands into tlam streams)."
+    end if
     call assert(size(io_stream) >= io_NSTREAMS, __LINE__)
     entry=>io_stream(io_NSTREAMS)
 end subroutine

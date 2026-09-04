@@ -3623,6 +3623,7 @@ if (RECOM_RADTRANS) then
           y(k) = (-Bs*Fd+(cd-Cs)*Bd)/denom
           ed(k) = EXP(-cd*zd)
           e1(k) = EXP(-kappa1*zd)
+          e2(k) = EXP(-kappa2*zd)
          ENDDO
 !sl         if (mype==71) write(*,*) ' kappa1 = ', kappa1, zd, ed, 'kappa2 = ', kappa2, e1
 

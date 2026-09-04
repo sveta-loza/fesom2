@@ -1083,7 +1083,10 @@ subroutine validate_recom_tracers(num_tracers, mype)
       write(*,*) ''
     end if
     deallocate(expected_tracer_ids, tracer_found)
-    call par_ex(0)  ! Stop execution (use appropriate stop routine for your model)
+!sl par_ex takes (COMM, mype, abort) with the first two required; the old call
+!sl par_ex(0) left mype unassociated and segfaulted, losing the message above.
+!sl recom_config has no access to partit, so just stop: every rank reaches this
+!sl same configuration error, so there is nothing to synchronise.
     stop
   end if
 
@@ -1136,10 +1139,12 @@ subroutine validate_tracer_id_sequence(tracer_ids, num_tracers, mype)
     expected_ids(37:38) = (/1035, 1036/)
 #if defined(__RECOM_WAVEBANDS)    
 !SL indexing should be better organised    
-if (RECOM_RADTRANS) then
+! CDOM is added by initialize_tracer_indices whenever RECOM_CDOM is set,
+! independently of RECOM_RADTRANS, so expect it on the same condition here.
 if (RECOM_CDOM) then
     expected_ids(39:39) = (/1037/)
 endif
+if (RECOM_RADTRANS) then
 if (RECOM_MARSHALL) then
     expected_ids(40:41) = (/1038, 1039/)
     expected_ids(42:43) = (/1040, 1041/)
@@ -1153,10 +1158,12 @@ endif
     expected_ids(25:32) = (/1023, 1024, 1025, 1026, 1027, 1028, 1029, 1030/)
 #if defined(__RECOM_WAVEBANDS)    
 !SL indexing should be better organised    
-if (RECOM_RADTRANS) then
+! CDOM is added by initialize_tracer_indices whenever RECOM_CDOM is set,
+! independently of RECOM_RADTRANS, so expect it on the same condition here.
 if (RECOM_CDOM) then
     expected_ids(33:33) = (/1031/)
 endif
+if (RECOM_RADTRANS) then
 if (RECOM_MARSHALL) then
     expected_ids(34:35) = (/1032, 1033/)
 endif
@@ -1247,7 +1254,7 @@ endif
       write(*,*) ''
     end if
     deallocate(expected_ids)
-    call par_ex(0)
+!sl see the note above: par_ex(0) is a malformed call and segfaults.
     stop
   else
     if (mype == 0) then

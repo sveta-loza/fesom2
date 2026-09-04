@@ -2389,7 +2389,11 @@ contains
       Real(kind=8)  :: ssf
       Real(kind=8), dimension(tlam)    :: darwin_waves,wb_width
       Real(kind=8), dimension(tlam+1)  :: darwin_wavebands
-      Real(kind=8)  :: wb_totalWidth
+!sl wb_totalWidth is a module variable of REcoM_spectral (declared above the CONTAINS).
+!sl It used to be re-declared here as a local, which shadowed it: the sum computed
+!sl below stayed inside this routine and the module copy remained zero for every
+!sl reader (RECOM_APHYTO, recom_sms astar normalisation, the *_kave averages in
+!sl recom_forcing). Keep using the module variable so those see the real value.
       Real(kind=8)  :: planck, c, hc, oavo, hcoavo
 !sl if (RECOM_CALC_ACDOM) then
       Real(kind=8)  ::  rlamm
@@ -2988,7 +2992,7 @@ endif
        INTEGER :: np,nl,i,ilam, nap
 !sl locals for the spectral PI-curve slope (see the block at the end of this routine)
        Real(kind=8) :: mQY, mQY_dia
-       Real(kind=8) :: cu_area_phy, cu_area_dia, wbTotal
+       Real(kind=8) :: cu_area_phy, cu_area_dia
 
 !         datafile has 1=small phyto, 2=diatoms.
           do nap=1, tnabp
@@ -3123,30 +3127,25 @@ endif
       end do
 
 ! Waveband-width weighted mean, used for the Ek diagnostic in recom_sms.
-! Two deliberate deviations from upstream:
-!  - upstream writes cu_area_phy = cu_area + wb_width(nl)*alphachl_nl(nl)
-!    inside the loop with cu_area never updated, so only the last waveband
-!    survives; accumulate properly here.
-!  - the module-level wb_totalWidth is never set (wavebands_init_fixed
-!    shadows it with a local of the same name), so sum wb_width locally
-!    rather than divide by zero.
-      wbTotal     = 0.d0
+! Deliberate deviation from upstream: it writes
+! cu_area_phy = cu_area + wb_width(nl)*alphachl_nl(nl) inside the loop with
+! cu_area never updated, so only the last waveband survives; accumulate here.
       cu_area_phy = 0.d0
       cu_area_dia = 0.d0
       do nl = 1,tlam
-         wbTotal     = wbTotal     + wb_width(nl)
          cu_area_phy = cu_area_phy + wb_width(nl) * alphachl_nl(nl)
          cu_area_dia = cu_area_dia + wb_width(nl) * alphachl_nl_dia(nl)
       end do
-      if (wbTotal .gt. 0.d0) then
-         alpha_mean     = cu_area_phy / wbTotal
-         alpha_mean_dia = cu_area_dia / wbTotal
+      if (wb_totalWidth .gt. 0.d0) then
+         alpha_mean     = cu_area_phy / wb_totalWidth
+         alpha_mean_dia = cu_area_dia / wb_totalWidth
       else
          alpha_mean     = 0.d0
          alpha_mean_dia = 0.d0
       end if
 
       if (mype==0) then
+         WRITE(*,*) 'wavebands_init_vari: wb_totalWidth  = ', wb_totalWidth
          WRITE(*,*) 'wavebands_init_vari: mQY, mQY_dia   = ', mQY, mQY_dia
          WRITE(*,*) 'wavebands_init_vari: alphachl_nl    = ', alphachl_nl
          WRITE(*,*) 'wavebands_init_vari: alpha_mean/dia = ', alpha_mean, alpha_mean_dia

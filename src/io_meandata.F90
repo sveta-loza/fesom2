@@ -1130,6 +1130,22 @@ CASE ('otracers  ')
          endif
 #endif /* __RECOM_WAVEBANDS */
 
+! Microzooplankton (the third zooplankton class of enable_3zoo2det). Its tracer
+! index moves with the configuration -- imiczoon/imiczooc are 35/36 alongside
+! coccolithophores but 29/30 without them -- so key on the index rather than a
+! literal ID. This must precede the hard-coded 1029/1030 cases below, which are
+! CoccoN/CoccoC only when enable_coccos is set. Names kept as Zoo3N/Zoo3C, which
+! is what IDs 1035/1036 already emitted.
+      else if (enable_3zoo2det .and. tracers%data(j)%ID==1000+imiczoon) then
+         if (use_REcoM) then
+         call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/),  'Zoo3N', 'Microzooplankton N', '[mmol/m3]', tracers%data(j)%values(:,:), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, partit, mesh)
+         endif
+
+      else if (enable_3zoo2det .and. tracers%data(j)%ID==1000+imiczooc) then
+         if (use_REcoM) then
+         call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/),  'Zoo3C', 'Microzooplankton C', '[mmol/m3]', tracers%data(j)%values(:,:), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, partit, mesh)
+         endif
+
       else if (tracers%data(j)%ID==1029) then
          if (use_REcoM) then
          call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/),  'CoccoN', 'CoccoN', '[mmol/m3]', tracers%data(j)%values(:,:), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, partit, mesh)
@@ -1160,15 +1176,6 @@ CASE ('otracers  ')
          call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/),  'PhaeoChl', 'PhaeoChl', '[mg/m3]', tracers%data(j)%values(:,:), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, partit, mesh)       ! NEW
          endif
 
-      else if (tracers%data(j)%ID==1035) then
-         if (use_REcoM) then
-         call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/),  'Zoo3N', 'Zoo3N', '[mmol/m3]', tracers%data(j)%values(:,:), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, partit, mesh)
-         endif
-
-      else if (tracers%data(j)%ID==1036) then
-         if (use_REcoM) then
-         call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/),  'Zoo3C', 'Zoo3C', '[mmol/m3]', tracers%data(j)%values(:,:), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, partit, mesh)
-         endif
       else
 #endif
          call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/),  'tra_'//id_string, 'passive tracer ID='//id_string, 'n/a', tracers%data(j)%values(:,:), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, partit, mesh)

@@ -339,7 +339,7 @@ subroutine recom_init(tracers, partit, mesh)
     oasim_es2D = 0.d0
 !   call recom_oasim_init(mesh, partit, mype)
     endif   
-#endif
+#endif /* __RECOM_WAVEBANDS */
 
 !! *** Allocate ballasting ***
     allocate(rho_particle1       ( nl-1, node_size ))
@@ -605,7 +605,7 @@ subroutine recom_init(tracers, partit, mesh)
                 ! PhaeoC - Phaeocystis Carbon
                 tracers%data(i)%values(:,:) = tiny_chl / chl2N_max / NCmax
             END IF
-#endif /* (__RECOM_WAVEBANDS) */ 
+#endif /* __RECOM_WAVEBANDS */
 
         CASE (1034)
             IF (enable_coccos .AND. enable_3zoo2det) THEN
@@ -650,7 +650,7 @@ subroutine recom_init(tracers, partit, mesh)
                 ! D1 protein phaeocystis
                tracers%data(i)%values(:,:) = tiny
             END IF
-#endif /* (__RECOM_WAVEBANDS) */
+#endif /* __RECOM_WAVEBANDS */
 
         END SELECT
     END DO

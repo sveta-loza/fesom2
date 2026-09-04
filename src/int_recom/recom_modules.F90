@@ -544,7 +544,7 @@ module recom_config
                       darwin_phytoabsorbFile, &
                       darwin_acdomFile, &
                       darwin_particleabsorbFile  
-#endif  /* (__RECOM_WAVEBANDS) */ 
+#endif /* __RECOM_WAVEBANDS */
 contains
 
   ! ---------------------------------------------------------------------------
@@ -600,7 +600,7 @@ contains
 !sl              end if
            endif
         endif
-#endif
+#endif /* __RECOM_WAVEBANDS */
     else if (enable_coccos .and. .not. enable_3zoo2det) then
         ! =======================================================================
         ! CASE: 4 phytoplankton + 1 zooplankton + 1 detritus
@@ -3919,6 +3919,6 @@ endif !/* RECOM_CALC_APHYT */
 !   ! Return Ed and Es on REcoM wavebands
 !   end subroutine
 
-#endif /* RECOM_WAVEBANDS */
+#endif /* __RECOM_WAVEBANDS */
 
 end module REcoM_spectral        

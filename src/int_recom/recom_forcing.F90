@@ -42,7 +42,7 @@ subroutine REcoM_Forcing(zNodes, n, Nn, state, SurfSW, Loc_slp, Temp, Sali, Sali
     use g_support
 #if defined(__RECOM_WAVEBANDS)    
     use REcoM_spectral
-#endif /* RECOM_WAVEBANDS  */    
+#endif /* __RECOM_WAVEBANDS */
     implicit none
 
     type(t_dyn)   , intent(inout), target :: dynamics
@@ -210,7 +210,7 @@ subroutine REcoM_Forcing(zNodes, n, Nn, state, SurfSW, Loc_slp, Temp, Sali, Sali
 !if (enable_coccos) then
 !! remember to introduce and declare new _cocco and _phaeo related
 !endif
-#endif /* RECOM_WAVEBANDS */    
+#endif /* __RECOM_WAVEBANDS */
 
 
     !!---- Subroutine Depth
@@ -777,7 +777,7 @@ endif
               ENDIF !depth         
           ENDDO   !ilam   
 endif        !/* RECOM_RADTRANS */       
-#endif /* RECOM_WAVEBANDS */
+#endif /* __RECOM_WAVEBANDS */
 !======================================================================
     
 
@@ -928,7 +928,7 @@ if (recom_debug .and. mype==0) print *, achar(27)//'[36m'//'     --> REcoM_sms'/
         ,Ek_nl_cocco                                                         &
         ,Ek_nl_phaeo                                                         &
 !slendif
-#endif        
+#endif /* __RECOM_WAVEBANDS */
         , Lond, Latd, ice, dynamics, tracers, partit, mesh)
 
 !sl?        PAR = PARl
@@ -967,7 +967,7 @@ if (RECOM_CALC_APHYT .and. RECOM_MARSHALL) then
   state(1:nn,id1)  = max(tiny,state(1:nn,id1)) !rel
   state(1:nn,id1d)  = max(tiny,state(1:nn,id1d)) !rel
 endif
-#endif /* RECOM_WAVEBANDS */
+#endif /* __RECOM_WAVEBANDS */
 
 
 if (recom_debug .and. mype==0) print *, achar(27)//'[36m'//'     --> ciso after REcoM_Forcing'//achar(27)//'[0m'

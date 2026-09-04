@@ -137,7 +137,7 @@ MODULE g_sbf
    character(len=128) :: OASIM_file_pattern = 'filled_nan_land.nc'
    character(len=32)  :: OASIM_Ed_varname = 'Ed'
    character(len=32)  :: OASIM_Es_varname = 'Es'
-#endif /* (__RECOM_WAVEBANDS) */
+#endif /* __RECOM_WAVEBANDS */
    
 #endif
 
@@ -1068,7 +1068,7 @@ CONTAINS
       namelist /nam_rsbc/ fe_data_source, nm_fe_data_file, nm_aen_data_file, nm_river_data_file, nm_erosion_data_file, nm_co2_data_file
 #if defined (__RECOM_WAVEBANDS)
       namelist /nam_rspecsbc/ OASIM_path, OASIM_file_pattern, OASIM_Ed_varname, OASIM_Es_varname
-#endif /* (__RECOM_WAVEBANDS) */
+#endif /* __RECOM_WAVEBANDS */
 #endif /* (__recom) */
 
 #include "associate_part_def.h"
@@ -1259,7 +1259,7 @@ CONTAINS
         if (OASIM) then
            READ( nm_sbc_unit+1, nml=nam_rspecsbc, iostat=iost )
         endif
-#endif /* (__RECOM_WAVEBANDS) */
+#endif /* __RECOM_WAVEBANDS */
         close( nm_sbc_unit+1 )
 #endif
 
@@ -1282,7 +1282,7 @@ CONTAINS
       use REcoM_ciso
 #if defined (__RECOM_WAVEBANDS)
       use recom_spectral, only : tlam, pwaves, oasim_surf, oasim_es2d, oasim_ed2d
-#endif /* (__RECOM_WAVEBANDS) */
+#endif /* __RECOM_WAVEBANDS */
 #endif /* (__recom) */
       IMPLICIT NONE
 
@@ -1311,7 +1311,7 @@ CONTAINS
 #if defined (__RECOM_WAVEBANDS)
       integer nlam
       character(3) :: wavelen_str ! string variable for OASIM wavelengths
-#endif /* (__RECOM_WAVEBANDS) */
+#endif /* __RECOM_WAVEBANDS */
       
 #include "associate_part_def.h"
 #include "associate_mesh_def.h"
@@ -1816,7 +1816,7 @@ if (recom_debug .and. mype==0) print *, achar(27)//'[36m'//'     --> Atm_input'/
           !sl deallocate(oasim_surf)
        endif
     endif
-#endif /* (__RECOM_WAVEBANDS) */
+#endif /* __RECOM_WAVEBANDS */
 
 ! ******** Fe deposition *********
     if (fe_data_source=='Albani') then

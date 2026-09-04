@@ -7,7 +7,7 @@ module io_MEANDATA
   use recom_ciso
 #if defined (__RECOM_WAVEBANDS)
 !  use recom_spectral
-#endif /* (__RECOM_WAVEBANDS) */
+#endif /* __RECOM_WAVEBANDS */
 #endif
   USE g_clock
   use o_PARAM, only : WP
@@ -158,7 +158,7 @@ subroutine ini_mean_io(ice, dynamics, tracers, partit, mesh)
     use recom_ciso
 #if defined (__RECOM_WAVEBANDS)
     use recom_spectral
-#endif /* (__RECOM_WAVEBANDS) */
+#endif /* __RECOM_WAVEBANDS */
 #endif
     use g_forcing_param, only: use_virt_salt, use_landice_water, use_age_tracer !---fwf-code, age-code
     use g_config, only : lwiso !---wiso-code
@@ -177,7 +177,7 @@ subroutine ini_mean_io(ice, dynamics, tracers, partit, mesh)
     character(len=100) :: var_name                ! for constructing OASIM outout file and variable names
     character(len=500) :: var_longname   
 !    real(real64), allocatable, dimension(:,:) :: var_dummy ! local variable to hold radiation in one waveband
-#endif /* (__RECOM_WAVEBANDS) */
+#endif /* __RECOM_WAVEBANDS */
     
     type(t_mesh), intent(in) , target :: mesh
     type(t_partit), intent(inout), target :: partit
@@ -938,7 +938,7 @@ CASE ('estop3d                 ')
          call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/), var_name, var_longname, 'W/m2', Estop3d(:,:,nlam), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, partit, mesh)
       enddo
    endif
-#endif /* (__RECOM_WAVEBANDS) */
+#endif /* __RECOM_WAVEBANDS */
 
 #endif
 

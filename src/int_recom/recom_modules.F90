@@ -2430,7 +2430,10 @@ contains
         darwin_waves(11) = 650
         darwin_waves(12) = 675
         darwin_waves(13) = 700
-        darwin_waves(14) = 725
+!sl darwin_waves holds the tlam=13 waveband CENTRES; writing element 14 here was an
+!sl out-of-bounds store past the end of the array (caught by -check bounds). The 14
+!sl band BOUNDARIES live in darwin_wavebands(tlam+1) and are derived from pwaves below.
+!sl        darwin_waves(14) = 725
 !sl      ENDIF
 
 

@@ -2426,6 +2426,28 @@ contains
 !sl      _BEGIN_MASTER(myThid)
 !sl      if (mype == 0) then
 !sl      rad = 180.0D0/pid        
+!-----------------------------------------------------------------------
+! The coccolithophore/Phaeocystis branches of WAVEBANDS_INIT_VARI index
+! ap, ap_ps, bp, bbp, darwin_bbphy and ap_type at 3 and 4, but all of those
+! are dimensioned with tnabp, and the phyto absorption file supplies only
+! tnabp sections (currently 'Others' and 'Diatom'). With tnabp<4 those reads
+! run past the end of the arrays, and at -O3 without bounds checking they are
+! silent. Fail loudly here instead.
+! To support coccolithophores: add their and Phaeocystis' absorption and
+! scattering spectra to darwin_phytoabsorbFile and raise tnabp to 4.
+!-----------------------------------------------------------------------
+      if (enable_coccos .and. tnabp .lt. 4) then
+         if (mype == 0) then
+            WRITE(*,*) 'WAVEBANDS_INIT_FIXED: enable_coccos=.true. needs spectral optics'
+            WRITE(*,*) '  for 4 phytoplankton types, but tnabp = ', tnabp
+            WRITE(*,*) '  file: ', trim(darwin_phytoabsorbFile)
+            WRITE(*,*) '  Either extend that file with coccolithophore and Phaeocystis'
+            WRITE(*,*) '  spectra and set tnabp=4 in recom_modules.F90, or run with'
+            WRITE(*,*) '  enable_coccos=.false. in namelist.recom.'
+         end if
+         STOP 'ABNORMAL END: S/R WAVEBANDS_INIT_FIXED (enable_coccos needs tnabp>=4)'
+      end if
+
 ! Quanta conversion
       planck = 6.6256d-34   !Plancks constant J sec
       c = 2.998d8                 !speed of light m/sec

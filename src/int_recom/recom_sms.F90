@@ -543,6 +543,14 @@ endif
 
             DON = max(tiny, state(k, idon) + sms(k, idon))
             EOC = max(tiny, state(k, idoc) + sms(k, idoc))
+#if defined(__RECOM_WAVEBANDS)
+! Coloured DOM. Both tracers exist in a spectral build: idoc is unconditional,
+! icdom is added on top only when RECOM_CDOM. cdomC was previously never
+! assigned, so both CDOM sink terms below evaluated to zero.
+            if (RECOM_CDOM) then
+               cdomC = max(tiny, state(k, icdom) + sms(k, icdom))
+            endif
+#endif /* __RECOM_WAVEBANDS */
 
             !-----------------------------------------------------------------------
             ! SMALL PHYTOPLANKTON
@@ -6269,16 +6277,16 @@ endif
 !sl the following line is introduced to allow RECOM_CDOM 
             ) * dt_b           
 if (RECOM_CDOM) then
-            sms(k,idoc) = fcdom * sms(k,idoc)                             
+            sms(k,icdom) = fcdom * sms(k,icdom)
 endif !/* RECOM_CDOM */
             !---------------------------------------------------------------------------
             ! SINKS: Remineralization to CO2
             !---------------------------------------------------------------------------
 !sl the following line is introduced to allow RECOM_CDOM
-            sms(k,idoc) = (                                                &
-            - rho_c1 * arrFunc          * cdomC                            & ! Bacterial respiration
-            - cdom_photo_rate           * cdomC                            &        
-                                                                          ) * dt_b + sms(k,idoc)
+            sms(k,icdom) = (                                               &
+            - rho_cdom * arrFunc        * cdomC                            & ! Bacterial degradation of CDOM
+            - cdom_photo_rate           * cdomC                            & ! Photochemical degradation
+                                                                          ) * dt_b + sms(k,icdom)
 #endif /* __RECOM_WAVEBANDS */
 
         !===============================================================================

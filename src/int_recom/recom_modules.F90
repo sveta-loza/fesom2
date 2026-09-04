@@ -2964,6 +2964,9 @@ endif
 !       _RL outfile_ps(2,tlam)
 
        INTEGER :: np,nl,i,ilam, nap
+!sl locals for the spectral PI-curve slope (see the block at the end of this routine)
+       Real(kind=8) :: mQY, mQY_dia
+       Real(kind=8) :: cu_area_phy, cu_area_dia, wbTotal
 
 !         datafile has 1=small phyto, 2=diatoms.
           do nap=1, tnabp
@@ -3073,6 +3076,60 @@ endif
           endif          
           endif        
 !#endif /* RECOM_WAVEBANDS */
+
+!-----------------------------------------------------------------------
+! Spectral slope of the PI curve: alphachl_nl = mQY * aphy_chl_ps.
+! Ported from MITgcm/Darwin recom_init_vari.F (the block around its call to
+! WAVEBANDS_INIT_VARI). Without it alphachl_nl stays zero, so alpha_I in
+! recom_sms is zero, the guard 'alpha_I .ge. tiny' fails and Cphot is forced
+! to zero -- i.e. no photosynthesis at all in a __RECOM_WAVEBANDS build.
+! Must stay at the END of this routine: it consumes aphy_chl_ps(_dia), which
+! is filled above.
+!-----------------------------------------------------------------------
+      mQY     = 0.d0
+      mQY_dia = 0.d0
+      do nl = 1,tlam
+         mQY     = mQY     + ((QYmax   / real(tlam,8)) / WtouEins(nl))
+         mQY_dia = mQY_dia + ((QYmax_d / real(tlam,8)) / WtouEins(nl))
+      end do
+      mQY     = max(tiny, mQY)
+      mQY_dia = max(tiny, mQY_dia)
+
+      do nl = 1,tlam
+         alphachl_nl(nl)     = mQY     * aphy_chl_ps(nl)
+         alphachl_nl_dia(nl) = mQY_dia * aphy_chl_ps_dia(nl)
+      end do
+
+! Waveband-width weighted mean, used for the Ek diagnostic in recom_sms.
+! Two deliberate deviations from upstream:
+!  - upstream writes cu_area_phy = cu_area + wb_width(nl)*alphachl_nl(nl)
+!    inside the loop with cu_area never updated, so only the last waveband
+!    survives; accumulate properly here.
+!  - the module-level wb_totalWidth is never set (wavebands_init_fixed
+!    shadows it with a local of the same name), so sum wb_width locally
+!    rather than divide by zero.
+      wbTotal     = 0.d0
+      cu_area_phy = 0.d0
+      cu_area_dia = 0.d0
+      do nl = 1,tlam
+         wbTotal     = wbTotal     + wb_width(nl)
+         cu_area_phy = cu_area_phy + wb_width(nl) * alphachl_nl(nl)
+         cu_area_dia = cu_area_dia + wb_width(nl) * alphachl_nl_dia(nl)
+      end do
+      if (wbTotal .gt. 0.d0) then
+         alpha_mean     = cu_area_phy / wbTotal
+         alpha_mean_dia = cu_area_dia / wbTotal
+      else
+         alpha_mean     = 0.d0
+         alpha_mean_dia = 0.d0
+      end if
+
+      if (mype==0) then
+         WRITE(*,*) 'wavebands_init_vari: mQY, mQY_dia   = ', mQY, mQY_dia
+         WRITE(*,*) 'wavebands_init_vari: alphachl_nl    = ', alphachl_nl
+         WRITE(*,*) 'wavebands_init_vari: alpha_mean/dia = ', alpha_mean, alpha_mean_dia
+      end if
+
   return
   end SUBROUTINE WAVEBANDS_INIT_VARI
   SUBROUTINE MONOD_ACDOM(                                        &

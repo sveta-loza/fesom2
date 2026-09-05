@@ -2347,7 +2347,42 @@ module REcoM_spectral
 !  Real(kind=8), allocatable, dimension(:,:,:,:)   ::  Ed4D
   integer, parameter :: iEdz=1, iEsz=2, iEuz=3, iEutop=4, iEstop=5, ed_num=5
   Real(kind=8), allocatable, dimension(:,:,:) :: Edz3D, Esz3D, Euz3D, Eutop3D, Estop3D
+
+!sl -------------------- spectral wall-clock profiling (open item 2) --------------
+!sl Per-rank accumulators for the spectral light path, reduced and reported next to
+!sl 'runtime recom' in fesom_module.F90. This replaces inferring the solver's cost
+!sl from the difference between a RECOM_RADTRANS=.true. and a .false. run, which is
+!sl only an upper bound because those two runs differ in their biology as well.
+!sl
+!sl   rt_spec_total    whole __RECOM_WAVEBANDS block in REcoM_Forcing
+!sl   rt_spec_iop      inherent optical properties: CDOM, phyto and particle
+!sl                    absorption/scattering, and the a_k/bt_k/bb_k totals
+!sl   rt_spec_radtrans the MONOD_RADTRANS_* call, i.e. the light propagation solve
+!sl   rt_spec_tridiag  SOLVE_TRIDIAGONAL_PIVOT alone, nested inside rt_spec_radtrans
+!sl
+!sl The counters let the SYSTEM_CLOCK overhead be estimated and subtracted: each
+!sl timed region costs two spec_wtime() calls.
+  Real(kind=8)    :: rt_spec_total    = 0.d0
+  Real(kind=8)    :: rt_spec_iop      = 0.d0
+  Real(kind=8)    :: rt_spec_radtrans = 0.d0
+  Real(kind=8)    :: rt_spec_tridiag  = 0.d0
+  Integer(kind=8) :: n_spec_total     = 0_8
+  Integer(kind=8) :: n_spec_radtrans  = 0_8
+  Integer(kind=8) :: n_spec_tridiag   = 0_8
 contains
+
+!sl Wall-clock seconds. SYSTEM_CLOCK rather than MPI_Wtime because REcoM_spectral
+!sl does not use MPI; with an integer(8) count the tick is nanoseconds on Linux.
+  Real(kind=8) function spec_wtime()
+     integer(kind=8) :: cnt, rate
+     call system_clock(count=cnt, count_rate=rate)
+     if (rate > 0_8) then
+        spec_wtime = real(cnt,8) / real(rate,8)
+     else
+        spec_wtime = 0.d0
+     end if
+  end function spec_wtime
+
 !BOP
 !     !ROUTINE: WAVEBANDS_INIT_FIXED
 !     !INTERFACE:
@@ -3769,6 +3804,7 @@ endif !/* RECOM_RADTRANS */
       Real(kind=8),dimension(2*Nn)      :: y3d(2*Nn)
       Real(kind=8)                      :: rd = 1.5d0  !these are taken from Ackleson, et al. 1994 (JGR)
       Real(kind=8)                      :: ru = 3.0d0
+      Real(kind=8)                      :: rt_t0_td    !sl tridiagonal-solve timer
 !sl endif
 if (RECOM_RADTRANS) then      
       rmus = darwin_rmus
@@ -3862,7 +3898,10 @@ if (RECOM_RADTRANS) then
 !sl         if (mype==71) write(*,*) 'MONOD_RADTRANS_DIRECT, b3d = ', b3d
 !sl         if (mype==71) write(*,*) 'MONOD_RADTRANS_DIRECT, c3d = ', c3d
 
+         rt_t0_td = spec_wtime()
          CALL SOLVE_TRIDIAGONAL_PIVOT(Nn,a3d,b3d,c3d,y3d,2*kbot)
+         rt_spec_tridiag = rt_spec_tridiag + (spec_wtime() - rt_t0_td)
+         n_spec_tridiag  = n_spec_tridiag + 1_8
 !sl         if (mype==71) write(*,*) 'MONOD_RADTRANS_DIRECT, y3d = ', y3d
 
 ! compute irradiances

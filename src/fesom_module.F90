@@ -50,6 +50,12 @@ module fesom_main_storage_module
 #if defined (__recom)
   use recom_init_interface
   use recom_interface
+#if defined(__RECOM_WAVEBANDS)
+!sl spectral wall-clock accumulators, reported next to 'runtime recom'
+  use REcoM_spectral, only: rt_spec_total, rt_spec_iop, rt_spec_radtrans, &
+                            rt_spec_tridiag, n_spec_total, n_spec_radtrans, &
+                            n_spec_tridiag
+#endif
 #endif
 
   implicit none
@@ -644,7 +650,10 @@ contains
     use mpp_io
 #endif
     ! EO parameters
-    real(kind=real32) :: mean_rtime(15), max_rtime(15), min_rtime(15)
+    real(kind=real32) :: mean_rtime(19), max_rtime(19), min_rtime(19)
+!sl 16-19 are the spectral light sub-timers from REcoM_spectral (open item 2):
+!sl total spectral block, IOP assembly, radiative-transfer solve, tridiagonal solve.
+    integer(kind=8)   :: nspec(3)
     integer           :: tr_num
     ! --------------
     ! LA icebergs: 2023-05-17 
@@ -733,6 +742,24 @@ contains
     mean_rtime(15) = mean_rtime(15) / real(f%npes,real32)
     call MPI_AllREDUCE(MPI_IN_PLACE, max_rtime(15),  1, MPI_REAL, MPI_MAX, f%MPI_COMM_FESOM, f%MPIerr)
     call MPI_AllREDUCE(MPI_IN_PLACE, min_rtime(15),  1, MPI_REAL, MPI_MIN, f%MPI_COMM_FESOM, f%MPIerr)
+#if defined(__RECOM_WAVEBANDS)
+!sl spectral light breakdown; 19 (tridiagonal) is nested inside 18 (RT solve),
+!sl and 17+18 together account for nearly all of 16.
+    mean_rtime(16) = real(rt_spec_total,   real32)
+    mean_rtime(17) = real(rt_spec_iop,     real32)
+    mean_rtime(18) = real(rt_spec_radtrans,real32)
+    mean_rtime(19) = real(rt_spec_tridiag, real32)
+    max_rtime(16:19) = mean_rtime(16:19)
+    min_rtime(16:19) = mean_rtime(16:19)
+    call MPI_AllREDUCE(MPI_IN_PLACE, mean_rtime(16), 4, MPI_REAL, MPI_SUM, f%MPI_COMM_FESOM, f%MPIerr)
+    mean_rtime(16:19) = mean_rtime(16:19) / real(f%npes,real32)
+    call MPI_AllREDUCE(MPI_IN_PLACE, max_rtime(16),  4, MPI_REAL, MPI_MAX, f%MPI_COMM_FESOM, f%MPIerr)
+    call MPI_AllREDUCE(MPI_IN_PLACE, min_rtime(16),  4, MPI_REAL, MPI_MIN, f%MPI_COMM_FESOM, f%MPIerr)
+    nspec(1) = n_spec_total
+    nspec(2) = n_spec_radtrans
+    nspec(3) = n_spec_tridiag
+    call MPI_AllREDUCE(MPI_IN_PLACE, nspec, 3, MPI_INTEGER8, MPI_SUM, f%MPI_COMM_FESOM, f%MPIerr)
+#endif
 #endif
 
     call MPI_AllREDUCE(MPI_IN_PLACE, mean_rtime, 14, MPI_REAL, MPI_SUM, f%MPI_COMM_FESOM, f%MPIerr)
@@ -770,6 +797,16 @@ contains
         print 42, '  runtime total (ice+oce):    ',    mean_rtime(9),     min_rtime(9),      max_rtime(9)
 #if defined (__recom)
         print 42, '  runtime recom:              ',    mean_rtime(15),    min_rtime(15),     max_rtime(15)
+#if defined(__RECOM_WAVEBANDS)
+        print 42, '    > runtime spectral total :',    mean_rtime(16),    min_rtime(16),     max_rtime(16)
+        print 42, '      >> IOP assembly        :',    mean_rtime(17),    min_rtime(17),     max_rtime(17)
+        print 42, '      >> radtrans solve      :',    mean_rtime(18),    min_rtime(18),     max_rtime(18)
+        print 42, '         ... of which tridiag:',    mean_rtime(19),    min_rtime(19),     max_rtime(19)
+        46 format (a42,i18)
+        print 46, '    spectral block calls  (all ranks):', nspec(1)
+        print 46, '    radtrans solve calls  (all ranks):', nspec(2)
+        print 46, '    tridiagonal solves    (all ranks):', nspec(3)
+#endif
 #endif
 
         43 format (a33,i15)        !Format Ncores

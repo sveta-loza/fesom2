@@ -93,6 +93,8 @@ subroutine REcoM_Forcing(zNodes, n, Nn, state, SurfSW, Loc_slp, Temp, Sali, Sali
     Real(kind=8)                                  :: PARwup_total
     Real(kind=8),dimension(tlam)                  :: Edwsf
     Real(kind=8),dimension(tlam)                  :: Eswsf
+!sl wall-clock profiling of the spectral light path, see REcoM_spectral (item 2)
+    Real(kind=8)                                  :: rt_t0_tot, rt_t0_iop, rt_t0_rt
 !#ifdef RECOM_CALC_REFLEC
     INTEGER :: index
     Real(kind=8),dimension(mesh%nl-1)             :: PARw_kwb
@@ -287,6 +289,7 @@ endif
 !------------SPECTRAL LIGHT--------------------------------------------
 !======================================================================
 #if defined(__RECOM_WAVEBANDS)
+       rt_t0_tot = spec_wtime()
        Nr = mesh%nl-1
        darwin_radtrans_kmax = Nr
        idiscEs = 0
@@ -324,6 +327,7 @@ endif
 !returning oasim_ed(:) and oasim_es(:) on the model wavebands
 !endif
 ! ------ GET constant acdom_k -------
+     rt_t0_iop = spec_wtime()
      DO k=1,Nr
      if (.not. RECOM_CALC_ACDOM) then
        do ilam = 1,tlam
@@ -543,6 +547,7 @@ endif
                 ENDIF !light
               ENDIF !depth
         ENDDO  !ilam
+        rt_spec_iop = rt_spec_iop + (spec_wtime() - rt_t0_iop)   !sl no-RADTRANS branch
 
 else        !/* RECOM_RADTRANS */
 !c ------------ FULL RADIATIVE TRANSFER CODE ----------------------------
@@ -621,6 +626,8 @@ endif
 
 ! ------ Propagate three-beam light in the water column -------
 !CEA Some of the routines use drF and others dz_k, why?
+         rt_spec_iop = rt_spec_iop + (spec_wtime() - rt_t0_iop)
+         rt_t0_rt = spec_wtime()
          IF (darwin_radtrans_niter.GE.0) THEN
            call MONOD_RADTRANS_ITER(                             &
                     Nr,                                          &
@@ -670,6 +677,8 @@ endif
                     , mype)
 
          ENDIF
+         rt_spec_radtrans = rt_spec_radtrans + (spec_wtime() - rt_t0_rt)
+         n_spec_radtrans  = n_spec_radtrans + 1_8
 !     Uses chl from prev timestep (as wavebands does) keep like this in case
 !     need to consider upwelling irradiance as affecting the grid box above
 !     Pass to sms: PARw_k only, but will be for this timestep for RADTRANST
@@ -791,6 +800,8 @@ endif
               ENDIF !depth         
           ENDDO   !ilam   
 endif        !/* RECOM_RADTRANS */       
+       rt_spec_total = rt_spec_total + (spec_wtime() - rt_t0_tot)
+       n_spec_total  = n_spec_total + 1_8
 #endif /* __RECOM_WAVEBANDS */
 !======================================================================
     

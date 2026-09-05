@@ -362,9 +362,12 @@ if (enable_coccos) then
         aclocal(3,1:tlam)=aphy_chl_cocco
         aclocal(4,1:tlam)=aphy_chl_phaeo
 endif        
-         call MONOD_no_ACDOM(Nr,phychl_k(1:tnabp,1:Nr), aclocal, aw,     &
+!sl nabp_read, not tnabp: pass only the phytoplankton types the optics file
+!sl actually supplied, so a two-block file does not contribute zero rows here.
+         call MONOD_no_ACDOM(Nr,phychl_k(1:nabp_read,1:Nr),              &
+                          aclocal(1:nabp_read,1:tlam), aw,               &
                           acdom_k(1:Nr,1:tlam)                           &
-                          , tnabp, mype)
+                          , nabp_read, mype)
         endif   !/* RECOM_CDOM */
      endif      !/* RECOM_CALC_ACDOM */
 ! ------------ COMPUTE aphy_chl_k & aphy_chl_dia_k ----------------

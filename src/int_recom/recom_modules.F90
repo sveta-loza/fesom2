@@ -2185,6 +2185,12 @@ module REcoM_spectral
 
 ! Initially was ap_type(npmax), the number of PT
 
+!sl Number of phytoplankton spectra blocks actually present in
+!sl darwin_phytoabsorbFile, counted at read time in WAVEBANDS_INIT_FIXED.
+!sl tnabp stays a compile-time parameter because it dimensions the arrays below;
+!sl nabp_read is what the loops over *read* data must use, so a two-block file
+!sl (Others + Diatom) remains valid for a .not. enable_coccos run.
+         Integer                      :: nabp_read = 0
          Integer,dimension(tnabp)     :: ap_type
          Integer,parameter            :: tlam = 13
          Integer,dimension(tlam)      :: pwaves
@@ -2449,23 +2455,12 @@ contains
 !-----------------------------------------------------------------------
 ! The coccolithophore/Phaeocystis branches of WAVEBANDS_INIT_VARI index
 ! ap, ap_ps, bp, bbp, darwin_bbphy and ap_type at 3 and 4, and phychl_k/Phy_k
-! in recom_forcing likewise. All are dimensioned with tnabp, so tnabp must be
-! at least 4 for enable_coccos -- it is 4 since the 4-PFT optics file landed.
-! The check that bites now is the other one: the file must actually supply
-! tnabp blocks. It is enforced on the read itself, below, because a short file
-! otherwise dies on an unhelpful raw Fortran end-of-file.
+! in recom_forcing likewise. All are dimensioned with tnabp, which is therefore
+! the maximum number of phytoplankton types the code knows about, not the number
+! the optics file has to supply. The file is counted as it is read below and the
+! real requirement -- four blocks when enable_coccos is set -- is checked there
+! against nabp_read.
 !-----------------------------------------------------------------------
-      if (enable_coccos .and. tnabp .lt. 4) then
-         if (mype == 0) then
-            WRITE(*,*) 'WAVEBANDS_INIT_FIXED: enable_coccos=.true. needs spectral optics'
-            WRITE(*,*) '  for 4 phytoplankton types, but tnabp = ', tnabp
-            WRITE(*,*) '  file: ', trim(darwin_phytoabsorbFile)
-            WRITE(*,*) '  Either extend that file with coccolithophore and Phaeocystis'
-            WRITE(*,*) '  spectra and set tnabp=4 in recom_modules.F90, or run with'
-            WRITE(*,*) '  enable_coccos=.false. in namelist.recom.'
-         end if
-         STOP 'ABNORMAL END: S/R WAVEBANDS_INIT_FIXED (enable_coccos needs tnabp>=4)'
-      end if
 
 ! Quanta conversion
       planck = 6.6256d-34   !Plancks constant J sec
@@ -2613,21 +2608,26 @@ if (recom_debug) print *, achar(27)//'[36m'//'     --> end Water data file'//ach
          read(iUnit,'(a50)')title
         enddo
         sbbp = 0.0d0
+!sl Count the spectra blocks instead of demanding exactly tnabp of them. A file
+!sl carrying only Others and Diatom stays usable for a .not. enable_coccos run;
+!sl the four-block requirement is a property of enable_coccos, not of the array
+!sl bound, and is checked against nabp_read after the file is closed.
+!sl Types the file does not supply keep zeroed spectra rather than stale memory.
+        ap    = 0.0d0
+        ap_ps = 0.0d0
+        bp    = 0.0d0
+        bbp   = 0.0d0
+        nabp_read = 0
         do nabp = 1,tnabp
-!sl tnabp is a compile-time parameter, so a file with fewer blocks than tnabp
-!sl runs off the end here. Report which block is missing instead of letting the
-!sl runtime print a bare 'end of file'.
          read(iUnit,'(a50)',iostat=ios)title   ! one line of text for the phytoplankton type header
-         if (ios .ne. 0) then
+         if (ios .lt. 0) exit                  ! clean end of file: no further blocks
+         if (ios .gt. 0) then
             if (mype == 0) then
-               WRITE(*,*) 'WAVEBANDS_INIT_FIXED: phyto optics file ended early'
+               WRITE(*,*) 'WAVEBANDS_INIT_FIXED: cannot read phyto spectra header'
                WRITE(*,*) '  file: ', trim(darwin_phytoabsorbFile)
-               WRITE(*,*) '  expected tnabp = ', tnabp, ' spectra blocks (6 header lines,'
-               WRITE(*,*) '  then per block one title line and ', tlam, ' data lines),'
-               WRITE(*,*) '  but hit end-of-file looking for block ', nabp
-               WRITE(*,*) '  Block order must be Others, Diatom, Coccolithophore, Phaeocystis.'
+               WRITE(*,*) '  block ', nabp, ' iostat ', ios
             end if
-            STOP 'ABNORMAL END: S/R WAVEBANDS_INIT_FIXED (phyto optics file too short)'
+            STOP 'ABNORMAL END: S/R WAVEBANDS_INIT_FIXED (phyto optics header unreadable)'
          end if
          if (mype==0) write(*,*) ' title = ', title
          do ilam  = 1,tlam
@@ -2638,9 +2638,11 @@ else
           read(iUnit,'(i4,3f10.4,f20.14)',iostat=ios)splambda,sap,sap_ps,sbp,sbbp
           if (ios .ne. 0) then
              if (mype == 0) then
-                WRITE(*,*) 'WAVEBANDS_INIT_FIXED: bad/short phyto optics record'
+                WRITE(*,*) 'WAVEBANDS_INIT_FIXED: bad or truncated phyto optics record'
                 WRITE(*,*) '  file: ', trim(darwin_phytoabsorbFile)
-                WRITE(*,*) '  block ', nabp, ' waveband ', ilam, ' iostat ', ios
+                WRITE(*,*) '  block ', nabp, ' (', trim(title), ')'
+                WRITE(*,*) '  waveband ', ilam, ' of ', tlam, ', iostat ', ios
+                WRITE(*,*) '  A block must hold one title line and ', tlam, ' data lines.'
              end if
              STOP 'ABNORMAL END: S/R WAVEBANDS_INIT_FIXED (phyto optics read failed)'
           end if
@@ -2660,8 +2662,49 @@ endif
           bp(nabp,ilam) = sbp
           bbp(nabp,ilam) = sbbp
          enddo
+         nabp_read = nabp
         enddo
+!sl If the loop filled every slot there may still be more in the file than the
+!sl code has PFTs for; say so rather than silently ignoring the extra spectra.
+        if (nabp_read .eq. tnabp) then
+           read(iUnit,'(a50)',iostat=ios)title
+!sl require a non-blank line, so a trailing newline in a hand-edited file does
+!sl not raise a spurious "extra blocks" warning
+           if (ios .eq. 0 .and. len_trim(title) .gt. 0) then
+              if (mype == 0) then
+                 WRITE(*,*) 'WAVEBANDS_INIT_FIXED: phyto optics file has more than'
+                 WRITE(*,*) '  tnabp = ', tnabp, ' spectra blocks; the extra ones are ignored.'
+                 WRITE(*,*) '  file: ', trim(darwin_phytoabsorbFile)
+                 WRITE(*,*) '  first ignored block: ', trim(title)
+                 WRITE(*,*) '  Raise tnabp in recom_modules.F90 to use them.'
+              end if
+           end if
+        end if
         close(iUnit)
+
+!sl ---- what the configuration actually requires of the file ----
+        if (mype == 0) write(*,*) 'WAVEBANDS_INIT_FIXED: phyto spectra blocks read = ', nabp_read
+        if (nabp_read .lt. 2) then
+           if (mype == 0) then
+              WRITE(*,*) 'WAVEBANDS_INIT_FIXED: phyto optics file has too few spectra'
+              WRITE(*,*) '  file: ', trim(darwin_phytoabsorbFile)
+              WRITE(*,*) '  found ', nabp_read, ' block(s); at least 2 are needed'
+              WRITE(*,*) '  (*** Others *** and *** Diatom ***).'
+           end if
+           STOP 'ABNORMAL END: S/R WAVEBANDS_INIT_FIXED (need at least 2 phyto spectra)'
+        end if
+        if (enable_coccos .and. nabp_read .lt. 4) then
+           if (mype == 0) then
+              WRITE(*,*) 'WAVEBANDS_INIT_FIXED: enable_coccos=.true. needs spectral optics'
+              WRITE(*,*) '  for 4 phytoplankton types, but the file supplies ', nabp_read
+              WRITE(*,*) '  file: ', trim(darwin_phytoabsorbFile)
+              WRITE(*,*) '  Block order must be Others, Diatom, Coccolithophore, Phaeocystis.'
+              WRITE(*,*) '  Either extend the file (see'
+              WRITE(*,*) '  optics_phyto_recom_carbon_12_4pft_TEST.dat) or run with'
+              WRITE(*,*) '  enable_coccos=.false. in namelist.recom.'
+           end if
+           STOP 'ABNORMAL END: S/R WAVEBANDS_INIT_FIXED (enable_coccos needs 4 phyto spectra)'
+        end if
 30      format(i4,3f10.4)
       else
         WRITE(msgBuf,'(A)')                                            &
@@ -2907,7 +2950,7 @@ endif
       WRITE(msgBuf,'(A)') 'WAVEBANDS_INIT_FIXED: phyto spectra:'
 !sl      CALL PRINT_MESSAGE( msgBuf, standardMessageUnit,               &
 !sl                          SQUEEZE_RIGHT, 1 )
-      do nabp = 1,tnabp
+      do nabp = 1,nabp_read
         WRITE(msgBuf,'(A,I4)') 'WAVEBANDS_INIT_FIXED: type ',nabp
 !sl        CALL PRINT_MESSAGE( msgBuf, standardMessageUnit,             &
 !sl                          SQUEEZE_RIGHT, 1 )
@@ -3031,8 +3074,11 @@ endif
        Real(kind=8) :: mQY, mQY_dia, mQY_cocco, mQY_phaeo
        Real(kind=8) :: cu_area_phy, cu_area_dia, cu_area_cocco, cu_area_phaeo
 
-!         datafile has 1=small phyto, 2=diatoms.
-          do nap=1, tnabp
+!         datafile has 1=small phyto, 2=diatoms, 3=coccos, 4=Phaeocystis.
+!sl Only the types the file supplied; the rest stay 0, which is what the
+!sl ap_type(n).eq.0 fallbacks below test for.
+          ap_type = 0
+          do nap=1, nabp_read
               ap_type(nap) = nap
           enddo
 

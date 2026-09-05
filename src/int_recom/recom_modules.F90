@@ -2092,8 +2092,13 @@ module REcoM_spectral
 !        (originally set in SPECTRAL_SIZE.h)
 ! tnabp = number of types of absorption spectra for phyto
 !         must match number of types in input data file for phyto absorption spectra
+!sl Raised from 2 to 4 so the coccolithophore/Phaeocystis branches have real
+!sl spectra to index. darwin_phytoabsorbFile must now carry four blocks, in the
+!sl order Others, Diatom, Coccolithophore, Phaeocystis -- see
+!sl optics_phyto_recom_carbon_12_4pft_TEST.dat. A file with fewer blocks is
+!sl rejected by WAVEBANDS_INIT_FIXED regardless of enable_coccos.
 
-         Integer, parameter                      :: tnabp = 2
+         Integer, parameter                      :: tnabp = 4
 !         PARAMETER (tnabp=2)
 ! Input and assigned data:
 ! pwaves       = actual values of wavebands (nm)
@@ -2413,6 +2418,7 @@ contains
 
 ! local indeces
       integer       ::  nabp,i,ilam
+      integer       ::  ios          !sl iostat for the phyto-optics reads
 
       darwin_waves = 0.0d0
       darwin_wavebands = 0.0d0
@@ -2442,13 +2448,12 @@ contains
 !sl      rad = 180.0D0/pid        
 !-----------------------------------------------------------------------
 ! The coccolithophore/Phaeocystis branches of WAVEBANDS_INIT_VARI index
-! ap, ap_ps, bp, bbp, darwin_bbphy and ap_type at 3 and 4, but all of those
-! are dimensioned with tnabp, and the phyto absorption file supplies only
-! tnabp sections (currently 'Others' and 'Diatom'). With tnabp<4 those reads
-! run past the end of the arrays, and at -O3 without bounds checking they are
-! silent. Fail loudly here instead.
-! To support coccolithophores: add their and Phaeocystis' absorption and
-! scattering spectra to darwin_phytoabsorbFile and raise tnabp to 4.
+! ap, ap_ps, bp, bbp, darwin_bbphy and ap_type at 3 and 4, and phychl_k/Phy_k
+! in recom_forcing likewise. All are dimensioned with tnabp, so tnabp must be
+! at least 4 for enable_coccos -- it is 4 since the 4-PFT optics file landed.
+! The check that bites now is the other one: the file must actually supply
+! tnabp blocks. It is enforced on the read itself, below, because a short file
+! otherwise dies on an unhelpful raw Fortran end-of-file.
 !-----------------------------------------------------------------------
       if (enable_coccos .and. tnabp .lt. 4) then
          if (mype == 0) then
@@ -2609,14 +2614,36 @@ if (recom_debug) print *, achar(27)//'[36m'//'     --> end Water data file'//ach
         enddo
         sbbp = 0.0d0
         do nabp = 1,tnabp
-         read(iUnit,'(a50)')title   ! reads one line of text for the phytoplankton type header
+!sl tnabp is a compile-time parameter, so a file with fewer blocks than tnabp
+!sl runs off the end here. Report which block is missing instead of letting the
+!sl runtime print a bare 'end of file'.
+         read(iUnit,'(a50)',iostat=ios)title   ! one line of text for the phytoplankton type header
+         if (ios .ne. 0) then
+            if (mype == 0) then
+               WRITE(*,*) 'WAVEBANDS_INIT_FIXED: phyto optics file ended early'
+               WRITE(*,*) '  file: ', trim(darwin_phytoabsorbFile)
+               WRITE(*,*) '  expected tnabp = ', tnabp, ' spectra blocks (6 header lines,'
+               WRITE(*,*) '  then per block one title line and ', tlam, ' data lines),'
+               WRITE(*,*) '  but hit end-of-file looking for block ', nabp
+               WRITE(*,*) '  Block order must be Others, Diatom, Coccolithophore, Phaeocystis.'
+            end if
+            STOP 'ABNORMAL END: S/R WAVEBANDS_INIT_FIXED (phyto optics file too short)'
+         end if
          if (mype==0) write(*,*) ' title = ', title
          do ilam  = 1,tlam
 if  (DAR_NONSPECTRAL_BACKSCATTERING_RATIO) then
           read(iUnit,30)splambda,sap,sap_ps,sbp
           write(*,*) ' DAR_NONSPECTRAL_BACKSCATTERING_RATIO ', splambda,sap,sap_ps,sbp
 else
-          read(iUnit,'(i4,3f10.4,f20.14)')splambda,sap,sap_ps,sbp,sbbp
+          read(iUnit,'(i4,3f10.4,f20.14)',iostat=ios)splambda,sap,sap_ps,sbp,sbbp
+          if (ios .ne. 0) then
+             if (mype == 0) then
+                WRITE(*,*) 'WAVEBANDS_INIT_FIXED: bad/short phyto optics record'
+                WRITE(*,*) '  file: ', trim(darwin_phytoabsorbFile)
+                WRITE(*,*) '  block ', nabp, ' waveband ', ilam, ' iostat ', ios
+             end if
+             STOP 'ABNORMAL END: S/R WAVEBANDS_INIT_FIXED (phyto optics read failed)'
+          end if
 !          write(*,*) 'no DAR_NONSPECTRAL_BACKSCATTERING_RATIO ', splambda,sap,sap_ps,sbp,sbbp
 endif
           if (splambda.NE.pwaves(ilam)) then
@@ -3001,8 +3028,8 @@ endif
 
        INTEGER :: np,nl,i,ilam, nap
 !sl locals for the spectral PI-curve slope (see the block at the end of this routine)
-       Real(kind=8) :: mQY, mQY_dia
-       Real(kind=8) :: cu_area_phy, cu_area_dia
+       Real(kind=8) :: mQY, mQY_dia, mQY_cocco, mQY_phaeo
+       Real(kind=8) :: cu_area_phy, cu_area_dia, cu_area_cocco, cu_area_phaeo
 
 !         datafile has 1=small phyto, 2=diatoms.
           do nap=1, tnabp
@@ -3044,11 +3071,14 @@ endif
 endif      
               if (enable_coccos) then
               aphy_chl_cocco(i) = ap(3,i)
-              aphy_chl_ps_cocco(i) = ap_ps(2,i)
+!sl was ap_ps(2,i): the coccolithophore PS-pigment absorption was reading the
+!sl diatom column, so aphy_chl_ps_cocco equalled aphy_chl_ps_dia.
+              aphy_chl_ps_cocco(i) = ap_ps(3,i)
 if (RECOM_RADTRANS) then
               bphy_chl_cocco(i) = bp(3,i)
 if (DAR_NONSPECTRAL_BACKSCATTERING_RATIO) then
-              bbphy_chl_cocco(i) = bp(3,i) * darwin_bbphy(2)
+!sl was darwin_bbphy(2), the diatom ratio, for the same copy-paste reason.
+              bbphy_chl_cocco(i) = bp(3,i) * darwin_bbphy(3)
 else
               bbphy_chl_cocco(i) = bbp(3,i)
 endif
@@ -3122,36 +3152,63 @@ endif
 ! Must stay at the END of this routine: it consumes aphy_chl_ps(_dia), which
 ! is filled above.
 !-----------------------------------------------------------------------
-      mQY     = 0.d0
-      mQY_dia = 0.d0
+      mQY       = 0.d0
+      mQY_dia   = 0.d0
+      mQY_cocco = 0.d0
+      mQY_phaeo = 0.d0
       do nl = 1,tlam
-         mQY     = mQY     + ((QYmax   / real(tlam,8)) / WtouEins(nl))
-         mQY_dia = mQY_dia + ((QYmax_d / real(tlam,8)) / WtouEins(nl))
+         mQY       = mQY       + ((QYmax       / real(tlam,8)) / WtouEins(nl))
+         mQY_dia   = mQY_dia   + ((QYmax_d     / real(tlam,8)) / WtouEins(nl))
+         mQY_cocco = mQY_cocco + ((QYmax_cocco / real(tlam,8)) / WtouEins(nl))
+         mQY_phaeo = mQY_phaeo + ((QYmax_phaeo / real(tlam,8)) / WtouEins(nl))
       end do
-      mQY     = max(tiny, mQY)
-      mQY_dia = max(tiny, mQY_dia)
+      mQY       = max(tiny, mQY)
+      mQY_dia   = max(tiny, mQY_dia)
+      mQY_cocco = max(tiny, mQY_cocco)
+      mQY_phaeo = max(tiny, mQY_phaeo)
 
       do nl = 1,tlam
          alphachl_nl(nl)     = mQY     * aphy_chl_ps(nl)
          alphachl_nl_dia(nl) = mQY_dia * aphy_chl_ps_dia(nl)
       end do
+!sl Same treatment for the two extra PFTs; without it alphachl_nl_cocco/_phaeo
+!sl stay zero, the 'alpha_I_cocco .ge. tiny' guards in recom_sms fail and
+!sl coccolithophore/Phaeocystis photosynthesis is identically zero -- the same
+!sl bug that was fixed for aphy/dia in a374f8d8.
+      if (enable_coccos) then
+         do nl = 1,tlam
+            alphachl_nl_cocco(nl) = mQY_cocco * aphy_chl_ps_cocco(nl)
+            alphachl_nl_phaeo(nl) = mQY_phaeo * aphy_chl_ps_phaeo(nl)
+         end do
+      else
+         alphachl_nl_cocco = 0.d0
+         alphachl_nl_phaeo = 0.d0
+      end if
 
 ! Waveband-width weighted mean, used for the Ek diagnostic in recom_sms.
 ! Deliberate deviation from upstream: it writes
 ! cu_area_phy = cu_area + wb_width(nl)*alphachl_nl(nl) inside the loop with
 ! cu_area never updated, so only the last waveband survives; accumulate here.
-      cu_area_phy = 0.d0
-      cu_area_dia = 0.d0
+      cu_area_phy   = 0.d0
+      cu_area_dia   = 0.d0
+      cu_area_cocco = 0.d0
+      cu_area_phaeo = 0.d0
       do nl = 1,tlam
-         cu_area_phy = cu_area_phy + wb_width(nl) * alphachl_nl(nl)
-         cu_area_dia = cu_area_dia + wb_width(nl) * alphachl_nl_dia(nl)
+         cu_area_phy   = cu_area_phy   + wb_width(nl) * alphachl_nl(nl)
+         cu_area_dia   = cu_area_dia   + wb_width(nl) * alphachl_nl_dia(nl)
+         cu_area_cocco = cu_area_cocco + wb_width(nl) * alphachl_nl_cocco(nl)
+         cu_area_phaeo = cu_area_phaeo + wb_width(nl) * alphachl_nl_phaeo(nl)
       end do
       if (wb_totalWidth .gt. 0.d0) then
-         alpha_mean     = cu_area_phy / wb_totalWidth
-         alpha_mean_dia = cu_area_dia / wb_totalWidth
+         alpha_mean       = cu_area_phy   / wb_totalWidth
+         alpha_mean_dia   = cu_area_dia   / wb_totalWidth
+         alpha_mean_cocco = cu_area_cocco / wb_totalWidth
+         alpha_mean_phaeo = cu_area_phaeo / wb_totalWidth
       else
-         alpha_mean     = 0.d0
-         alpha_mean_dia = 0.d0
+         alpha_mean       = 0.d0
+         alpha_mean_dia   = 0.d0
+         alpha_mean_cocco = 0.d0
+         alpha_mean_phaeo = 0.d0
       end if
 
       if (mype==0) then
@@ -3159,6 +3216,12 @@ endif
          WRITE(*,*) 'wavebands_init_vari: mQY, mQY_dia   = ', mQY, mQY_dia
          WRITE(*,*) 'wavebands_init_vari: alphachl_nl    = ', alphachl_nl
          WRITE(*,*) 'wavebands_init_vari: alpha_mean/dia = ', alpha_mean, alpha_mean_dia
+         if (enable_coccos) then
+            WRITE(*,*) 'wavebands_init_vari: mQY cocco/phaeo   = ', mQY_cocco, mQY_phaeo
+            WRITE(*,*) 'wavebands_init_vari: alphachl_nl_cocco = ', alphachl_nl_cocco
+            WRITE(*,*) 'wavebands_init_vari: alphachl_nl_phaeo = ', alphachl_nl_phaeo
+            WRITE(*,*) 'wavebands_init_vari: alpha_mean c/p    = ', alpha_mean_cocco, alpha_mean_phaeo
+         end if
       end if
 
   return

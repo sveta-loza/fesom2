@@ -1516,6 +1516,8 @@ endif
 !     wavebands to get alpha_I
            alpha_I = 0.d0
            alpha_I_dia = 0.d0
+           alpha_I_cocco = 0.d0
+           alpha_I_phaeo = 0.d0
            do nlam = 1,tlam
            !SL Double check the demension of the PARwlocal           
               alpha_I = alpha_I                                        &
@@ -1523,9 +1525,21 @@ endif
               alpha_I_dia = alpha_I_dia                                &
                          + alphachl_nl_dia(nlam) * PARwlocal(nlam,k)
            end do
+!sl alpha_I_cocco/_phaeo were declared and tested against 'tiny' further down
+!sl but never accumulated, so Cphot_cocco/Cphot_phaeo were always zero.
+           if (enable_coccos) then
+              do nlam = 1,tlam
+                 alpha_I_cocco = alpha_I_cocco                         &
+                            + alphachl_nl_cocco(nlam) * PARwlocal(nlam,k)
+                 alpha_I_phaeo = alpha_I_phaeo                         &
+                            + alphachl_nl_phaeo(nlam) * PARwlocal(nlam,k)
+              end do
+           end if
 !     Units of alpha_nl and alpha_mean m2 mgChla-1 mmolC uE-1 (x86400 s d-1)
            alpha_I = alpha_I*SecondsPerDay
            alpha_I_dia = alpha_I_dia*SecondsPerDay
+           alpha_I_cocco = alpha_I_cocco*SecondsPerDay
+           alpha_I_phaeo = alpha_I_phaeo*SecondsPerDay
 !#else
 ! Without spectral alpha, the single value of alpha (parameter) is used.
 !     It should be comparable to alpha_mean precomputed in recom_init_vari.F
@@ -1625,10 +1639,15 @@ if (enable_coccos) then
 !SL QYmax_cocco, NPQ_cocco, astar_cocco
 !SL QYmax_phaeo, NPQ_phaeo, astar_phaeo
 ! Coccos
-      qLimitFac = recom_limiter(NMinSlope,NCmin,quota)
+!sl was qLimitFac = recom_limiter(NMinSlope,NCmin,quota) with k_Fe: the small-phyto
+!sl quota and half-saturation, assigned to the wrong variable. repair_cocco below
+!sl reads qLimitFac_cocco, which was never set (0.0 under -init=zero), so D1 repair
+!sl for coccolithophores was identically zero. Same limiter idiom as the pMax_cocco
+!sl block further down.
+      qLimitFac_cocco = recom_limiter(NMinSlope,NCmin_c,quota_cocco)
       if (FeLimit) then
-       feLimitFac = Fe/(k_Fe + Fe)
-       qLimitFac = min(qLimitFac,feLimitFac)
+       feLimitFac = Fe/(k_Fe_c + Fe)
+       qLimitFac_cocco = min(qLimitFac_cocco,feLimitFac)
       end if
       if (coccoD1 .gt. c1) then
          QY_cocco = QYmax_cocco
@@ -1642,6 +1661,7 @@ if (enable_coccos) then
         do nlam = 1,tlam
            astar_cocco = astar_cocco + (wb_width(nlam) * aphy_chl_ps_cocco(nlam))
         end do
+        astar_cocco = astar_cocco / wb_totalWidth   !sl missing, cf. astar / astar_d
 !#endif /* RECOM_WAVEBANDS */      
       ALPHAmar_cocco = astar_cocco * (c1-NPQ_cocco) * QY_cocco * SecondsPerDay
 
@@ -1658,8 +1678,14 @@ if (enable_coccos) then
                       / ( k_rep_cocco + (c1 - coccoD1) )    &
                       ) * qLimitFac_cocco * arrFunc
       endif
-!SL TODO extend for phaeo if required
 ! Phaeo
+!sl qLimitFac_phaeo had no assignment at all; repair_phaeo was therefore zero.
+      qLimitFac_phaeo = recom_limiter(NMinSlope,NCmin_p,quota_phaeo)
+      if (FeLimit) then
+       feLimitFac = Fe/(k_Fe_p + Fe)
+       qLimitFac_phaeo = min(qLimitFac_phaeo,feLimitFac)
+      end if
+
       if (phaeoD1 .gt. c1) then
          QY_phaeo = QYmax_phaeo
       else
@@ -1672,6 +1698,7 @@ if (enable_coccos) then
         do nlam = 1,tlam
            astar_phaeo = astar_phaeo + (wb_width(nlam) * aphy_chl_ps_phaeo(nlam))
         end do
+        astar_phaeo = astar_phaeo / wb_totalWidth   !sl missing, cf. astar / astar_d
 !#endif /* RECOM_WAVEBANDS */
       ALPHAmar_phaeo = astar_phaeo * (c1-NPQ_phaeo) * QY_phaeo * SecondsPerDay
 
@@ -2515,7 +2542,7 @@ endif !/* RECOM_MARSHALL */
            if (PARlocal(k).ge.tiny                                       &
              .AND. alpha_mean_cocco.ge.tiny) then
                 Ek_cocco = c1 - exp((-alpha_mean_cocco * SecondsPerDay   &
-                      * CHL2C_cocco * PARlocal(k)) / pMax_dia)
+                      * CHL2C_cocco * PARlocal(k)) / pMax_cocco)   !sl was pMax_dia
            else
               Ek_cocco = zero
            end if

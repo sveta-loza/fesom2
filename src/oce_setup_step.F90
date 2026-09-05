@@ -1124,7 +1124,11 @@ SUBROUTINE oce_initial_state(tracers, partit, mesh)
                 write (id_string, "(I4)") id
                 write(*,*) 'initializing '//trim(i_string)//'th tracer with ID='//trim(id_string)
             end if
-        CASE (1023:1036)
+!sl Upper bound raised from 1036 to 1041. With enable_coccos .and. enable_3zoo2det
+!sl the BGC block runs past 1036: CDOM is 1037 and the RECOM_MARSHALL D1 tracers are
+!sl 1038-1041 (see initialize_tracer_indices in recom_modules.F90). It went unnoticed
+!sl because in the .not. enable_coccos branch CDOM is 1031, inside the old range.
+        CASE (1023:1041)
             tracers%data(i)%values(:,:)=0.0_WP
             if (mype==0) then
                 write (i_string,  "(I4)") i
@@ -1312,8 +1316,10 @@ SUBROUTINE oce_initial_state(tracers, partit, mesh)
         !_______________________________________________________________________
         CASE DEFAULT
             if (mype==0) then
-                write (i_string,  "(I3)") i
-                write (id_string, "(I3)") id
+!sl I3 overflows to '***' for any 4-digit BGC ID, which is exactly when this
+!sl branch fires in a REcoM run. Use I4 so the message names the offending ID.
+                write (i_string,  "(I4)") i
+                write (id_string, "(I4)") id
                 if (mype==0) write(*,*) 'invalid ID '//trim(id_string)//' specified for '//trim(i_string)//' th tracer!!!'
                 if (mype==0) write(*,*) 'the model will stop!'
             end if

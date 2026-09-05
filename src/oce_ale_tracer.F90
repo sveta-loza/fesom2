@@ -1704,7 +1704,11 @@ FUNCTION bc_surface(n, id, sval, nzmin, partit)
     CASE (1022) ! OXY
         bc_surface= dt*GloO2flux_seaicemask(n)
 !        bc_surface=0.0_WP
-    CASE (1023:1036)
+!sl Upper bound raised from 1036 to 1041, for the same reason as the CASE range in
+!sl oce_setup_step.F90: with enable_coccos .and. enable_3zoo2det, CDOM is 1037 and
+!sl the RECOM_MARSHALL D1 tracers are 1038-1041. 1037 is free -- what used to be
+!sl DIC_13 at 1037 was renumbered to 1302 (see the CASE below).
+    CASE (1023:1041)
         bc_surface=0.0_WP  ! OG added bc for recom fields
     CASE (1302) ! Before (1037) ! DIC_13
 
@@ -1769,7 +1773,7 @@ FUNCTION bc_surface(n, id, sval, nzmin, partit)
         end if
     CASE DEFAULT
       if (partit%mype==0) then
-         write (id_string, "(I3)") id
+         write (id_string, "(I4)") id   !sl I3 prints '***' for any 4-digit BGC ID
          if (partit%mype==0) write(*,*) 'invalid ID '//trim(id_string)//' specified in boundary conditions'
          if (partit%mype==0) write(*,*) 'the model will stop!'
       end if

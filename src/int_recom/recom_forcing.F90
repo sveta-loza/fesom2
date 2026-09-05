@@ -336,6 +336,17 @@ endif
         aphy_chl_k(k,ilam) = aphy_chl(ilam)
         aphy_chl_dia_k(k,ilam) = aphy_chl_dia(ilam)
        enddo
+!sl The cocco/phaeo counterparts were missing here. aphy_chl_cocco_k and
+!sl aphy_chl_phaeo_k are otherwise filled only by RECOM_APHYTO, which runs
+!sl under RECOM_CALC_APHYT .and. RECOM_MARSHALL; with either off they stayed
+!sl at 0.0 (-init=zero) and coccolithophores/Phaeocystis contributed no
+!sl absorption at all to the water-column light field below.
+       if (enable_coccos) then
+         do ilam = 1,tlam
+          aphy_chl_cocco_k(k,ilam) = aphy_chl_cocco(ilam)
+          aphy_chl_phaeo_k(k,ilam) = aphy_chl_phaeo(ilam)
+         enddo
+       endif
       endif     !/* no RECOM_CALC_APHYT */
      ENDDO
      if (RECOM_CALC_ACDOM) then

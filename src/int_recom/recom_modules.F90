@@ -71,9 +71,13 @@ module recom_config
   integer, dimension(6)  :: recom_dia_tracer_id     = (/1013, 1014, 1314, 1414, 1016, 1015/)
 
   ! Configuration-dependent tracer arrays (allocated during initialization)
-  integer, dimension(3)  :: recom_cocco_tracer_id
-  integer, dimension(3)  :: recom_phaeo_tracer_id
-  integer, dimension(4)  :: recom_det2_tracer_id
+! Set by initialize_tracer_indices only in the configurations that own these
+! tracers, so they are explicitly zeroed here: an unset entry must never alias a
+! real tracer ID in the io_meandata dispatch, and -init=zero is a compiler flag,
+! not a guarantee.
+  integer, dimension(3)  :: recom_cocco_tracer_id = 0
+  integer, dimension(3)  :: recom_phaeo_tracer_id = 0
+  integer, dimension(4)  :: recom_det2_tracer_id  = 0
 
 !=============================================================================
 

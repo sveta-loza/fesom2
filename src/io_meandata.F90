@@ -1088,54 +1088,96 @@ CASE ('otracers  ')
          call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/),  'O2', 'O2', '[mmol/m3]', tracers%data(j)%values(:,:), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, partit, mesh)
          endif
 
-      else if (tracers%data(j)%ID==1023) then
+! ---------------------------------------------------------------------------
+! Tracer IDs 1023-1034 are NOT fixed: they name different tracers in each REcoM
+! configuration, so every branch below is keyed on the configuration-dependent
+! ID arrays / indices set by initialize_tracer_indices, never on a literal.
+!
+!   IDs        | 3zoo2det+coccos | coccos only      | 3zoo2det only
+!   -----------+-----------------+------------------+---------------
+!   1023-1024  | Zoo2 N,C        | Cocco N,C        | Zoo2 N,C
+!   1025-1028  | det2 n,c,si,cal | CoccoChl+Phaeo*3 | det2 n,c,si,cal
+!   1029-1031  | Cocco N,C,Chl   | --               | Zoo3 N,C + CDOM
+!   1032-1034  | Phaeo N,C,Chl   | --               | --
+!
+! Coccolithophores and Phaeocystis first, because with enable_coccos and
+! .not.enable_3zoo2det they occupy 1023-1028 -- the slots that otherwise belong
+! to the second zooplankton and second detritus class.
+      else if (enable_coccos .and. tracers%data(j)%ID==recom_cocco_tracer_id(1)) then
+         if (use_REcoM) then
+         call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/),  'CoccoN', 'Coccolithophore N', '[mmol/m3]', tracers%data(j)%values(:,:), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, partit, mesh)
+         endif
+
+      else if (enable_coccos .and. tracers%data(j)%ID==recom_cocco_tracer_id(2)) then
+         if (use_REcoM) then
+         call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/),  'CoccoC', 'Coccolithophore C', '[mmol/m3]', tracers%data(j)%values(:,:), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, partit, mesh)
+         endif
+
+      else if (enable_coccos .and. tracers%data(j)%ID==recom_cocco_tracer_id(3)) then
+         if (use_REcoM) then
+         call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/),  'CoccoChl', 'Coccolithophore chlorophyll', '[mg/m3]', tracers%data(j)%values(:,:), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, partit, mesh)
+         endif
+
+      else if (enable_coccos .and. tracers%data(j)%ID==recom_phaeo_tracer_id(1)) then
+         if (use_REcoM) then
+         call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/),  'PhaeoN', 'Phaeocystis N', '[mmol/m3]', tracers%data(j)%values(:,:), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, partit, mesh)
+         endif
+
+      else if (enable_coccos .and. tracers%data(j)%ID==recom_phaeo_tracer_id(2)) then
+         if (use_REcoM) then
+         call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/),  'PhaeoC', 'Phaeocystis C', '[mmol/m3]', tracers%data(j)%values(:,:), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, partit, mesh)
+         endif
+
+      else if (enable_coccos .and. tracers%data(j)%ID==recom_phaeo_tracer_id(3)) then
+         if (use_REcoM) then
+         call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/),  'PhaeoChl', 'Phaeocystis chlorophyll', '[mg/m3]', tracers%data(j)%values(:,:), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, partit, mesh)
+         endif
+
+! Second zooplankton (macrozooplankton) and the second detritus class. Both
+! exist only with enable_3zoo2det; without it 1023-1028 are coccos/phaeo above.
+      else if (enable_3zoo2det .and. tracers%data(j)%ID==1000+izoo2n) then
          if (use_REcoM) then
          call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/),  'Zoo2N', 'Intracellular conc of Nitrogen in second zooplankton', '[mmol/m3]', tracers%data(j)%values(:,:), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, partit, mesh)
          endif
 
-      else if (tracers%data(j)%ID==1024) then
+      else if (enable_3zoo2det .and. tracers%data(j)%ID==1000+izoo2c) then
          if (use_REcoM) then
          call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/),  'Zoo2C', 'Intracellular conc of Carbon in second zooplankton', '[mmol/m3]', tracers%data(j)%values(:,:), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, partit, mesh)
          endif
 
-      else if (tracers%data(j)%ID==1025) then
+      else if (enable_3zoo2det .and. tracers%data(j)%ID==recom_det2_tracer_id(1)) then
          if (use_REcoM) then
-         call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/),  'idetz2n', 'idetz2n', '[mmol/m3]', tracers%data(j)%values(:,:), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, partit, mesh)
+         call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/),  'idetz2n', 'Second detritus N', '[mmol/m3]', tracers%data(j)%values(:,:), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, partit, mesh)
          endif
 
-      else if (tracers%data(j)%ID==1026) then
+      else if (enable_3zoo2det .and. tracers%data(j)%ID==recom_det2_tracer_id(2)) then
          if (use_REcoM) then
-         call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/),  'idetz2c', 'idetz2c', '[mmol/m3]', tracers%data(j)%values(:,:), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, partit, mesh)
+         call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/),  'idetz2c', 'Second detritus C', '[mmol/m3]', tracers%data(j)%values(:,:), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, partit, mesh)
          endif
 
-      else if (tracers%data(j)%ID==1027) then
+      else if (enable_3zoo2det .and. tracers%data(j)%ID==recom_det2_tracer_id(3)) then
          if (use_REcoM) then
-         call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/),  'idetz2si', 'idetz2si', '[mmol/m3]', tracers%data(j)%values(:,:), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, partit, mesh)
+         call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/),  'idetz2si', 'Second detritus Si', '[mmol/m3]', tracers%data(j)%values(:,:), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, partit, mesh)
          endif
 
-      else if (tracers%data(j)%ID==1028) then
+      else if (enable_3zoo2det .and. tracers%data(j)%ID==recom_det2_tracer_id(4)) then
          if (use_REcoM) then
-         call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/),  'idetz2calc', 'idetz2calc', '[mmol/m3]', tracers%data(j)%values(:,:), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, partit, mesh)
+         call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/),  'idetz2calc', 'Second detritus calcite', '[mmol/m3]', tracers%data(j)%values(:,:), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, partit, mesh)
          endif
 
 #if defined(__RECOM_WAVEBANDS)
-! Coloured dissolved organic matter. Its tracer ID is configuration dependent
-! (1031 with enable_3zoo2det and .not.enable_coccos, 1037 with both), so match
-! on recom_cdom_tracer_id rather than a literal. This branch must stay AHEAD of
-! the hard-coded 1029/1030/1031 cases below: without enable_coccos those IDs
-! are MicZooN, MicZooC and CDOM, not CoccoN, CoccoC and CoccoChl.
+! Coloured dissolved organic matter: ID 1031 with enable_3zoo2det alone, 1037
+! with coccos as well, so match on recom_cdom_tracer_id rather than a literal.
       else if (RECOM_CDOM .and. tracers%data(j)%ID==recom_cdom_tracer_id) then
          if (use_REcoM) then
          call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/),  'CDOM', 'Coloured dissolved organic carbon', '[mmol/m3]', tracers%data(j)%values(:,:), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, partit, mesh)
          endif
+
 #endif /* __RECOM_WAVEBANDS */
 
-! Microzooplankton (the third zooplankton class of enable_3zoo2det). Its tracer
-! index moves with the configuration -- imiczoon/imiczooc are 35/36 alongside
-! coccolithophores but 29/30 without them -- so key on the index rather than a
-! literal ID. This must precede the hard-coded 1029/1030 cases below, which are
-! CoccoN/CoccoC only when enable_coccos is set. Names kept as Zoo3N/Zoo3C, which
-! is what IDs 1035/1036 already emitted.
+! Microzooplankton, the third zooplankton class of enable_3zoo2det. Its index
+! moves with the configuration -- 35/36 alongside coccolithophores, 29/30
+! without them -- so key on imiczoon/imiczooc rather than a literal ID.
       else if (enable_3zoo2det .and. tracers%data(j)%ID==1000+imiczoon) then
          if (use_REcoM) then
          call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/),  'Zoo3N', 'Microzooplankton N', '[mmol/m3]', tracers%data(j)%values(:,:), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, partit, mesh)
@@ -1144,36 +1186,6 @@ CASE ('otracers  ')
       else if (enable_3zoo2det .and. tracers%data(j)%ID==1000+imiczooc) then
          if (use_REcoM) then
          call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/),  'Zoo3C', 'Microzooplankton C', '[mmol/m3]', tracers%data(j)%values(:,:), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, partit, mesh)
-         endif
-
-      else if (tracers%data(j)%ID==1029) then
-         if (use_REcoM) then
-         call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/),  'CoccoN', 'CoccoN', '[mmol/m3]', tracers%data(j)%values(:,:), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, partit, mesh)
-         endif
-
-      else if (tracers%data(j)%ID==1030) then
-         if (use_REcoM) then
-         call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/),  'CoccoC', 'CoccoC', '[mmol/m3]', tracers%data(j)%values(:,:), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, partit, mesh)
-         endif
-
-      else if (tracers%data(j)%ID==1031) then
-         if (use_REcoM) then
-         call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/),  'CoccoChl', 'CoccoChl', '[mg/m3]', tracers%data(j)%values(:,:), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, partit, mesh)
-         endif
-
-      else if (tracers%data(j)%ID==1032) then
-         if (use_REcoM) then
-         call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/),  'PhaeoN', 'PhaeoN', '[mmol/m3]', tracers%data(j)%values(:,:), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, partit, mesh)         ! NEW
-         endif
-
-      else if (tracers%data(j)%ID==1033) then
-         if (use_REcoM) then
-         call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/),  'PhaeoC', 'PhaeoC', '[mmol/m3]', tracers%data(j)%values(:,:), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, partit, mesh)         ! NEW
-         endif
-
-      else if (tracers%data(j)%ID==1034) then
-         if (use_REcoM) then
-         call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/),  'PhaeoChl', 'PhaeoChl', '[mg/m3]', tracers%data(j)%values(:,:), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, partit, mesh)       ! NEW
          endif
 
       else

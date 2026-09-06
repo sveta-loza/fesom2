@@ -304,17 +304,27 @@ endif
        discEu = 0.
 !------- get related local states ----------------------------------------
        do k=1,Nr
-          phychl_k(1,k) = state(k,ipchl)
-          phychl_k(2,k) = state(k,idchl)
+! phychl_k is chlorophyll (mg Chl m-3), Phy_k is carbon (mmolC m-3); the two are
+! not interchangeable. phychl_k multiplies the chl-specific absorption
+! aphy_chl_*, and Phy_k the carbon-specific scattering used on the RECOM_BMASS
+! branch below. This mirrors the MITgcm/Darwin original, which annotates the
+! same four fills !mmolC / !mg Chla.
+!
+! The MAX is the original's too: state() arrives here straight from advection,
+! which can undershoot negative at sharp gradients, and the clamps further down
+! this routine only run at the END of the timestep. A negative concentration
+! here would subtract from the absorption and scattering coefficients.
+          phychl_k(1,k) = max(tiny_chl, state(k,ipchl))
+          phychl_k(2,k) = max(tiny_chl, state(k,idchl))
           if (enable_coccos) then
-             phychl_k(3,k) = state(k,icchl)
-             phychl_k(4,k) = state(k,iphachl)
+             phychl_k(3,k) = max(tiny_chl, state(k,icchl))
+             phychl_k(4,k) = max(tiny_chl, state(k,iphachl))
           endif
-          phychl_k(1,k) = state(k,iphyc)
-          phychl_k(2,k) = state(k,idiac)
+          Phy_k(1,k) = max(tiny_C,   state(k,iphyc))
+          Phy_k(2,k) = max(tiny_C_d, state(k,idiac))
           if (enable_coccos) then
-             phychl_k(3,k) = state(k,icocc)
-             phychl_k(4,k) = state(k,iphac)
+             Phy_k(3,k) = max(tiny_C_c, state(k,icocc))
+             Phy_k(4,k) = max(tiny_C_p, state(k,iphac))
           endif
 ! idetz2c is a fixed 26 but the second detritus class only exists with
 ! enable_3zoo2det: without it, index 26 is Phaeocystis N (iphan) in the coccos-only

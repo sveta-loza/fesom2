@@ -6274,9 +6274,12 @@ endif
 #if defined(__RECOM_WAVEBANDS)
         ! CDOM is spectral-only: icdom, cdomC and cdom_photo_rate are all declared behind
         ! the RECOM_WAVEBANDS guard, so this section is compiled for spectral builds only.
+! The whole CDOM source term is inside this guard: icdom only has a valid value
+! when RECOM_CDOM is set, so writing sms(k,icdom) unconditionally -- as this did
+! -- was an out-of-bounds subscript in every run with RECOM_CDOM = .false.
 if (RECOM_CDOM) then
         cdom_photo_rate = phot_cdom * MIN((PARave/kphot_CDOM), 1.0d0)
-endif
+
         sms(k,icdom) = (                                                    &
 !sl#if defined(__RECOM_WAVEBANDS)
 !slif (RECOM_CDOM) then
@@ -6303,9 +6306,7 @@ endif
             + lossC_z3                  * MicZooC * is_3zoo2det            & ! Microzooplankton
 !sl the following line is introduced to allow RECOM_CDOM 
             ) * dt_b           
-if (RECOM_CDOM) then
             sms(k,icdom) = fcdom * sms(k,icdom)
-endif !/* RECOM_CDOM */
             !---------------------------------------------------------------------------
             ! SINKS: Remineralization to CO2
             !---------------------------------------------------------------------------
@@ -6314,6 +6315,7 @@ endif !/* RECOM_CDOM */
             - rho_cdom * arrFunc        * cdomC                            & ! Bacterial degradation of CDOM
             - cdom_photo_rate           * cdomC                            & ! Photochemical degradation
                                                                           ) * dt_b + sms(k,icdom)
+endif !/* RECOM_CDOM */
 #endif /* __RECOM_WAVEBANDS */
 
         !===============================================================================

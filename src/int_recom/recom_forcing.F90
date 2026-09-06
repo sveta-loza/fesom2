@@ -316,7 +316,13 @@ endif
              phychl_k(3,k) = state(k,icocc)
              phychl_k(4,k) = state(k,iphac)
           endif
-          part_k(k) = state(k,idetc) + state(k,idetz2c)
+! idetz2c is a fixed 26 but the second detritus class only exists with
+! enable_3zoo2det: without it, index 26 is Phaeocystis N (iphan) in the coccos-only
+! configuration and past the end of state() in the base one.
+          part_k(k) = state(k,idetc)
+          if (enable_3zoo2det) then
+             part_k(k) = part_k(k) + state(k,idetz2c)
+          endif
           if (RECOM_CDOM) then
              cdom_k(k) = state(k,icdom)
           endif

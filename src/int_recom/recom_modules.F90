@@ -532,9 +532,14 @@ module recom_config
   character(80)           :: darwin_phytoabsorbFile = 'optics_phyto_recom_carbon_12.dat'
   character(80)           :: darwin_acdomFile       = 'aCDOM13amtVK2006.dat'
   character(80)           :: darwin_particleabsorbFile = 'optics_detritus_3bb.dat'
-  integer :: icdom
+! Assigned by initialize_tracer_indices only in the configurations that carry
+! these tracers. Zero means "not present in this configuration": it is not a
+! usable index, so validate_recom_tracers turns switching the corresponding
+! feature on in such a configuration into a fatal error rather than an
+! out-of-bounds state()/sms() subscript.
+  integer :: icdom = 0
 !slif (RECOM_MARSHALL) then
-  integer :: id1, id1d, id1c, id1p
+  integer :: id1 = 0, id1d = 0, id1c = 0, id1p = 0
 !slendif
   integer                :: recom_cdom_tracer_id = 1037
 !sl  integer, parameter     :: tlam = 13
@@ -625,6 +630,16 @@ contains
 
 !        allocate(recom_phaeo_tracer_id(3))
         recom_phaeo_tracer_id = (/1026, 1027, 1028/)
+#if defined(__RECOM_WAVEBANDS)
+! CDOM sits on top of the 28 tracers of this configuration.
+        if (RECOM_CDOM) then
+           icdom = 29
+           recom_cdom_tracer_id = 1029
+        endif
+! RECOM_MARSHALL is deliberately not given indices here: that path is dormant
+! and incomplete (see the D1 note in CLAUDE.md), so rather than invent an
+! untested layout, validate_recom_tracers rejects it in this configuration.
+#endif /* __RECOM_WAVEBANDS */
 
     else if (enable_3zoo2det .and. .not. enable_coccos) then
         ! =======================================================================
@@ -662,6 +677,14 @@ contains
         ! Zooplankton: mesozoo only
         ! Detritus: det1 only
         ! (All indices already set to default values)
+#if defined(__RECOM_WAVEBANDS)
+! CDOM sits on top of the 22 base tracers.
+        if (RECOM_CDOM) then
+           icdom = 23
+           recom_cdom_tracer_id = 1023
+        endif
+! RECOM_MARSHALL: see the note in the coccos-only branch above.
+#endif /* __RECOM_WAVEBANDS */
     endif
   end subroutine initialize_tracer_indices
 
@@ -737,6 +760,12 @@ subroutine validate_recom_tracers(num_tracers, mype)
     ! Additional phaeocystis: 3 tracers (1026-1028)
     ! Total: 22 + 6 = 28
     expected_bgc_num = 28
+#if defined(__RECOM_WAVEBANDS)
+    if (RECOM_CDOM) then
+       ! + 1 for CDOM (1029)
+       expected_bgc_num = 29
+    endif
+#endif
 
   else if (enable_3zoo2det .and. .not. enable_coccos) then
     ! ---------------------------------------------------------------------------
@@ -767,6 +796,12 @@ subroutine validate_recom_tracers(num_tracers, mype)
     ! ---------------------------------------------------------------------------
     ! Base: 22 tracers (1001-1022)
     expected_bgc_num = 22
+#if defined(__RECOM_WAVEBANDS)
+    if (RECOM_CDOM) then
+       ! + 1 for CDOM (1023)
+       expected_bgc_num = 23
+    endif
+#endif
 
   end if
 
@@ -831,6 +866,11 @@ subroutine validate_recom_tracers(num_tracers, mype)
     expected_tracer_ids(28) = 1026  ! PhaeoN
     expected_tracer_ids(29) = 1027  ! PhaeoC
     expected_tracer_ids(30) = 1028  ! PhaeoChl
+#if defined(__RECOM_WAVEBANDS)
+    if (RECOM_CDOM) then
+       expected_tracer_ids(31) = 1029  ! CDOM
+    endif
+#endif
 
   else if (enable_3zoo2det .and. .not. enable_coccos) then
     ! 3Zoo2Det only: 1001-1022 (base) + 1023-1030 (zoo2+det2+zoo3)
@@ -854,8 +894,50 @@ subroutine validate_recom_tracers(num_tracers, mype)
        endif
     endif
 #endif
+
+  else
+    ! Base configuration: 1001-1022, plus CDOM on top when RECOM_CDOM.
+#if defined(__RECOM_WAVEBANDS)
+    if (RECOM_CDOM) then
+       expected_tracer_ids(25) = 1023  ! CDOM
+    endif
+#endif
   end if
-  ! else: base configuration only needs tracers 1, 2, 1001-1022
+
+  ! ===========================================================================
+  ! Spectral tracer indices must exist in this configuration
+  ! ===========================================================================
+  ! icdom / id1 / id1d are used in recom_forcing and recom_sms guarded only by
+  ! their namelist switch, never by the configuration that assigns them. An
+  ! unassigned index is 0, which is not a valid state()/sms() subscript, so
+  ! enabling one of these features in a configuration that does not define it
+  ! used to corrupt memory silently. Catch it here instead.
+#if defined(__RECOM_WAVEBANDS)
+  if (RECOM_CDOM .and. icdom <= 0) then
+    config_error = .true.
+    if (mype == 0) then
+      write(*,*) '=========================================================================='
+      write(*,*) 'ERROR: RECOM_CDOM IS SET BUT CDOM HAS NO TRACER INDEX'
+      write(*,*) '=========================================================================='
+      write(*,*) 'initialize_tracer_indices assigns no CDOM index for this'
+      write(*,*) 'combination of enable_3zoo2det / enable_coccos.'
+      write(*,*) 'Set RECOM_CDOM = .false. in &spectral, or add the index.'
+      write(*,*) ''
+    end if
+  end if
+
+  if (RECOM_RADTRANS .and. RECOM_MARSHALL .and. (id1 <= 0 .or. id1d <= 0)) then
+    config_error = .true.
+    if (mype == 0) then
+      write(*,*) '=========================================================================='
+      write(*,*) 'ERROR: RECOM_MARSHALL IS SET BUT D1 HAS NO TRACER INDEX'
+      write(*,*) '=========================================================================='
+      write(*,*) 'The MARSHALL tracers are only defined for the enable_3zoo2det'
+      write(*,*) 'configurations. Set RECOM_MARSHALL = .false. in &spectral.'
+      write(*,*) ''
+    end if
+  end if
+#endif /* __RECOM_WAVEBANDS */
 
   ! ===========================================================================
   ! Perform validation checks
@@ -1157,6 +1239,11 @@ endif
 #endif    
   else if (enable_coccos .and. .not. enable_3zoo2det) then
     expected_ids(25:30) = (/1023, 1024, 1025, 1026, 1027, 1028/)
+#if defined(__RECOM_WAVEBANDS)
+if (RECOM_CDOM) then
+    expected_ids(31:31) = (/1029/)
+endif
+#endif
 
   else if (enable_3zoo2det .and. .not. enable_coccos) then
     expected_ids(25:32) = (/1023, 1024, 1025, 1026, 1027, 1028, 1029, 1030/)
@@ -1173,6 +1260,14 @@ if (RECOM_MARSHALL) then
 endif
 endif
 #endif    
+
+  else
+! Base configuration: CDOM sits directly on top of the 22 base tracers.
+#if defined(__RECOM_WAVEBANDS)
+if (RECOM_CDOM) then
+    expected_ids(25:25) = (/1023/)
+endif
+#endif
   end if
 
   ! ===========================================================================

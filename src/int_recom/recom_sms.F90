@@ -1264,9 +1264,22 @@ endif
                 ! Ecological rationale: Phaeocystis blooms occur at specific temperature ranges
                 ! (typically cold-temperate waters, 0-10degC)
 
-                Temp_phaeo = uopt_phaeo * ((Tmax_phaeo - Temp(k)) / (Tmax_phaeo - Topt_phaeo))**beta_phaeo &
-                           * exp(-beta_phaeo * (Topt_phaeo - Temp(k)) / (Tmax_phaeo - Topt_phaeo))
-                Temp_phaeo = max(Temp_phaeo, tiny)    ! Ensure positive values
+                if (Temp(k) >= Tmax_phaeo) then
+                    ! Above the Blanchard maximum there is no growth. Guarded
+                    ! explicitly rather than left to the formula: for T > Tmax
+                    ! the base (Tmax-T)/(Tmax-Topt) is negative and beta_phaeo
+                    ! is fractional, so the expression is NaN -- over ~35% of
+                    ! the surface ocean, every timestep. It was harmless only
+                    ! because max(NaN, tiny) returns tiny on Intel, which is
+                    ! compiler behaviour rather than a guarantee. At T exactly
+                    ! Tmax the formula gives 0, so this branch is numerically
+                    ! identical to what max() produced before.
+                    Temp_phaeo = tiny
+                else
+                    Temp_phaeo = uopt_phaeo * ((Tmax_phaeo - Temp(k)) / (Tmax_phaeo - Topt_phaeo))**beta_phaeo &
+                               * exp(-beta_phaeo * (Topt_phaeo - Temp(k)) / (Tmax_phaeo - Topt_phaeo))
+                    Temp_phaeo = max(Temp_phaeo, tiny)    ! Ensure positive values
+                end if
                 VTTemp_phaeo(k) = Temp_phaeo    ! Store for diagnostics
 
             endif

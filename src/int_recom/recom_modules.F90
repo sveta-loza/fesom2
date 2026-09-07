@@ -230,11 +230,21 @@ module recom_config
   Real(kind=8)                 :: expon_phy      = 0.0599d0 ! small phyto exponent
   Real(kind=8)                 :: ord_cocco      = -0.2310d0 ! coccolith ordonnee
   Real(kind=8)                 :: expon_cocco    = 0.0327d0 ! small phyto ordonnee
-  Real(kind=8)                 :: ord_phaeo      = -0.2310d0 ! phaeocystis ordonnee
-  Real(kind=8)                 :: expon_phaeo    = 0.0327d0 ! phaeocystis ordonnee
+! UNUSED. Phaeocystis does NOT use an exponential temperature response: the
+! Blanchard curve in recom_sms.F90 (~line 1267) is used instead, governed by
+! uopt_phaeo / Topt_phaeo / Tmax_phaeo / beta_phaeo. These two are referenced
+! nowhere in the source, so setting them in &paArrhenius has no effect at all.
+! They are kept only so that namelists which already set them still read --
+! config/bin_4p3z2d/namelist.recom is one. Delete them together with those
+! namelist entries if the exponential form is never going to be offered here.
+  Real(kind=8)                 :: ord_phaeo      = -0.2310d0 ! UNUSED, see above
+  Real(kind=8)                 :: expon_phaeo    = 0.0327d0  ! UNUSED, see above
 
   Real(kind=8)                 :: reminSi        = 0.02d0
   Real(kind=8)                 :: k_o2_remin     = 15.d0          ! NEW O2remin mmol m-3; Table 1 in Cram 2018 cites DeVries & Weber 2017 for a range of 0-30 mmol m-3
+! NB: ord_phaeo and expon_phaeo are accepted here but have NO EFFECT -- see the
+! declaration above. Phaeocystis growth is set by uopt_phaeo / Topt_phaeo /
+! Tmax_phaeo / beta_phaeo (Blanchard), and uopt_phaeo is the binding one.
   namelist /paArrhenius/ recom_Tref, C2K, Ae, Tmax_phaeo, Topt_phaeo, uopt_phaeo, beta_phaeo, ord_d, expon_d, ord_phy, expon_phy, ord_cocco, expon_cocco, ord_phaeo, expon_phaeo, reminSi, k_o2_remin
 
 !!------------------------------------------------------------------------------

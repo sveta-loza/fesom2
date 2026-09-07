@@ -479,8 +479,19 @@ subroutine recom_init(tracers, partit, mesh)
         CASE (1021)  ! DetCalc - Detrital Calcite
             tracers%data(i)%values(:,:) = tiny
 
-        CASE (1022)  ! What is this? 02?
-            tracers%data(i)%values(:,:) = tiny    
+        CASE (1022)  ! O2 - Dissolved oxygen
+            ! O2 is READ FROM FILE in do_ic3d (idlist/varlist in &tracer_init3d, WOA18),
+            ! exactly like DIN, DIC, Alk and DSi -- see the "Skip:" note at the top of this
+            ! SELECT. Assigning it here wiped that initial condition to tiny everywhere and
+            ! left the model running in a fully anoxic deep ocean. Only enforce the
+            ! positivity floor, and only over the wet column, so that the zeros do_ic3d
+            ! wrote below the bottom and inside cavities stay zero.
+            do row=1, myDim_nod2D+eDim_nod2D
+                nzmin = ulevels_nod2D(row)
+                nzmax = nlevels_nod2D(row)-1
+                tracers%data(i)%values(nzmin:nzmax,row) = &
+                    max(tiny, tracers%data(i)%values(nzmin:nzmax,row))
+            end do
 
         !---------------------------------------------------------------------------
         ! Extended Model: Additional Zooplankton and Detritus (enable_3zoo2det)

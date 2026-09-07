@@ -101,6 +101,7 @@ subroutine recom(ice, dynamics, tracers, partit, mesh)
     integer                    :: tr_num, num_tracers
     integer                    :: nz, n, nzmin, nzmax
     integer                    :: idiags
+    integer                    :: ktr, kk   !sl negative-tracer diagnostic loops
 
     real(kind=8)               :: Sali
     logical                    :: do_update = .false. 
@@ -253,6 +254,25 @@ subroutine recom(ice, dynamics, tracers, partit, mesh)
         do tr_num = num_tracers-bgc_num+1, num_tracers
             C(1:nzmax, tr_num-2) = tracers%data(tr_num)%values(1:nzmax, n)
         end do
+
+!sl ---- negative-tracer diagnostic (open item 1), entry side ------------------
+!sl C has just been read from the tracer array, i.e. after transport and before
+!sl any biology this step. REcoM_Forcing clamps everything to >= tiny on exit
+!sl and recom_main writes that back, so whatever is negative here was produced
+!sl by transport since the previous call.
+        if (recom_neg_diag) then
+           do ktr = 1, bgc_num
+              do kk = 1, nzmax
+                 neg_points = neg_points + 1_8
+                 if (C(kk,ktr) < 0.d0) then
+                    neg_in_count(ktr) = neg_in_count(ktr) + 1_8
+                    neg_in_lvl(kk)    = neg_in_lvl(kk)    + 1_8
+                    if (C(kk,ktr) < neg_in_min(ktr)) neg_in_min(ktr) = C(kk,ktr)
+                 end if
+              end do
+           end do
+        end if
+!sl ---------------------------------------------------------------------------
 
         ttf_rhs_bak = 0.0 ! OG - tra_diag
 
@@ -412,6 +432,19 @@ endif
            , Light_watercolumn                                   & ! Light (Ed) variables
 #endif           
                            , PAR, ice, dynamics, tracers, partit, mesh)
+
+!sl ---- negative-tracer diagnostic (open item 1), exit side -------------------
+!sl Same column after REcoM. This count should be exactly zero; if it is not,
+!sl the clamp in REcoM_Forcing does not hold and the entry counts below cannot
+!sl be attributed to transport.
+        if (recom_neg_diag) then
+           do ktr = 1, bgc_num
+              do kk = 1, nzmax
+                 if (C(kk,ktr) < 0.d0) neg_out_count(ktr) = neg_out_count(ktr) + 1_8
+              end do
+           end do
+        end if
+!sl ---------------------------------------------------------------------------
 
         do tr_num = num_tracers-bgc_num+1, num_tracers !bgc_num+2
             tracers%data(tr_num)%values(1:nzmax, n) = C(1:nzmax, tr_num-2)

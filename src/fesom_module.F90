@@ -50,6 +50,9 @@ module fesom_main_storage_module
 #if defined (__recom)
   use recom_init_interface
   use recom_interface
+!sl negative-tracer diagnostic (open item 1), reported after 'runtime recom'
+  use recom_config, only: recom_neg_diag, neg_maxtr, neg_maxlv, neg_in_count, &
+                          neg_out_count, neg_in_lvl, neg_in_min, neg_points
 #if defined(__RECOM_WAVEBANDS)
 !sl spectral wall-clock accumulators, reported next to 'runtime recom'
   use REcoM_spectral, only: rt_spec_total, rt_spec_iop, rt_spec_radtrans, &
@@ -655,6 +658,7 @@ contains
 !sl total spectral block, IOP assembly, radiative-transfer solve, tridiagonal solve.
     integer(kind=8)   :: nspec(3)
     integer           :: tr_num
+    integer           :: nn   !sl negative-tracer diagnostic report loop
     ! --------------
     ! LA icebergs: 2023-05-17 
     if (use_icebergs) then
@@ -760,6 +764,14 @@ contains
     nspec(3) = n_spec_tridiag
     call MPI_AllREDUCE(MPI_IN_PLACE, nspec, 3, MPI_INTEGER8, MPI_SUM, f%MPI_COMM_FESOM, f%MPIerr)
 #endif
+!sl negative-tracer diagnostic: sum the counts, take the deepest minimum
+    if (recom_neg_diag) then
+       call MPI_AllREDUCE(MPI_IN_PLACE, neg_in_count,  neg_maxtr, MPI_INTEGER8, MPI_SUM, f%MPI_COMM_FESOM, f%MPIerr)
+       call MPI_AllREDUCE(MPI_IN_PLACE, neg_out_count, neg_maxtr, MPI_INTEGER8, MPI_SUM, f%MPI_COMM_FESOM, f%MPIerr)
+       call MPI_AllREDUCE(MPI_IN_PLACE, neg_in_lvl,    neg_maxlv, MPI_INTEGER8, MPI_SUM, f%MPI_COMM_FESOM, f%MPIerr)
+       call MPI_AllREDUCE(MPI_IN_PLACE, neg_points,    1,         MPI_INTEGER8, MPI_SUM, f%MPI_COMM_FESOM, f%MPIerr)
+       call MPI_AllREDUCE(MPI_IN_PLACE, neg_in_min,    neg_maxtr, MPI_DOUBLE_PRECISION, MPI_MIN, f%MPI_COMM_FESOM, f%MPIerr)
+    end if
 #endif
 
     call MPI_AllREDUCE(MPI_IN_PLACE, mean_rtime, 14, MPI_REAL, MPI_SUM, f%MPI_COMM_FESOM, f%MPIerr)
@@ -807,6 +819,31 @@ contains
         print 46, '    radtrans solve calls  (all ranks):', nspec(2)
         print 46, '    tridiagonal solves    (all ranks):', nspec(3)
 #endif
+!sl ---- negative-tracer diagnostic (open item 1) -----------------------------
+!sl Entry counts are taken from the tracer array before any biology, exit counts
+!sl from the same column after REcoM_Forcing has clamped it. Exit must be zero;
+!sl anything at entry was produced by transport since the previous call.
+        if (recom_neg_diag) then
+          write(*,*)
+          write(*,*) '  negative BGC tracer values (all ranks, whole run):'
+          47 format (a44,i18)
+          48 format (a20,i4,a4,i16,a10,es12.4)
+          49 format (a22,i4,a2,i16)
+          print 47, '    (node,level,tracer) triples scanned :', neg_points
+          print 47, '    negative ON EXIT from REcoM         :', sum(neg_out_count)
+          print 47, '    negative ON ENTRY (from transport)  :', sum(neg_in_count)
+          write(*,*) '    per tracer (index within bgc_num, count, most negative):'
+          do nn = 1, neg_maxtr
+            if (neg_in_count(nn) > 0_8) print 48, '      bgc index ', nn, ' :  ', &
+                                              neg_in_count(nn), '   min = ', neg_in_min(nn)
+          end do
+          write(*,*) '    per level (entry):'
+          do nn = 1, neg_maxlv
+            if (neg_in_lvl(nn) > 0_8) print 49, '      level ', nn, ': ', neg_in_lvl(nn)
+          end do
+          write(*,*)
+        end if
+!sl ---------------------------------------------------------------------------
 #endif
 
         43 format (a33,i15)        !Format Ncores

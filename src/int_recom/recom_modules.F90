@@ -92,7 +92,23 @@ module recom_config
 !! *** REcoM setup ***
   Logical                :: enable_3zoo2det = .false.   ! Control extended zooplankton variables
   Logical                :: enable_coccos = .false.      ! Control coccolithophore variables
-  namelist /parecomsetup/ enable_3zoo2det, enable_coccos
+! ---------------------------------------------------------------------------
+! Negative-tracer diagnostic (open item 1), off unless recom_neg_diag is set.
+! REcoM_Forcing clamps every tracer to >= tiny before returning, and recom_main
+! writes that clamped state straight back, so REcoM cannot leave a negative
+! behind. Counting negatives ON ENTRY and ON EXIT separately therefore says
+! which side produced them: entry-only negatives were made by transport since
+! the previous call, exit negatives would mean the clamp does not hold.
+  Logical                :: recom_neg_diag = .false.
+  integer, parameter     :: neg_maxtr = 64      ! >= any bgc_num used here
+  integer, parameter     :: neg_maxlv = 100     ! >= nl-1
+  integer(kind=8)        :: neg_in_count(neg_maxtr)  = 0_8  ! points < 0 on entry, per tracer
+  integer(kind=8)        :: neg_out_count(neg_maxtr) = 0_8  ! points < 0 on exit,  per tracer
+  integer(kind=8)        :: neg_in_lvl(neg_maxlv)    = 0_8  ! points < 0 on entry, per level
+  real(kind=8)           :: neg_in_min(neg_maxtr)    = 0.d0 ! most negative value seen on entry
+  integer(kind=8)        :: neg_points               = 0_8  ! (node,level,tracer) triples scanned
+
+  namelist /parecomsetup/ enable_3zoo2det, enable_coccos, recom_neg_diag
 !sl
   Logical                :: FeLimit = .false.      ! ?? SL
 

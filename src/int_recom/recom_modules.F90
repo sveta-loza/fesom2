@@ -553,6 +553,17 @@ module recom_config
   Logical                :: RECOM_CALC_APHYT      = .false.
   Logical                :: RECOM_CALC_REFLEC     = .false.
   Logical                :: RECOM_BMASS           = .false.
+! Maximum quantum yield of photosynthesis [mmol C (J)^{-1}], per PFT. In a
+! spectral build these set the initial slope of the P-I curve through
+! alphachl_nl_X = mQY_X * aphy_chl_ps_X (wavebands_init_vari), and they are the
+! only namelist handle on it: alfa/alfa_d/alfa_c/alfa_p are used exclusively on
+! the non-spectral branch of recom_sms and have NO EFFECT when __RECOM_WAVEBANDS
+! is defined. All four default to the same 4.8e-4, so with the default optics the
+! PFTs differ in light harvesting only through their ap_ps spectra.
+  Real(kind=8)           :: QYmax                 = 4.8e-4
+  Real(kind=8)           :: QYmax_d               = 4.8e-4
+  Real(kind=8)           :: QYmax_cocco           = 4.8e-4
+  Real(kind=8)           :: QYmax_phaeo           = 4.8e-4
   character(80)           :: darwin_waterabsorbFile = 'abw25par.dat'
   character(80)           :: darwin_surfacespecFile = 'surfspec_13amt6.dat'
   character(80)           :: darwin_phytoabsorbFile = 'optics_phyto_recom_carbon_12.dat'
@@ -574,6 +585,7 @@ module recom_config
   namelist /spectral/ RECOM_CDOM, RECOM_MARSHALL, RECOM_RADTRANS, OASIM, RECOM_BMASS, &
                       RECOM_CALC_ACDOM,  RECOM_CALC_APART, RECOM_CALC_APHYT,         &
                       RECOM_CALC_REFLEC, &
+                      QYmax, QYmax_d, QYmax_cocco, QYmax_phaeo, &
                       darwin_waterabsorbFile, &
                       darwin_surfacespecFile, &
                       darwin_phytoabsorbFile, &
@@ -2187,12 +2199,10 @@ module REcoM_spectral
    Real(kind=8)                :: k_rep_phaeo              = 0.5       ! half saturation constant for repair, [same as DD1]   
    !sl  
 !     photoinhibition
-!#ifndef RECOM_WAVEBANDS
-   Real(kind=8)                :: QYmax                = 4.8e-4    ! maximum quantum yield of photosynthesis [mmol C (J)^{-1}]
-   Real(kind=8)                :: QYmax_d              = 4.8e-4    ! maximum quantum yield of photosynthesis [mmol C (J)^{-1}]
-   Real(kind=8)                :: QYmax_cocco          = 4.8e-4    ! maximum quantum yield of photosynthesis [mmol C (J)^{-1}]
-   Real(kind=8)                :: QYmax_phaeo          = 4.8e-4    ! maximum quantum yield of photosynthesis [mmol C (J)^{-1}]
-!#endif
+! QYmax, QYmax_d, QYmax_cocco and QYmax_phaeo moved to module recom_config so
+! they can go in the &spectral namelist group; REcoM_spectral uses recom_config,
+! so they are still visible here. They are the ONLY light-harvesting parameters
+! that act in a spectral build -- alfa/alfa_d/alfa_c/alfa_p are non-spectral only.
 !slendif
 !sl consider this module only in case of RECOM_WAVEBANDS
 !sl then the followingb line should be commented 

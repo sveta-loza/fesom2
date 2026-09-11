@@ -175,6 +175,17 @@ module ice_coupling_interface
   real(kind=WP), public, save :: cpl_time_get = 0.0_WP
   integer,       public, save :: cpl_n_put    = 0        ! calls (not exchanges:
   integer,       public, save :: cpl_n_get    = 0        !  YAC no-ops off-period)
+  ! One-shot consistency check: is coupling_period actually equal to
+  ! dt*cpl_stride? The Fortran side registers its fields with dt*cpl_stride, but
+  ! coupling_period lives in coupling.yaml and NOTHING enforces agreement. If the
+  ! yaml period is larger, YAC couples only every Nth call; the rest return
+  ! no-action and the component silently reuses STALE fields. That zero-order
+  ! hold blew up both high-resolution meshes for weeks and was misdiagnosed as a
+  ! physics bug -- see the 2026-09-11 A/B test (PT5M ran 864 steps clean, PT30M
+  ! against dt=300 died at step 101 with a 100x surface heat flux).
+  integer, save :: cpl_mype    = -1
+  logical, save :: cpl_checked = .false.
+
   integer,       public, save :: cpl_n_put_act = 0       ! calls that actually coupled
   integer,       public, save :: cpl_n_get_act = 0
   ! Whole-routine bracket for exchange_oce_ice_yac. The ocean prints no timer
@@ -205,6 +216,8 @@ contains
 
     character(len=4) :: dt_str
     integer          :: grid_id, i
+
+    cpl_mype = partit%mype
 
     call yac_runtime_ensure_grid(ICE_GRID_NAME, partit, mesh, grid_id, ice_points_id_local)
 
@@ -237,6 +250,7 @@ contains
     cpl_n_put = cpl_n_put + 1
     action = info == YAC_ACTION_COUPLING
     if (action) cpl_n_put_act = cpl_n_put_act + 1
+    call cpl_check_period()
   end subroutine ice_cpl_send
 
   subroutine ice_cpl_recv(ind, data_array, action)
@@ -309,6 +323,30 @@ contains
     print '(a,2i12)',   '   fput calls / of which coupling :', csum(1)/npes, csum(3)/npes
     print '(a,2i12)',   '   fget calls / of which coupling :', csum(2)/npes, csum(4)/npes
   end subroutine cpl_timers_report
+
+  ! Fires once, ~10 coupling calls in, on rank 0 only.
+  subroutine cpl_check_period()
+    if (cpl_checked .or. cpl_n_put < 40) return
+    cpl_checked = .true.
+    if (cpl_mype /= 0) return
+    if (cpl_n_put_act >= cpl_n_put - 4) return   ! ~1:1 allowing for src/tgt_lag
+    write(*,*) '**********************************************************************'
+    write(*,*) '*  WARNING: coupling_period does NOT match dt * cpl_stride            *'
+    write(*,*) '**********************************************************************'
+    write(*,*) '  yac_fput calls so far      :', cpl_n_put
+    write(*,*) '  ... of which really coupled:', cpl_n_put_act
+    write(*,*) '  Expected these to be ~equal. They are not, so YAC is coupling only'
+    write(*,*) '  every Nth call and this component is reusing STALE fields in'
+    write(*,*) '  between (zero-order hold). That is a known cause of surface'
+    write(*,*) '  runaways at high resolution -- it killed fArc/DARS at ~step 100.'
+    write(*,*) '  FIX: set coupling_period in coupling.yaml equal to dt*cpl_stride,'
+    write(*,*) '  or, for genuine asynchronous coupling, add "time_reduction:'
+    write(*,*) '  average" to the couple so the source averages over the period'
+    write(*,*) '  instead of sending an instantaneous snapshot.'
+    write(*,*) '  NB each component reads the coupling.yaml in ITS OWN directory.'
+    write(*,*) '**********************************************************************'
+  end subroutine cpl_check_period
+
 
 #endif
 end module ice_coupling_interface

@@ -78,7 +78,8 @@ program fesom_meshdiag
   
   ! Complete ocean setup to ensure all arrays are properly initialized
   if (partit%mype == 0) write(*,*) 'Completing ocean setup...'
-  call ocean_setup(dynamics, tracers, partit, mesh)
+!sl  call ocean_setup(dynamics, tracers, partit, mesh)
+  call ice_setup(dynamics, tracers, partit, mesh)
   
   ! Generate mesh diagnostics NetCDF file
   if (partit%mype == 0) write(*,*) 'Writing mesh diagnostics...'

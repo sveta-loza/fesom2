@@ -88,7 +88,7 @@ subroutine forcing_array_setup(partit, mesh)
 #if defined (__oasis)
   use cpl_driver, only : nrecv
 #elif defined(__yac)
-  use cpl_yac_driver, only : nrecv
+  use ocean_coupling_interface, only : nrecv => OCN_NRECV
 #endif
   implicit none
   type(t_mesh),   intent(in),    target :: mesh
@@ -107,8 +107,9 @@ subroutine forcing_array_setup(partit, mesh)
   allocate(shortwave(n2), longwave(n2))
   shortwave=0.0_WP
   longwave=0.0_WP
+  if(mype==0) write(*,*) 'forcing arrays set up started'
   allocate(prec_rain(n2), prec_snow(n2))
-
+  if(mype==0) write(*,*) 'forcing arrays prec allocated'
 ! kh 19.02.21
   if (ib_async_mode == 0) then
       allocate(u_wind(n2), v_wind(n2))

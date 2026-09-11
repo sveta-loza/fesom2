@@ -53,13 +53,14 @@ subroutine muscl_adv_init(twork, partit, mesh)
 
     !___________________________________________________________________________
     ! find upwind and downwind triangle for each local edge 
+     if (partit%mype==0)  print *, achar(27)//'[36m'//'     --> call find_up_dwn_tri'//achar(27)//'[0m'   
     call find_up_downwind_triangles(twork, partit, mesh)
     
     !___________________________________________________________________________
     nn_size=0
     k=0
-!$OMP PARALLEL DEFAULT(SHARED) PRIVATE(n)
-!$OMP DO REDUCTION(max: k)
+!sl!$OMP PARALLEL DEFAULT(SHARED) PRIVATE(n)
+!sl!$OMP DO REDUCTION(max: k)
     do n=1, myDim_nod2D
         ! get number of  neighbouring nodes from sparse stiffness matrix
         ! stiffnes matrix filled up in subroutine init_stiff_mat_ale
@@ -74,7 +75,9 @@ subroutine muscl_adv_init(twork, partit, mesh)
 !$OMP END DO    
 !$OMP END PARALLEL
     nn_size=k
+!sl    nn_size=1   !sl to delete late after we properly introduce SSH_stiff 
     !___________________________________________________________________________
+    if (partit%mype==0)  print *, achar(27)//'[36m'//'     --> call allocate mesh'//achar(27)//'[0m'
     allocate(mesh%nn_num(myDim_nod2D), mesh%nn_pos(nn_size,myDim_nod2D))
     nn_num(1:myDim_nod2D)            => mesh%nn_num(:)
     nn_pos(1:nn_size, 1:myDim_nod2D) => mesh%nn_pos(:,:)
@@ -156,6 +159,7 @@ subroutine muscl_adv_init(twork, partit, mesh)
 !$OMP END DO
 !$OMP END PARALLEL
 end SUBROUTINE muscl_adv_init
+
 !
 !
 !_______________________________________________________________________________

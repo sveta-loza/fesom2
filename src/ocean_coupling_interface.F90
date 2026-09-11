@@ -154,8 +154,24 @@ module ocean_coupling_interface
   integer, save :: ocn_recv_field_id(OCN_NRECV) = -1
   logical, save :: ocn_inited           = .false.
 
+
+  ! --- coupling-cost instrumentation (2026-09-11, §10.2) ------------------
+  ! yac_fput/yac_fget are the only points at which the pair actually exchanges,
+  ! so timing them here attributes the coupler cost without touching callers.
+  ! Whatever else the caller's exchange routine does -- halo exchanges, unit
+  ! conversion, copies -- then shows up as the remainder of the caller's own
+  ! timer, which is what makes the split interpretable. Before this, the ocean
+  ! side timed the exchange nowhere at all and FESIM lumped it in with its wait.
+  real(kind=WP), public, save :: cpl_time_put = 0.0_WP   ! s, this rank, cumulative
+  real(kind=WP), public, save :: cpl_time_get = 0.0_WP
+  integer,       public, save :: cpl_n_put    = 0        ! calls (not exchanges:
+  integer,       public, save :: cpl_n_get    = 0        !  YAC no-ops off-period)
+  integer,       public, save :: cpl_n_put_act = 0       ! calls that actually coupled
+  integer,       public, save :: cpl_n_get_act = 0
+
   ! --- public API -------------------------------------------------------
   public :: ocn_cpl_init, ocn_cpl_define, ocn_cpl_send, ocn_cpl_recv, ocn_cpl_finalize
+  public :: cpl_timers_report
 
 contains
 
@@ -208,23 +224,35 @@ contains
   end subroutine ocn_cpl_define
 
   subroutine ocn_cpl_send(ind, data_array, action)
+    use mpi, only: MPI_Wtime
     integer,       intent(in)  :: ind
     real(kind=WP), intent(in)  :: data_array(:,:)
     logical,       intent(out) :: action
     integer :: info, ierr
+    real(kind=WP) :: t_cpl0
+    t_cpl0 = MPI_Wtime()
     call yac_fput(ocn_send_field_id(ind), size(data_array, 1), size(data_array, 2), &
          data_array, info, ierr)
+    cpl_time_put = cpl_time_put + (MPI_Wtime() - t_cpl0)
+    cpl_n_put = cpl_n_put + 1
     action = info == YAC_ACTION_COUPLING
+    if (action) cpl_n_put_act = cpl_n_put_act + 1
   end subroutine ocn_cpl_send
 
   subroutine ocn_cpl_recv(ind, data_array, action)
+    use mpi, only: MPI_Wtime
     integer,       intent(in)    :: ind
     real(kind=WP), intent(inout) :: data_array(:,:)
     logical,       intent(out)   :: action
     integer :: info, ierr
+    real(kind=WP) :: t_cpl0
+    t_cpl0 = MPI_Wtime()
     call yac_fget(ocn_recv_field_id(ind), size(data_array, 1), size(data_array, 2), &
          data_array, info, ierr)
+    cpl_time_get = cpl_time_get + (MPI_Wtime() - t_cpl0)
+    cpl_n_get = cpl_n_get + 1
     action = info == YAC_ACTION_COUPLING
+    if (action) cpl_n_get_act = cpl_n_get_act + 1
   end subroutine ocn_cpl_recv
 
   subroutine ocn_cpl_finalize()
@@ -238,6 +266,33 @@ contains
        ocn_inited = .false.
     end if
   end subroutine ocn_cpl_finalize
+
+
+  ! Collective report of the coupler cost, printed next to the model's own
+  ! per-task runtime block. mean/min/max over ranks, as in that block.
+  subroutine cpl_timers_report(comm, mype, npes, label)
+    use mpi
+    integer,          intent(in) :: comm, mype, npes
+    character(len=*), intent(in) :: label
+    real(kind=WP) :: v(2), vsum(2), vmin(2), vmax(2)
+    integer       :: c(4), csum(4), ierr
+
+    v = [cpl_time_put, cpl_time_get]
+    c = [cpl_n_put, cpl_n_get, cpl_n_put_act, cpl_n_get_act]
+    call MPI_Allreduce(v, vsum, 2, MPI_DOUBLE_PRECISION, MPI_SUM, comm, ierr)
+    call MPI_Allreduce(v, vmin, 2, MPI_DOUBLE_PRECISION, MPI_MIN, comm, ierr)
+    call MPI_Allreduce(v, vmax, 2, MPI_DOUBLE_PRECISION, MPI_MAX, comm, ierr)
+    call MPI_Allreduce(c, csum, 4, MPI_INTEGER,          MPI_SUM, comm, ierr)
+    if (mype /= 0) return
+    vsum = vsum / real(npes, WP)
+    print '(a)',          '___COUPLER COST ('//label//') per task [seconds]_mean______min______max_'
+    print '(a,3f14.4)',   '   yac_fput                  :', vsum(1), vmin(1), vmax(1)
+    print '(a,3f14.4)',   '   yac_fget                  :', vsum(2), vmin(2), vmax(2)
+    print '(a,3f14.4)',   '   yac_fput + yac_fget       :', vsum(1)+vsum(2), &
+                                                            vmin(1)+vmin(2), vmax(1)+vmax(2)
+    print '(a,2i12)',     '   fput calls / of which coupling :', csum(1)/npes, csum(3)/npes
+    print '(a,2i12)',     '   fget calls / of which coupling :', csum(2)/npes, csum(4)/npes
+  end subroutine cpl_timers_report
 
 #endif
 end module ocean_coupling_interface

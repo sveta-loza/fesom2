@@ -13,6 +13,7 @@ module fesom_main_storage_module
   USE o_PARAM
   use g_clock
   use g_config
+  use g_ic3d, only: do_ic3d, tracer_init3d
   use g_comm_auto
   use g_forcing_arrays
   use io_RESTART
@@ -23,7 +24,6 @@ module fesom_main_storage_module
   use tracer_init_interface
 !sl  use ocean_setup_interface
   use ice_setup_interface
-  use ocean2ice_interface
   use oce_fluxes_interface
   use update_atm_forcing_interface
 !sl  use before_oce_step_interface
@@ -59,9 +59,15 @@ module fesom_main_storage_module
 
   implicit none
     
+  ! Cold-start sea-ice initial state from the T/S climatology. OFF: the call
+  ! segfaults inside g_ic3d::getcoeffld from this call site -- see the block in
+  ! fesim_init. [ocean-leftover audit 2026-09-11]
+  logical, parameter :: fesim_coldstart_ic3d = .false.
+
   type :: fesom_main_storage_type
 
     integer           :: n, from_nstep, offset, row, i, provided, id
+    integer           :: nm_ic3d_unit ! namelist.tra unit for the cold-start &tracer_init3d read
     integer           :: which_readr ! read which restart files (0=netcdf, 1=core dump,2=dtype)
     integer           :: total_nsteps
     integer, pointer  :: mype, npes, MPIerr, MPI_COMM_FESOM, MPI_COMM_WORLD, MPI_COMM_FESOM_IB
@@ -278,6 +284,69 @@ contains
 !sl           call foreph_ini(yearnew, month, f%partit)
 !sl        end if
 
+        !_______________________________________________________________________
+        !_______________________________________________________________________
+        ! Cold start: the sea ice wants an ocean SST to start from.
+        !
+        ! ice_initial_state (in ice_setup below) decides where ice exists from
+        ! tracers%data(1)%values(1,:) < 0 degC -- the ocean SST -- which is the
+        ! `ini_ice_from_file = .false.` branch both experiments use. In the OCEAN
+        ! tree that works because ocean_setup runs first and calls do_ic3d. Here
+        ! ocean_setup is switched off (the ocean state arrives over YAC instead),
+        ! so the tracers are still ZERO at that point, `0 < 0` is false at every
+        ! node, and a cold start seeds NO ICE AT ALL.
+        !
+        ! DISABLED 2026-09-11, and deliberately left in place. Calling do_ic3d
+        ! here to fill the tracers SEGFAULTS inside g_ic3d::getcoeffld
+        ! (gen_ic3d.F90:393, `nl1 = nlevels_nod2D(ii)-1`) -- while the OCEAN
+        ! binary runs the very same routine on the same mesh and the same
+        ! phc3.0_winter.nc successfully in the same job. So FESIM's earlier call
+        ! site is missing setup that ocean_setup does before its own do_ic3d
+        ! call; which, is not yet established. Ruled out: tracer IDs (FESIM does
+        ! read &tracer_list), nlevels_nod2D allocation (find_levels is inside
+        ! mesh_setup, which FESIM calls), rotation-matrix init (neither tree
+        ! calls init_rotate_matrix). Next step is a -O0 -g -check bounds build of
+        ! gen_ic3d.F90 against the 2-day CORE2 cold-start case in
+        ! exp_forced/scaling/cases_cpl/coldstart_test.
+        !
+        ! Until then: flip this to .true. only together with that fix. Leaving it
+        ! .false. restores the previous behaviour -- a cold start produces no sea
+        ! ice -- which is wrong but not a crash, and the warning below makes it
+        ! visible instead of silent. Restart runs are unaffected either way:
+        ! read_initial_conditions overwrites m_ice/m_snow/a_ice from the ice
+        ! restart immediately afterwards.
+        if (.not. r_restart) then
+            if (fesim_coldstart_ic3d) then
+                if (f%mype==0) print *, achar(27)//'[34m'//' --> cold start: read T/S climatology for the sea-ice initial state'//achar(27)//'[0m'
+                open(newunit=f%nm_ic3d_unit, file='namelist.tra', form='formatted', &
+                     access='sequential', status='old', iostat=f%i)
+                if (f%i /= 0) then
+                    if (f%mype==0) write(*,*) 'ERROR: cannot open namelist.tra for &tracer_init3d'
+                    call par_ex(f%partit%MPI_COMM_FESOM, f%partit%mype)
+                    stop
+                end if
+                read(f%nm_ic3d_unit, nml=tracer_init3d, iostat=f%i)
+                close(f%nm_ic3d_unit)
+                if (f%i /= 0) then
+                    if (f%mype==0) write(*,*) 'ERROR: cannot read &tracer_init3d from namelist.tra'
+                    call par_ex(f%partit%MPI_COMM_FESOM, f%partit%mype)
+                    stop
+                end if
+                call do_ic3d(f%tracers, f%partit, f%mesh)
+            else if (f%mype==0) then
+                write(*,*) '**********************************************************************'
+                write(*,*) '*  WARNING: FESIM COLD START -- THE SEA ICE WILL BE INITIALISED EMPTY *'
+                write(*,*) '**********************************************************************'
+                write(*,*) '  ice_initial_state seeds ice where the ocean SST is below 0 degC, but'
+                write(*,*) '  in FESIM the ocean tracers are zero at that point (ocean_setup is'
+                write(*,*) '  off -- the ocean state arrives over YAC), so no node qualifies.'
+                write(*,*) '  Restart runs are unaffected. To fix, see fesim_coldstart_ic3d in'
+                write(*,*) '  fesim_module.F90, or set ini_ice_from_file=.true. in namelist.tra'
+                write(*,*) '  and supply the a_ice/m_ice/m_snow files in ClimateDataPath.'
+                write(*,*) '**********************************************************************'
+            end if
+        end if
+
         call forcing_setup(f%partit, f%mesh)
 
         if (f%mype==0) f%t4=MPI_Wtime()
@@ -311,7 +380,7 @@ contains
     
 
 #if defined (__yac)
-        call ocn_cpl_define(f%partit, f%mesh, INT(dt))
+        call ocn_cpl_define(f%partit, f%mesh, INT(dt)*cpl_stride)   ! field dt = coupling period (every cpl_stride model steps)
         if(f%mype==0)  write(*,*) 'FESIM ---->     ocn_cpl_define OCN_NSEND, OCN_NRECV:', OCN_NSEND, OCN_NRECV
 #endif
 
@@ -418,7 +487,20 @@ contains
     ! --------------
 
     if (f%mype==0) write(*,*) 'FESIM start iteration before the barrier...'
-    call MPI_Barrier(f%MPI_COMM_FESOM, f%MPIERR)   
+    ! Cross-component sync before starting the loop timer: both ocean and ice
+    ! resume from the SAME instant, so the ocean's longer init (mesh+forcing) no
+    ! longer shows up as ice first-step yac_fget wait (the ~21 s loop-timer skew).
+    !
+    ! ONLY valid when MPI_COMM_WORLD is exactly ocean+ice, i.e. the standalone
+    ! config #2. MPI_Barrier is collective over the WHOLE communicator, so under
+    ! config #0 (ICON in the same MPMD world) or config #1 (IFS likewise) the
+    ! ocean and ice ranks would block here forever waiting for atmosphere ranks
+    ! that never call it. Config #0/#1 therefore sync on their own component
+    ! communicator only.                     [gated 2026-09-09, ICON three-way prep]
+#if !defined(__yac_atm) && !defined(__ifs_fwd)
+    call MPI_Barrier(MPI_COMM_WORLD, f%MPIERR)      ! [scalability shared-clock fix 2026-07]
+#endif
+    call MPI_Barrier(f%MPI_COMM_FESOM, f%MPIERR)
     if (f%mype==0) then
        write(*,*) 'FESIM start iteration after the barrier...'
        f%t0 = MPI_Wtime()
@@ -455,13 +537,11 @@ contains
         !___model sea-ice step__________________________________________________
         f%t1 = MPI_Wtime()
 !SL        if(use_ice) then
-            !SL here the yac_recv oce2ice atm2ice are to be used via/within ocean2ice_fesim or
-            !   forcing_couple_fesim   
-            !___compute fluxes from ocean to ice________________________________
-            if (flag_debug .and. f%mype==0)  print *, achar(27)//'[34m'//' --> call ocean2ice(n)'//achar(27)//'[0m'
-!SL            call ocean2ice(f%ice, f%dynamics, f%tracers, f%partit, f%mesh)
-            !SL here the yac_send ice2oce ice2atmare to be used via/within ocean2ice_fesim or
-            !   forcing_couple_fesim
+            ! No ocean2ice call here: in the decoupled design the ocean surface
+            ! state (SST, SSS, SSH, surface u/v) arrives over YAC in
+            ! update_atm_forcing_yac below, and the ice->ocean fluxes go back the
+            ! same way. ocean2ice/oce_fluxes were deleted 2026-09-11 -- see the
+            ! header of ice_oce_coupling_fesim.F90.
             !___compute update of atmospheric forcing____________________________
             if (flag_debug .and. f%mype==0)  print *, achar(27)//'[34m'//' --> call update_atm_forcing(n)'//achar(27)//'[0m'
             f%t0_frc = MPI_Wtime()
@@ -470,6 +550,10 @@ contains
 #endif
 #if defined (__yac)
            if (f%mype==0)  print *, achar(27)//'[34m'//' --> call update_atm_forcing(n)'//achar(27)//'[0m'
+            ! call-gating: only exchange on coupling steps (cpl_stride). Off-steps
+            ! reuse the cached ocean/atm fields (zero-order hold). Ocean side gates
+            ! identically (same n, same cpl_stride) so yac_fput/fget stay paired.
+            if (mod(n-1, cpl_stride) == 0) &
             call update_atm_forcing_yac(n, f%ice, f%tracers, f%dynamics, f%partit, f%mesh)
            if (f%mype==0)  print *, achar(27)//'[34m'//' --> after update_atm_forcing(n)'//achar(27)//'[0m'
 #endif 
@@ -500,7 +584,8 @@ contains
             !___compute fluxes to the ocean: heat, freshwater, momentum_________
             if (flag_debug .and. f%mype==0)  print *, achar(27)//'[34m'//' --> call oce_fluxes_mom...'//achar(27)//'[0m'
             call oce_fluxes_mom(f%ice, f%dynamics, f%partit, f%mesh) ! momentum only: fills ice%stress_iceoce_x/y for the ice->ocean YAC send
-!?sl            call oce_fluxes(f%ice, f%dynamics, f%tracers, f%partit, f%mesh)
+            ! (no oce_fluxes: the heat/freshwater flux to the ocean is sent as
+            !  `ice_to_ocean_flux` from gen_forcing_couple, not applied locally)
 !sl        end if  !sl??
         f%t2 = MPI_Wtime()
 
@@ -548,7 +633,7 @@ contains
 #endif
         f%t6 = MPI_Wtime()
         
-        f%rtime_fullice       = f%rtime_fullice       + f%t2 - f%t1
+        f%rtime_fullice       = f%rtime_fullice       + f%t3 - f%t1   ! fold ice_timestep_ale (t2->t3) into ice compute [scalability instr. 2026-07]
         f%rtime_compute_diag  = f%rtime_compute_diag  + f%t4 - f%t3
         f%rtime_write_means   = f%rtime_write_means   + f%t5 - f%t4
         f%rtime_write_restart = f%rtime_write_restart + f%t6 - f%t5
@@ -649,6 +734,14 @@ contains
     mean_rtime(12) = f%rtime_write_means
     mean_rtime(13) = f%rtime_write_restart
     mean_rtime(14) = f%rtime_read_forcing
+    ! FESIM scalability instrumentation (2026-07): fill the indices the summary
+    ! actually prints. (1) = pure ice compute (EVP dyn + thermo + ale advection,
+    ! excluding the yac recv wait); (14) = f%rtime_read_forcing already brackets
+    ! update_atm_forcing_yac, i.e. the yac_fget block = time ice waits on the
+    ! ocean; (9) = FESIM per-task loop total (compute + coupling wait + diag/io).
+    mean_rtime(1)  = f%rtime_fullice - f%rtime_read_forcing
+    mean_rtime(9)  = f%rtime_fullice + f%rtime_compute_diag &
+                   + f%rtime_write_means + f%rtime_write_restart
     max_rtime(1:14) = mean_rtime(1:14)
     min_rtime(1:14) = mean_rtime(1:14)
 
@@ -659,6 +752,14 @@ contains
     call MPI_AllREDUCE(MPI_IN_PLACE, min_rtime,  14, MPI_REAL, MPI_MIN, f%MPI_COMM_FESOM, f%MPIerr)
 !sl    call MPI_AllREDUCE(MPI_IN_PLACE, max_rtime,  14, MPI_REAL, MPI_MAX, f%MPI_COMM_FESIM, f%MPIerr)
 !sl    call MPI_AllREDUCE(MPI_IN_PLACE, min_rtime,  14, MPI_REAL, MPI_MIN, f%MPI_COMM_FESIM, f%MPIerr)
+
+#if defined (__yac)
+    ! Coupler cost, attributed (2026-09-11, ANALYSIS.md §10.2). Collective, so it
+    ! must run before par_ex below finalizes MPI. "runtime yac recv/wait" above is
+    ! NOT pure wait -- it also holds these calls plus 14 halo exchanges and the
+    ! unit conversions; this block separates out the YAC part.
+    call cpl_timers_report(f%MPI_COMM_FESOM, f%mype, f%npes, 'fesim')
+#endif
     
 !sl#if defined (__oifs) 
 !sl    ! OpenIFS coupled version has to call oasis_terminate through par_ex
@@ -686,21 +787,12 @@ contains
         42 format (a30,3f15.4)   !Format for table content
 
         print 41, '___MODEL RUNTIME per task [seconds]','_____mean_','___________min_', '___________max_'
-        print 42, '  runtime ice:              ',    mean_rtime(1),     min_rtime(1),      max_rtime(1)
-!sl        print 42, '  runtime ocean:              ',    mean_rtime(1),     min_rtime(1),      max_rtime(1)
-!sl        print 42, '    > runtime oce. mix,pres. :',    mean_rtime(2),     min_rtime(2),      max_rtime(2)
-!sl        print 42, '    > runtime oce. dyn. u,v,w:',    mean_rtime(3),     min_rtime(3),      max_rtime(3)
-!sl        print 42, '    > runtime oce. dyn. ssh  :',    mean_rtime(4),     min_rtime(4),      max_rtime(4)
-!sl        print 42, '    > runtime oce. solve ssh :',    mean_rtime(5),     min_rtime(5),      max_rtime(5)
-!sl        print 42, '    > runtime oce. GM/Redi   :',    mean_rtime(6),     min_rtime(6),      max_rtime(6)
-!sl        print 42, '    > runtime oce. tracer    :',    mean_rtime(7),     min_rtime(7),      max_rtime(7)
-!sl        print 42, '  runtime ice  :              ',    mean_rtime(10),    min_rtime(10),     max_rtime(10)
-!sl        print 42, '    > runtime ice step :      ',    mean_rtime(8),     min_rtime(8),      max_rtime(8)
-!sl        print 42, '  runtime diag:               ',    mean_rtime(11),    min_rtime(11),     max_rtime(11)
-!sl        print 42, '  runtime output:             ',    mean_rtime(12),    min_rtime(12),     max_rtime(12)
-!sl        print 42, '  runtime restart:            ',    mean_rtime(13),    min_rtime(13),     max_rtime(13)
-!sl        print 42, '  runtime forcing:            ',    mean_rtime(14),    min_rtime(14),     max_rtime(14)
-!sl        print 42, '  runtime total (ice+oce):    ',    mean_rtime(9),     min_rtime(9),      max_rtime(9)
+        print 42, '  runtime ice compute       :',    mean_rtime(1),     min_rtime(1),      max_rtime(1)
+        print 42, '  runtime yac recv/wait     :',    mean_rtime(14),    min_rtime(14),     max_rtime(14)
+        print 42, '  runtime diag              :',    mean_rtime(11),    min_rtime(11),     max_rtime(11)
+        print 42, '  runtime output            :',    mean_rtime(12),    min_rtime(12),     max_rtime(12)
+        print 42, '  runtime restart           :',    mean_rtime(13),    min_rtime(13),     max_rtime(13)
+        print 42, '  runtime total (fesim)     :',    mean_rtime(9),     min_rtime(9),      max_rtime(9)
 !sl#if defined (__recom)
 !sl        print 42, '  runtime recom:              ',    mean_rtime(15),    min_rtime(15),     max_rtime(15)
 !sl#endif

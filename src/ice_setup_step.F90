@@ -712,6 +712,24 @@ SUBROUTINE arrays_init(num_tracers, partit, mesh)
 nl              => mesh%nl
 
     !___________________________________________________________________________
+    ! NB the 3-D ocean arrays allocated below (bvfreq, Av/Kv, neutral_slope,
+    ! sigma_xy, density_*, pgf_*, Tclim/Sclim, tr_xy/tr_z ...) look like dead
+    ! ocean state in a sea-ice component -- roughly 95 MB per rank on DARS at
+    ! 1024 ice ranks. THEY ARE NOT DEAD. Gating them off was tried on 2026-09-11
+    ! and segfaulted immediately in BOTH configs:
+    !     mo_convect()        oce_mo_conv.F90:85   reads bvfreq(nz,node), Kv(nz,node)
+    !     ice_timestep_ale()  oce_ale.F90:3651
+    !     fesim_runloop()     fesim_module.F90
+    ! The mistake behind that attempt: FESIM's live code was identified by
+    ! FILENAME (ice_*, MOD_ICE*, gen_forcing_couple, ...) and oce_*.F90 assumed
+    ! dead. It is not -- the step loop calls ice_timestep_ale and
+    ! compute_diagnostics, which live in oce_ale.F90 / gen_modules_diag.F90 and
+    ! are handed both `dynamics` and `tracers` every step.
+    ! Anyone revisiting this must work from the CALL GRAPH out of fesim_runloop
+    ! (ice_timestep, oce_fluxes_mom, ice_timestep_ale, compute_diagnostics,
+    ! output), not from file names, and verify one array at a time. The payoff is
+    ! memory only -- there is no wall-clock gain -- so weigh it accordingly.
+    ! [ocean-leftover audit 2026-09-11]
     elem_size=myDim_elem2D+eDim_elem2D
     node_size=myDim_nod2D+eDim_nod2D
 

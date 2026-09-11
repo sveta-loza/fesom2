@@ -13,7 +13,6 @@ module fesom_main_storage_module
   USE o_PARAM
   use g_clock
   use g_config
-  use g_ic3d, only: do_ic3d, tracer_init3d
   use g_comm_auto
   use g_forcing_arrays
   use io_RESTART
@@ -59,15 +58,9 @@ module fesom_main_storage_module
 
   implicit none
     
-  ! Cold-start sea-ice initial state from the T/S climatology. OFF: the call
-  ! segfaults inside g_ic3d::getcoeffld from this call site -- see the block in
-  ! fesim_init. [ocean-leftover audit 2026-09-11]
-  logical, parameter :: fesim_coldstart_ic3d = .false.
-
   type :: fesom_main_storage_type
 
     integer           :: n, from_nstep, offset, row, i, provided, id
-    integer           :: nm_ic3d_unit ! namelist.tra unit for the cold-start &tracer_init3d read
     integer           :: which_readr ! read which restart files (0=netcdf, 1=core dump,2=dtype)
     integer           :: total_nsteps
     integer, pointer  :: mype, npes, MPIerr, MPI_COMM_FESOM, MPI_COMM_WORLD, MPI_COMM_FESOM_IB
@@ -285,67 +278,13 @@ contains
 !sl        end if
 
         !_______________________________________________________________________
-        !_______________________________________________________________________
-        ! Cold start: the sea ice wants an ocean SST to start from.
-        !
-        ! ice_initial_state (in ice_setup below) decides where ice exists from
-        ! tracers%data(1)%values(1,:) < 0 degC -- the ocean SST -- which is the
-        ! `ini_ice_from_file = .false.` branch both experiments use. In the OCEAN
-        ! tree that works because ocean_setup runs first and calls do_ic3d. Here
-        ! ocean_setup is switched off (the ocean state arrives over YAC instead),
-        ! so the tracers are still ZERO at that point, `0 < 0` is false at every
-        ! node, and a cold start seeds NO ICE AT ALL.
-        !
-        ! DISABLED 2026-09-11, and deliberately left in place. Calling do_ic3d
-        ! here to fill the tracers SEGFAULTS inside g_ic3d::getcoeffld
-        ! (gen_ic3d.F90:393, `nl1 = nlevels_nod2D(ii)-1`) -- while the OCEAN
-        ! binary runs the very same routine on the same mesh and the same
-        ! phc3.0_winter.nc successfully in the same job. So FESIM's earlier call
-        ! site is missing setup that ocean_setup does before its own do_ic3d
-        ! call; which, is not yet established. Ruled out: tracer IDs (FESIM does
-        ! read &tracer_list), nlevels_nod2D allocation (find_levels is inside
-        ! mesh_setup, which FESIM calls), rotation-matrix init (neither tree
-        ! calls init_rotate_matrix). Next step is a -O0 -g -check bounds build of
-        ! gen_ic3d.F90 against the 2-day CORE2 cold-start case in
-        ! exp_forced/scaling/cases_cpl/coldstart_test.
-        !
-        ! Until then: flip this to .true. only together with that fix. Leaving it
-        ! .false. restores the previous behaviour -- a cold start produces no sea
-        ! ice -- which is wrong but not a crash, and the warning below makes it
-        ! visible instead of silent. Restart runs are unaffected either way:
-        ! read_initial_conditions overwrites m_ice/m_snow/a_ice from the ice
-        ! restart immediately afterwards.
-        if (.not. r_restart) then
-            if (fesim_coldstart_ic3d) then
-                if (f%mype==0) print *, achar(27)//'[34m'//' --> cold start: read T/S climatology for the sea-ice initial state'//achar(27)//'[0m'
-                open(newunit=f%nm_ic3d_unit, file='namelist.tra', form='formatted', &
-                     access='sequential', status='old', iostat=f%i)
-                if (f%i /= 0) then
-                    if (f%mype==0) write(*,*) 'ERROR: cannot open namelist.tra for &tracer_init3d'
-                    call par_ex(f%partit%MPI_COMM_FESOM, f%partit%mype)
-                    stop
-                end if
-                read(f%nm_ic3d_unit, nml=tracer_init3d, iostat=f%i)
-                close(f%nm_ic3d_unit)
-                if (f%i /= 0) then
-                    if (f%mype==0) write(*,*) 'ERROR: cannot read &tracer_init3d from namelist.tra'
-                    call par_ex(f%partit%MPI_COMM_FESOM, f%partit%mype)
-                    stop
-                end if
-                call do_ic3d(f%tracers, f%partit, f%mesh)
-            else if (f%mype==0) then
-                write(*,*) '**********************************************************************'
-                write(*,*) '*  WARNING: FESIM COLD START -- THE SEA ICE WILL BE INITIALISED EMPTY *'
-                write(*,*) '**********************************************************************'
-                write(*,*) '  ice_initial_state seeds ice where the ocean SST is below 0 degC, but'
-                write(*,*) '  in FESIM the ocean tracers are zero at that point (ocean_setup is'
-                write(*,*) '  off -- the ocean state arrives over YAC), so no node qualifies.'
-                write(*,*) '  Restart runs are unaffected. To fix, see fesim_coldstart_ic3d in'
-                write(*,*) '  fesim_module.F90, or set ini_ice_from_file=.true. in namelist.tra'
-                write(*,*) '  and supply the a_ice/m_ice/m_snow files in ClimateDataPath.'
-                write(*,*) '**********************************************************************'
-            end if
-        end if
+        ! NB the cold-start sea-ice initial state needs an ocean SST, which FESIM
+        ! has none of at this point. It is now read directly from the T/S
+        ! climatology inside ice_initial_state (sst_ini_file in &tracer_init2d),
+        ! which avoids the ocean's 3-D vertical machinery. An earlier attempt to
+        ! call do_ic3d here instead failed: it interpolates onto mesh%Z_3d_n,
+        ! which only init_ale allocates, and FESIM calls init_ale_ice.
+        ! [ocean-leftover audit 2026-09-11]
 
         call forcing_setup(f%partit, f%mesh)
 

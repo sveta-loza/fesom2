@@ -415,6 +415,7 @@ subroutine ice_initial_state(ice, tracers, partit, mesh)
     use o_PARAM
     use o_arrays
     use g_CONFIG
+    use g_clock, only: r_restart
     USE g_read_other_NetCDF, only: read_other_NetCDF
     implicit none
     type(t_ice)   , intent(inout), target :: ice
@@ -436,7 +437,18 @@ subroutine ice_initial_state(ice, tracers, partit, mesh)
    logical                                      :: ini_ice_from_file=.false., file_exist=.false.
    character(50),       save, dimension(ic_max) :: varlist
    integer                                      :: current_tracer
-   namelist / tracer_init2d / n_ic2d, idlist, filelist, varlist, ini_ice_from_file
+   ! Cold-start SST source for the `ini_ice_from_file = .false.` branch below.
+   ! FESIM has no ocean state of its own at init -- it arrives over YAC once the
+   ! run starts -- so the SST that decides where ice is seeded must be read here.
+   ! sst_ini_file is relative to ClimateDataPath; sst_ini_level is the index along
+   ! the file's third (depth) dimension, 1 = surface. Leave sst_ini_file empty to
+   ! keep the old behaviour (which seeds NO ice -- see the warning below).
+   character(MAX_PATH), save                    :: sst_ini_file  = ''
+   character(50),       save                    :: sst_ini_var   = 'temp'
+   integer,             save                    :: sst_ini_level = 1
+   real(kind=WP), allocatable, dimension(:)     :: sst_ini
+   namelist / tracer_init2d / n_ic2d, idlist, filelist, varlist, ini_ice_from_file, &
+                              sst_ini_file, sst_ini_var, sst_ini_level
 
     !___________________________________________________________________________
     ! pointer on necessary derived types
@@ -549,6 +561,60 @@ end if
     ! do interpolation to fesom grid or to initialise them with a constant value
     if (.not. ini_ice_from_file) then
         if(mype==0) write(*,*) 'initialize the sea ice: cold start'
+
+        !_______________________________________________________________________
+        ! Where the SST comes from. This used to read tracers%data(1)%values(1,:),
+        ! which works in the OCEAN (ocean_setup fills the tracers from climatology
+        ! before ice_setup runs) but NOT in FESIM: ocean_setup is off here, this
+        ! routine runs before read_initial_conditions, and the ocean state only
+        ! arrives over YAC once the run starts. The tracers are therefore zero,
+        ! `0 < 0` is false at every node, and the cold start seeded NO ICE AT ALL.
+        ! Reading the surface level of the T/S climatology directly avoids the
+        ! ocean's 3-D machinery entirely -- notably mesh%Z_3d_n, which do_ic3d
+        ! needs and which only init_ale (not FESIM's init_ale_ice) allocates.
+        ! [ocean-leftover audit 2026-09-11]
+        ! NB this routine runs on EVERY startup, not just cold starts -- on a
+        ! restart read_initial_conditions overwrites m_ice/m_snow/a_ice moments
+        ! later, so reading and interpolating the climatology then would be pure
+        ! waste (and would eat into the startup saving from not reading the ocean
+        ! restart). Skip the read, and the seeding with it, when restarting.
+        allocate(sst_ini(myDim_nod2D+eDim_nod2D))
+        sst_ini = 0.0_WP
+        if (r_restart) then
+            if (mype==0) write(*,*) '     --> restart run: skipping the cold-start SST read'
+        else if (len_trim(sst_ini_file) > 0) then
+            file_exist = .false.
+            inquire(file=trim(ClimateDataPath)//trim(sst_ini_file), exist=file_exist)
+            if (.not. file_exist) then
+                if (mype==0) then
+                    write(*,*) '____________________________________________________________________'
+                    write(*,*) ' ERROR: cold-start SST file not found!'
+                    write(*,*) '        ', trim(ClimateDataPath)//trim(sst_ini_file)
+                    write(*,*) '        --> check ClimateDataPath (namelist.config) and'
+                    write(*,*) '            sst_ini_file in &tracer_init2d (namelist.tra)'
+                    write(*,*) '____________________________________________________________________'
+                end if
+                call par_ex(partit%MPI_COMM_FESOM, partit%mype)
+                stop
+            end if
+            if (mype==0) write(*,*) '     --> cold-start SST from ', &
+                 trim(ClimateDataPath)//trim(sst_ini_file), ' (', trim(sst_ini_var), &
+                 ', level', sst_ini_level, ')'
+            ! itime indexes the variable's THIRD dimension; for phc3.0 the file is
+            ! temp(depth,lat,lon) in CDL = temp(lon,lat,depth) in Fortran, so
+            ! sst_ini_level = 1 is the surface.
+            call read_other_NetCDF(trim(ClimateDataPath)//trim(sst_ini_file), &
+                 trim(sst_ini_var), sst_ini_level, sst_ini, .true., .true., partit, mesh)
+        else if (mype==0) then
+            write(*,*) '**********************************************************************'
+            write(*,*) '*  WARNING: no sst_ini_file set -- the sea ice will start EMPTY       *'
+            write(*,*) '**********************************************************************'
+            write(*,*) '  Set sst_ini_file in &tracer_init2d (namelist.tra) to the T/S'
+            write(*,*) '  climatology, or set ini_ice_from_file=.true. and supply the'
+            write(*,*) '  a_ice/m_ice/m_snow files in ClimateDataPath.'
+            write(*,*) '**********************************************************************'
+        end if
+
         !___________________________________________________________________________
         do i=1,myDim_nod2D+eDim_nod2D
             !_______________________________________________________________________
@@ -556,9 +622,7 @@ end if
             if (ulevels_nod2d(i)>1) cycle 
             
             !_______________________________________________________________________
-            !sl consider SST that is passed from ocean
-            !sl how would it relate to tracers
-            if (tracers%data(1)%values(1,i)< 0.0_WP) then
+            if (sst_ini(i) < 0.0_WP) then
                 if (geo_coord_nod2D(2,i)>0._WP) then
                     m_ice(i) = 1.0_WP
                     m_snow(i)= 0.1_WP

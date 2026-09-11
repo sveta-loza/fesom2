@@ -26,3 +26,5 @@ test/output_pi
 /build_ifsfwd
 /build_ifsfwd_probe
 *.bak.*
+/build_debug
+/_debug_install

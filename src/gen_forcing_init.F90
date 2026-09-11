@@ -42,7 +42,11 @@ type(t_partit), intent(inout), target :: partit
   if (partit%mype==0) write(*,*) '****************************************************'
   if (use_ice) then
      call forcing_array_setup(partit, mesh)
-#if !defined(__oasis) && !defined(__yac)
+#if !defined(__oasis) && !defined(__yac_atm)
+     ! Initialise the file-forcing machinery (g_sbf) whenever the atmosphere is
+     ! NOT coming from a coupler: pure-forced FESOM, and the standalone
+     ! FESOM-FESIM run (__yac without __yac_atm). Skipped for ICON (__yac_atm)
+     ! and OASIS, where the atmosphere arrives via the coupler.
      call sbc_ini(partit, mesh)         ! initialize forcing fields
 #endif
   endif 
@@ -88,7 +92,7 @@ subroutine forcing_array_setup(partit, mesh)
 #if defined (__oasis)
   use cpl_driver, only : nrecv
 #elif defined(__yac)
-  use cpl_yac_driver, only : nrecv
+  use atm_coupling_interface, only : nrecv => ATM_NRECV
 #endif
   implicit none
   type(t_mesh),   intent(in),    target :: mesh

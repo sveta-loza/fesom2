@@ -116,6 +116,9 @@ module fesom_module
 #if defined (FESOM_PROFILING)
   use fesom_profiler
 #endif
+#if defined (__yac)
+  use ice_coupling_interface, only: cpl_timers_report
+#endif
   implicit none
   public fesom_init, fesom_runloop, fesom_finalize
   private
@@ -375,9 +378,9 @@ contains
         ! atmo component joins, so atm fields must NOT be registered or the YAC
         ! enddef handshake would wait for a counterpart that never connects.
 #if defined (__yac_atm)
-        call atm_cpl_define(f%partit, f%mesh, INT(dt))
+        call atm_cpl_define(f%partit, f%mesh, INT(dt)*cpl_stride)
 #endif
-        call ice_cpl_define(f%partit, f%mesh, INT(dt))
+        call ice_cpl_define(f%partit, f%mesh, INT(dt)*cpl_stride)   ! field dt = coupling period (every cpl_stride model steps)
         call yac_runtime_enddef()
 #if defined (__yac_atm)
         if(f%mype==0)  write(*,*) 'FESOM ---->     coupling defined. ATM nsend/nrecv:', &
@@ -572,7 +575,20 @@ contains
     ! --------------
 
     if (f%mype==0) write(*,*) 'FESOM start iteration before the barrier...'
-    call MPI_Barrier(f%MPI_COMM_FESOM, f%MPIERR)   
+    ! Cross-component sync before starting the loop timer: both ocean and ice
+    ! resume from the SAME instant, so the ocean's longer init (mesh+forcing) no
+    ! longer shows up as ice first-step yac_fget wait (the ~21 s loop-timer skew).
+    !
+    ! ONLY valid when MPI_COMM_WORLD is exactly ocean+ice, i.e. the standalone
+    ! config #2. MPI_Barrier is collective over the WHOLE communicator, so under
+    ! config #0 (ICON in the same MPMD world) or config #1 (IFS likewise) the
+    ! ocean and ice ranks would block here forever waiting for atmosphere ranks
+    ! that never call it. Config #0/#1 therefore sync on their own component
+    ! communicator only.                     [gated 2026-09-09, ICON three-way prep]
+#if !defined(__yac_atm) && !defined(__ifs_fwd)
+    call MPI_Barrier(MPI_COMM_WORLD, f%MPIERR)      ! [scalability shared-clock fix 2026-07]
+#endif
+    call MPI_Barrier(f%MPI_COMM_FESOM, f%MPIERR)
     if (f%mype==0) then
        write(*,*) 'FESOM start iteration after the barrier...'
        f%t0 = MPI_Wtime()
@@ -726,6 +742,9 @@ contains
             ! was already read from files above; here we do the ocean<->ice YAC
             ! exchange (recv ice state, send native ocean state + raw atm state).
             if (f%mype==0)  print *, achar(27)//'[34m'//' --> now exchange_oce_ice_yac'//achar(27)//'[0m'
+            ! call-gating: only exchange on coupling steps (cpl_stride). Ice side gates
+            ! identically (same n, same cpl_stride) so yac_fput/fget stay paired.
+            if (mod(n-1, cpl_stride) == 0) &
             call exchange_oce_ice_yac(n, f%ice, f%tracers, f%dynamics, f%partit, f%mesh)
 #endif
 
@@ -956,6 +975,15 @@ contains
     mean_rtime(1:14) = mean_rtime(1:14) / real(f%npes,real32)
     call MPI_AllREDUCE(MPI_IN_PLACE, max_rtime,  14, MPI_REAL, MPI_MAX, f%MPI_COMM_FESOM, f%MPIerr)
     call MPI_AllREDUCE(MPI_IN_PLACE, min_rtime,  14, MPI_REAL, MPI_MIN, f%MPI_COMM_FESOM, f%MPIerr)
+
+#if defined (__yac)
+    ! Coupler cost, attributed (2026-09-11, ANALYSIS.md §10.2). Collective, so it
+    ! must run before par_ex below finalizes MPI. The ocean timed the ocean<->ice
+    ! exchange nowhere at all before this -- it sat inside rtime_fullice together
+    ! with the forcing read.
+    call cpl_timers_report(f%MPI_COMM_FESOM, f%mype, f%npes, 'fesom')
+#endif
+
     
 #if defined (__oifs) 
     ! OpenIFS coupled version has to call oasis_terminate through par_ex

@@ -163,8 +163,29 @@ module ice_coupling_interface
   integer, save :: ice_recv_field_id(ICE_NRECV) = -1
   integer, save :: ice_points_id_local          = -1
 
+
+  ! --- coupling-cost instrumentation (2026-09-11, §10.2) ------------------
+  ! yac_fput/yac_fget are the only points at which the pair actually exchanges,
+  ! so timing them here attributes the coupler cost without touching callers.
+  ! Whatever else the caller's exchange routine does -- halo exchanges, unit
+  ! conversion, copies -- then shows up as the remainder of the caller's own
+  ! timer, which is what makes the split interpretable. Before this, the ocean
+  ! side timed the exchange nowhere at all and FESIM lumped it in with its wait.
+  real(kind=WP), public, save :: cpl_time_put = 0.0_WP   ! s, this rank, cumulative
+  real(kind=WP), public, save :: cpl_time_get = 0.0_WP
+  integer,       public, save :: cpl_n_put    = 0        ! calls (not exchanges:
+  integer,       public, save :: cpl_n_get    = 0        !  YAC no-ops off-period)
+  integer,       public, save :: cpl_n_put_act = 0       ! calls that actually coupled
+  integer,       public, save :: cpl_n_get_act = 0
+  ! Whole-routine bracket for exchange_oce_ice_yac. The ocean prints no timer
+  ! covering the exchange (rtime_ice comes from ice_timestep, which the decoupled
+  ! ocean never calls), so without this the halo exchanges and copies around the
+  ! YAC calls can only be got at by subtracting from the loop wall.
+  real(kind=WP), public, save :: cpl_time_call = 0.0_WP
+
   ! --- public API -------------------------------------------------------
   public :: ice_cpl_init, ice_cpl_define, ice_cpl_send, ice_cpl_recv, ice_cpl_finalize
+  public :: cpl_timers_report, cpl_call_tic, cpl_call_toc
 
 contains
 
@@ -203,29 +224,91 @@ contains
   end subroutine ice_cpl_define
 
   subroutine ice_cpl_send(ind, data_array, action)
+    use mpi, only: MPI_Wtime
     integer,       intent(in)  :: ind
     real(kind=WP), intent(in)  :: data_array(:,:)
     logical,       intent(out) :: action
     integer :: info, ierr
+    real(kind=WP) :: t_cpl0
+    t_cpl0 = MPI_Wtime()
     call yac_fput(ice_send_field_id(ind), size(data_array, 1), size(data_array, 2), &
          data_array, info, ierr)
+    cpl_time_put = cpl_time_put + (MPI_Wtime() - t_cpl0)
+    cpl_n_put = cpl_n_put + 1
     action = info == YAC_ACTION_COUPLING
+    if (action) cpl_n_put_act = cpl_n_put_act + 1
   end subroutine ice_cpl_send
 
   subroutine ice_cpl_recv(ind, data_array, action)
+    use mpi, only: MPI_Wtime
     integer,       intent(in)    :: ind
     real(kind=WP), intent(inout) :: data_array(:,:)
     logical,       intent(out)   :: action
     integer :: info, ierr
+    real(kind=WP) :: t_cpl0
+    t_cpl0 = MPI_Wtime()
     call yac_fget(ice_recv_field_id(ind), size(data_array, 1), size(data_array, 2), &
          data_array, info, ierr)
+    cpl_time_get = cpl_time_get + (MPI_Wtime() - t_cpl0)
+    cpl_n_get = cpl_n_get + 1
     action = info == YAC_ACTION_COUPLING
+    if (action) cpl_n_get_act = cpl_n_get_act + 1
   end subroutine ice_cpl_recv
 
   subroutine ice_cpl_finalize()
     use yac_component_runtime, only: yac_runtime_finalize
     call yac_runtime_finalize()
   end subroutine ice_cpl_finalize
+
+
+  ! Collective report of the coupler cost, printed next to the model's own
+  ! per-task runtime block. mean/min/max over ranks, as in that block.
+  ! Bracket the caller's whole exchange routine (tic at entry, toc at exit).
+  subroutine cpl_call_tic(t0)
+    use mpi, only: MPI_Wtime
+    real(kind=WP), intent(out) :: t0
+    t0 = MPI_Wtime()
+  end subroutine cpl_call_tic
+
+  subroutine cpl_call_toc(t0)
+    use mpi, only: MPI_Wtime
+    real(kind=WP), intent(in) :: t0
+    cpl_time_call = cpl_time_call + (MPI_Wtime() - t0)
+  end subroutine cpl_call_toc
+
+  subroutine cpl_timers_report(comm, mype, npes, label)
+    use mpi
+    integer,          intent(in) :: comm, mype, npes
+    character(len=*), intent(in) :: label
+    ! 1 fput, 2 fget, 3 whole exchange routine, 4 the routine minus YAC (halo
+    ! exchanges + copies + unit work). (4) is formed per rank BEFORE reducing --
+    ! reducing (3) and (1)+(2) separately and subtracting would not give the
+    ! min/max of the difference.
+    real(kind=WP) :: v(4), vsum(4), vmin(4), vmax(4)
+    integer       :: c(4), csum(4), ierr
+
+    v(1) = cpl_time_put
+    v(2) = cpl_time_get
+    v(3) = cpl_time_call
+    v(4) = cpl_time_call - cpl_time_put - cpl_time_get
+    c = [cpl_n_put, cpl_n_get, cpl_n_put_act, cpl_n_get_act]
+    call MPI_Allreduce(v, vsum, 4, MPI_DOUBLE_PRECISION, MPI_SUM, comm, ierr)
+    call MPI_Allreduce(v, vmin, 4, MPI_DOUBLE_PRECISION, MPI_MIN, comm, ierr)
+    call MPI_Allreduce(v, vmax, 4, MPI_DOUBLE_PRECISION, MPI_MAX, comm, ierr)
+    call MPI_Allreduce(c, csum, 4, MPI_INTEGER,          MPI_SUM, comm, ierr)
+    if (mype /= 0) return
+    vsum = vsum / real(npes, WP)
+    print '(a)',        '___COUPLER COST ('//label//') per task [seconds]__mean___________min___________max_'
+    print '(a,3f14.4)', '   yac_fput                  :', vsum(1), vmin(1), vmax(1)
+    print '(a,3f14.4)', '   yac_fget                  :', vsum(2), vmin(2), vmax(2)
+    print '(a,3f14.4)', '   yac_fput + yac_fget       :', vsum(1)+vsum(2), vmin(1)+vmin(2), vmax(1)+vmax(2)
+    if (cpl_time_call > 0.0_WP) then
+       print '(a,3f14.4)', '   exchange routine total    :', vsum(3), vmin(3), vmax(3)
+       print '(a,3f14.4)', '   ... of which NOT yac      :', vsum(4), vmin(4), vmax(4)
+    end if
+    print '(a,2i12)',   '   fput calls / of which coupling :', csum(1)/npes, csum(3)/npes
+    print '(a,2i12)',   '   fget calls / of which coupling :', csum(2)/npes, csum(4)/npes
+  end subroutine cpl_timers_report
 
 #endif
 end module ice_coupling_interface

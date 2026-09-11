@@ -1,105 +1,74 @@
-module cpl_yac_driver
+module yac_grid_utils
 #if defined(__yac)
 
-  USE yac
-  USE o_PARAM
-  USE g_clock
+  use yac
+  use o_PARAM, only: WP, PI
+  use g_clock, only: yearnew, month, day_in_month, timenew
 
   implicit none
-  save
+  private
 
-  character(len=*), PARAMETER   :: comp_name = "fesom2"
-  integer :: comp_id, grid_id, points_id
-  integer :: send_field_id(4), recv_field_id(12)
-  real(kind=WP), dimension(:,:),   allocatable   :: a2o_fcorr_stat  !flux correction statistics for the output
-  integer, parameter         :: nsend = 2
-  integer, parameter         :: nrecv = 5 !SL 5 +1 add river_runoff
-  character(len=32)          :: cpl_send(nsend), cpl_recv(nrecv)
-  integer                    :: cpl_send_collection_size(nsend), cpl_recv_collection_size(nrecv)
-  integer                    :: source_root, target_root   !this root/source in MPI_COMM_WORLD
-  logical                    :: commRank       ! true for ranks doing YAC communication
-
-  public nsend, nrecv
-  public cpl_send, cpl_recv
-  public source_root, target_root, commRank
-  public a2o_fcorr_stat
-
+  public :: compute_midpoint, compute_center, cpl_yac_define_unstr_generic
 
 contains
 
-  subroutine cpl_yac_init( localCommunicator )
-    implicit none
-
-    integer, intent(out) :: localCommunicator
-
-#ifdef VERBOSE
-    print *, '================================================='
-    print *, 'cpl_yac_init : coupler initialization for YAC'
-    print *, '*************************************************'
-#endif /* VERBOSE */
-
-    CALL yac_finit()
-    CALL yac_fdef_calendar(YAC_PROLEPTIC_GREGORIAN)
-    CALL yac_fread_config_yaml ("coupling.yaml")
-    CALL yac_fdef_comp(comp_name, comp_id)
-
-    CALL yac_fget_comp_comm(comp_id, localCommunicator)
-
-  end subroutine cpl_yac_init
-
   subroutine compute_midpoint(geo_a, geo_b, mid)
-    implicit none
-
-    REAL(kind=WP), intent(in) :: geo_a(2), geo_b(2)
-    REAL(kind=WP), intent(out) :: mid(2)
-    REAL(kind=WP) :: cos_lat_a, cos_lat_b, x_mid, y_mid, z_mid
+    real(kind=WP), intent(in)  :: geo_a(2), geo_b(2)
+    real(kind=WP), intent(out) :: mid(2)
+    real(kind=WP) :: cos_lat_a, cos_lat_b, x_mid, y_mid, z_mid
 
     cos_lat_a = cos(geo_a(2))
     cos_lat_b = cos(geo_b(2))
-    x_mid = 0.5*(cos_lat_a * cos(geo_a(1)) + cos_lat_b * cos(geo_b(1)))
-    y_mid = 0.5*(cos_lat_a * sin(geo_a(1)) + cos_lat_b * sin(geo_b(1)))
-    z_mid = 0.5*(sin(geo_a(2)) + sin(geo_b(2)))
+    x_mid = 0.5_WP * (cos_lat_a * cos(geo_a(1)) + cos_lat_b * cos(geo_b(1)))
+    y_mid = 0.5_WP * (cos_lat_a * sin(geo_a(1)) + cos_lat_b * sin(geo_b(1)))
+    z_mid = 0.5_WP * (sin(geo_a(2)) + sin(geo_b(2)))
 
-    mid(1) = atan2(y_mid , x_mid)
-    mid(2) = PI/2 - acos(z_mid/sqrt(x_mid*x_mid + y_mid*y_mid + z_mid*z_mid))
+    mid(1) = atan2(y_mid, x_mid)
+    mid(2) = PI/2 - acos(z_mid / sqrt(x_mid*x_mid + y_mid*y_mid + z_mid*z_mid))
   end subroutine compute_midpoint
 
   subroutine compute_center(geo_a, geo_b, geo_c, mid)
-    implicit none
-
-    REAL(kind=WP), intent(in) :: geo_a(2), geo_b(2), geo_c(2)
-    REAL(kind=WP), intent(out) :: mid(2)
-    REAL(kind=WP) :: cos_lat_a, cos_lat_b, cos_lat_c, x_mid, y_mid, z_mid
+    real(kind=WP), intent(in)  :: geo_a(2), geo_b(2), geo_c(2)
+    real(kind=WP), intent(out) :: mid(2)
+    real(kind=WP) :: cos_lat_a, cos_lat_b, cos_lat_c, x_mid, y_mid, z_mid
 
     cos_lat_a = cos(geo_a(2))
     cos_lat_b = cos(geo_b(2))
-    cos_lat_c= cos(geo_c(2))
-    x_mid = (cos_lat_a * cos(geo_a(1)) + cos_lat_b * cos(geo_b(1)) + cos_lat_c * cos(geo_c(1))) / 3.
-    y_mid = (cos_lat_a * sin(geo_a(1)) + cos_lat_b * sin(geo_b(1)) + cos_lat_c * sin(geo_c(1)) ) / 3.
-    z_mid = (sin(geo_a(2)) + sin(geo_b(2)) + sin(geo_c(2))) /3.
+    cos_lat_c = cos(geo_c(2))
+    x_mid = (cos_lat_a * cos(geo_a(1)) + cos_lat_b * cos(geo_b(1)) + cos_lat_c * cos(geo_c(1))) / 3._WP
+    y_mid = (cos_lat_a * sin(geo_a(1)) + cos_lat_b * sin(geo_b(1)) + cos_lat_c * sin(geo_c(1))) / 3._WP
+    z_mid = (sin(geo_a(2)) + sin(geo_b(2)) + sin(geo_c(2))) / 3._WP
 
-    mid(1) = atan2(y_mid , x_mid)
-    mid(2) = PI/2 - acos(z_mid/sqrt(x_mid*x_mid + y_mid*y_mid + z_mid*z_mid))
+    mid(1) = atan2(y_mid, x_mid)
+    mid(2) = PI/2 - acos(z_mid / sqrt(x_mid*x_mid + y_mid*y_mid + z_mid*z_mid))
   end subroutine compute_center
 
-  subroutine cpl_yac_define_unstr(partit, mesh)
+  ! Define the YAC datetime and the FESOM-mesh-derived unstructured grid for a
+  ! named YAC component. Callers (cpl_yac_driver, cpl_yac_driver_fesim) wrap
+  ! this and then add their own field send/recv definitions.
+  !
+  ! Assumption: ocean (FESOM) and sea-ice (FESIM) share the same FESOM2
+  ! triangular unstructured mesh (element centers + edge midpoints + boundary
+  ! nodes layout). If sea-ice ever moves to a different mesh topology, this
+  ! routine must be specialised per component or moved back into the drivers.
+  subroutine cpl_yac_define_unstr_generic(partit, mesh, grid_name, grid_id, points_id)
     use mod_mesh
     USE MOD_PARTIT
     USE MOD_PARSUP
     use g_rotate_grid
-    use g_config, only: dt
-
     implicit none
 
     type(t_mesh),   intent(in),    target :: mesh
     type(t_partit), intent(inout), target :: partit
+    character(len=*), intent(in)  :: grid_name
+    integer,          intent(out) :: grid_id, points_id
+
     real(kind=WP), allocatable :: x_vertices(:), y_vertices(:)
     real(kind=WP) :: mid(2)
     integer, allocatable :: nbr_vertices_per_cell(:), cell_to_vertex(:)
-    integer :: ierr, i, j, k, nbr_vertices, nbr_boundary_nodes, nbr_connections, vtx_idx, c2v_idx
+    integer :: i, j, k, nbr_vertices, nbr_boundary_nodes, nbr_connections, vtx_idx, c2v_idx
     integer :: curr_elem, curr_edge
     logical, allocatable :: node_is_boundary(:)
-    character(len=4)           :: dt_str
     character(LEN=24) :: startdatetime
 
 #include "associate_part_def.h"
@@ -218,20 +187,20 @@ contains
     END DO
 
     CALL yac_fdef_grid( &
-         "fesom_grid", & ! grid_name
-         nbr_vertices, &   ! nbr_vertices
-         myDim_nod2D, &  ! nbr_cells
-         nbr_connections, & ! nbr_connections
-         nbr_vertices_per_cell, & ! nbr_vertices_per_cell
-         x_vertices, & ! x_vertices
-         y_vertices, & ! y_vertices
+         grid_name, &
+         nbr_vertices, &
+         myDim_nod2D, &
+         nbr_connections, &
+         nbr_vertices_per_cell, &
+         x_vertices, &
+         y_vertices, &
          cell_to_vertex, &
          grid_id)
 
     CALL yac_fset_global_index( &
-         partit%myList_nod2D,   &
-         YAC_LOCATION_CELL,     &
-         grid_id )
+         partit%myList_nod2D - 1, &
+         YAC_LOCATION_CELL, &
+         grid_id)
 
     CALL yac_fdef_points(grid_id, &
          myDim_nod2D, &
@@ -240,77 +209,7 @@ contains
          geo_coord_nod2D(2,1:myDim_nod2D), &
          points_id)
 
-    cpl_send( 1)='sst_feom' ! 1. sea surface temperature [°C]      ->
-    cpl_send_collection_size(1) = 1
-    cpl_send( 2)='ocean_sea_ice_bundle'
-    cpl_send_collection_size(2) = 3
-
-    DO i=1,nsend
-       CALL yac_fdef_field(cpl_send(i), comp_id, [points_id], 1, &
-            cpl_send_collection_size(i), &
-            dt_str, YAC_TIME_UNIT_SECOND, send_field_id(i))
-    END DO
-
-    cpl_recv(1)  = 'taux'
-    cpl_recv_collection_size(1) = 2
-    cpl_recv(2)  = 'tauy'
-    cpl_recv_collection_size(2) = 2
-    cpl_recv(3)  = 'surface_fresh_water_flux'
-    cpl_recv_collection_size(3) = 3
-    cpl_recv(4) = 'total_heat_flux'
-    cpl_recv_collection_size(4) = 4
-    cpl_recv(5) = 'atmosphere_sea_ice_bundle'
-    cpl_recv_collection_size(5) = 2
-!SL add river_runoff ----------------
-!    cpl_recv(6) = 'river_runoff'
-!    cpl_recv_collection_size(6) = 1
-!SL----------------------------------
-
-    DO i=1,nrecv
-       CALL yac_fdef_field(cpl_recv(i), comp_id, [points_id], 1, cpl_recv_collection_size(i), &
-            dt_str, YAC_TIME_UNIT_SECOND, recv_field_id(i))
-    END DO
-
-    CALL yac_fenddef(ierr)
-
-  end subroutine cpl_yac_define_unstr
-
-
-  subroutine cpl_yac_send(ind, data_array, action)
-    implicit none
-
-    integer, intent( IN )          :: ind       ! variable Id
-    logical, intent( OUT )         :: action    !
-    real(kind=WP),  intent(IN)     :: data_array(:, :)
-    integer :: info, ierr
-
-    call yac_fput(send_field_id(ind), SIZE(data_array, 1), SIZE(data_array, 2), &
-         data_array, info, ierr)
-    action = info .eq. YAC_ACTION_COUPLING
-  end subroutine cpl_yac_send
-
-  subroutine cpl_yac_recv(ind, data_array, action)
-    implicit none
-
-    integer, intent( IN )  :: ind       ! variable Id
-    logical, intent( OUT ) :: action    ! 
-    real(kind=WP), intent( INOUT )    :: data_array(:,:)
-    integer :: info, ierr
-
-    call yac_fget(recv_field_id(ind), SIZE(data_array, 1), SIZE(data_array, 2),&
-         data_array, info, ierr)
-    action = info .eq. YAC_ACTION_COUPLING
-  end subroutine cpl_yac_recv
-
-  subroutine cpl_yac_finalize ()
-    implicit none
-#ifdef VERBOSE
-    print *, '================================================='
-    print *, 'cpl_yac_finalize : coupler finalization for YAC'
-    print *, '*************************************************'
-#endif /* VERBOSE */
-    CALL yac_ffinalize()
-  end subroutine cpl_yac_finalize
+  end subroutine cpl_yac_define_unstr_generic
 
 #endif
-end module cpl_yac_driver
+end module yac_grid_utils

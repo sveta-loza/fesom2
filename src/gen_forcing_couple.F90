@@ -908,6 +908,7 @@ subroutine exchange_oce_ice_yac(istep, ice, tracers, dynamics, partit, mesh)
                                      ICE_SEND_OCEAN_TO_ICE_UV, ICE_SEND_ATM_STATE, &
                                      ICE_RECV_SEA_ICE_BUNDLE, ICE_RECV_ICE_STRESS, &
                                      ICE_RECV_ICE_FLUX
+  use ice_coupling_interface, only: cpl_call_tic, cpl_call_toc
   implicit none
   integer,        intent(in)            :: istep
   type(t_ice)   , intent(inout), target :: ice
@@ -917,12 +918,14 @@ subroutine exchange_oce_ice_yac(istep, ice, tracers, dynamics, partit, mesh)
   type(t_dyn)   , intent(in),    target :: dynamics
   integer :: i
   logical :: action
+  real(kind=WP) :: t_cpl_call
   real(kind=WP), dimension(:,:), allocatable, save :: exchange
   real(kind=WP), dimension(:), pointer :: a_ice, m_ice, m_snow
 #include "associate_part_def.h"
 #include "associate_mesh_def.h"
 #include "associate_part_ass.h"
 #include "associate_mesh_ass.h"
+  call cpl_call_tic(t_cpl_call)
   a_ice  => ice%data(1)%values(:)
   m_ice  => ice%data(2)%values(:)
   m_snow => ice%data(3)%values(:)
@@ -986,6 +989,7 @@ subroutine exchange_oce_ice_yac(istep, ice, tracers, dynamics, partit, mesh)
      endif
      call ice_cpl_send(i, exchange(:,1:ice_send_collection_size(i)), action)
   enddo
+  call cpl_call_toc(t_cpl_call)
 
 end subroutine exchange_oce_ice_yac
 #endif

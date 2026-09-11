@@ -192,12 +192,23 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
   enthalpyoffuse   => ice%atmcoupl%enthalpyoffuse(:)
 #endif
 
-  if (mype==0) write(*,*) 'INITIALIZE stress'
-
-  stress_atmoce_x = 0.
-  stress_atmoce_y = 0.
-  stress_atmice_x = 0.
-  stress_atmice_y = 0.
+  ! NB: the four wind-stress arrays are deliberately NOT zeroed here.
+  !
+  ! They used to be ("INITIALIZE stress", unconditionally, before any receive).
+  ! That is safe only while coupling_period == dt*cpl_stride, because the refill
+  ! below sits after `if (.not. action) cycle`: on any call where YAC does not
+  ! actually couple, the arrays were zeroed and never refilled, so the sea ice
+  ! saw NO WIND STRESS AT ALL for that step -- not a stale value, zero. In the
+  ! standalone config the self-bulk block recomputes them every call and hid the
+  ! problem; with the atmosphere arriving over YAC (__yac_atm) or from IFS
+  ! (__ifs_fwd) there is no such fallback, so those configs were structurally
+  ! incapable of asynchronous coupling.
+  !
+  ! Dropping the zeroing makes the arrays hold their previous values between
+  ! coupling instants, which is the correct zero-order hold. They are zeroed once
+  ! at setup (ice_setup_step.F90 for stress_atmoce_*, MOD_ICE.F90 for
+  ! ice%stress_atmice_*), so the first step is well defined.
+  ! [coupling-frequency review 2026-09-11]
   !_____________________________________________________________________________
   t1=MPI_Wtime()
   if (.NOT. ALLOCATED(exchange)) then

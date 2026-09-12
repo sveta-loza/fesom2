@@ -164,6 +164,16 @@ contains
 #if defined (__cpl_yac)
       call check_cpl_config(.false., f%partit%MPI_COMM_FESOM, f%mype)
 #endif
+      ! The sea-ice component restarts from the portable (netCDF) ice restart
+      ! only. The raw and binary restarts dump the ocean's dynamics and tracer
+      ! containers as well, which hold nothing here, so they are switched off
+      ! whatever namelist.config says.
+      if (raw_restart_length_unit /= 'off' .or. bin_restart_length_unit /= 'off') then
+         if (f%mype==0) write(*,*) 'FESIM: raw and binary restarts are not used by the sea-ice', &
+                                   ' component; only the netCDF ice restart is written'
+         raw_restart_length_unit = 'off'
+         bin_restart_length_unit = 'off'
+      end if
 #if defined (FESOM_PROFILING)
       call fesom_profiler_end("setup_model")
 #endif
@@ -402,9 +412,15 @@ contains
         call fesom_profiler_end("output")
 #endif
         f%t5 = MPI_Wtime()
-        ! Restarts of the sea-ice component are not written yet
-        ! (write_initial_conditions is not called): the restart of the split
-        ! system is a separate topic.
+        !___restart (netCDF ice restart + clock; no ocean group is registered)__
+        if (flag_debug .and. f%mype==0)  print *, achar(27)//'[34m'//' --> call write_initial_conditions(n,...)'//achar(27)//'[0m'
+#if defined (FESOM_PROFILING)
+        call fesom_profiler_start("restart")
+#endif
+        call write_initial_conditions(n, nstart, f%total_nsteps, f%which_readr, f%ice, f%dynamics, f%tracers, f%partit, f%mesh)
+#if defined (FESOM_PROFILING)
+        call fesom_profiler_end("restart")
+#endif
         f%t6 = MPI_Wtime()
 
         f%rtime_fullice       = f%rtime_fullice       + f%t3 - f%t1

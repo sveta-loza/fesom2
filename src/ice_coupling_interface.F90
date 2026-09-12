@@ -173,7 +173,7 @@ contains
 
   ! dt_seconds: the time step the fields are registered with (in seconds;
   ! fractional values are kept, YAC gets milliseconds).
-  subroutine ice_cpl_define(partit, mesh, dt_seconds)
+  subroutine ice_cpl_define(partit, mesh, dt_seconds, nsteps)
     use MOD_MESH,              only: t_mesh
     use MOD_PARTIT,            only: t_partit
     use cpl_config,            only: cpl_grid_name
@@ -181,6 +181,7 @@ contains
     type(t_mesh),   intent(in),    target :: mesh
     type(t_partit), intent(inout), target :: partit
     real(kind=WP),  intent(in)            :: dt_seconds
+    integer,        intent(in)            :: nsteps       ! steps of this run (YAC end datetime)
 
     character(len=8) :: dt_str
     integer          :: grid_id, i
@@ -189,7 +190,7 @@ contains
 
     call ice_cpl_set_layout()
 
-    call yac_runtime_ensure_grid(trim(cpl_grid_name), partit, mesh, grid_id, ice_points_id_local)
+    call yac_runtime_ensure_grid(trim(cpl_grid_name), partit, mesh, grid_id, ice_points_id_local, nsteps)
 
     write(dt_str, '(I8.8)') INT(dt_seconds*1000)
 

@@ -14,7 +14,8 @@ module yac_grid_utils
 
   use yac
   use o_PARAM, only: WP, PI
-  use g_clock, only: yearnew, month, day_in_month, timenew
+  use g_clock, only: yearnew, month, day_in_month, timenew, daynew, num_day_in_month, check_fleapyr
+  use g_config, only: dt
 
   implicit none
   private
@@ -57,10 +58,16 @@ contains
   ! Define the YAC datetime and the FESOM-mesh-derived unstructured grid.
   ! Callers add their own field definitions on the returned points_id.
   !
+  ! The start datetime is the clock (the restart time on a restart) and the
+  ! end datetime is start + nsteps*dt, so every component derives the same
+  ! pair from its own namelist.config and clock. coupling.yaml must NOT carry
+  ! start_date/end_date then: YAC checks all definitions for consistency, and
+  ! a date pinned in the yaml breaks every restart.
+  !
   ! Assumption: every interface on this component shares the FESOM2
   ! triangular mesh. If the sea ice ever moves to another mesh topology,
   ! this routine must be specialised per grid name.
-  subroutine cpl_yac_define_unstr_generic(partit, mesh, grid_name, grid_id, points_id)
+  subroutine cpl_yac_define_unstr_generic(partit, mesh, grid_name, grid_id, points_id, nsteps)
     use mod_mesh
     USE MOD_PARTIT
     USE MOD_PARSUP
@@ -71,6 +78,7 @@ contains
     type(t_partit), intent(inout), target :: partit
     character(len=*), intent(in)  :: grid_name
     integer,          intent(out) :: grid_id, points_id
+    integer,          intent(in)  :: nsteps      ! steps of this run, for the end datetime
 
     real(kind=WP), allocatable :: x_vertices(:), y_vertices(:)
     real(kind=WP) :: mid(2)
@@ -78,7 +86,9 @@ contains
     integer :: i, j, k, nbr_vertices, nbr_boundary_nodes, nbr_connections, vtx_idx, c2v_idx
     integer :: curr_elem, curr_edge
     logical, allocatable :: node_is_boundary(:)
-    character(LEN=24) :: startdatetime
+    character(LEN=24) :: startdatetime, enddatetime
+    integer           :: eyear, eday, emonth, eday_in_month, fleap
+    real(kind=WP)     :: esec
 
 #include "associate_part_def.h"
 #include "associate_mesh_def.h"
@@ -90,7 +100,32 @@ contains
          INT(timenew)/3600, MODULO(INT(timenew), 3600)/60, MODULO(INT(timenew), 60), &
          INT(MODULO(timenew, 1.0_WP)*1000)
 
-    CALL yac_fdef_datetime(startdatetime)
+    ! end of the run: walk the clock forward by nsteps*dt seconds
+    eyear = yearnew
+    eday  = daynew
+    esec  = timenew + real(nsteps, WP)*dt
+    call check_fleapyr(eyear, fleap)
+    do while (esec >= 86400.0_WP)
+       esec = esec - 86400.0_WP
+       eday = eday + 1
+       if (eday > 365 + fleap) then
+          eday  = 1
+          eyear = eyear + 1
+          call check_fleapyr(eyear, fleap)
+       end if
+    end do
+    eday_in_month = eday
+    do emonth = 1, 12
+       if (eday_in_month <= num_day_in_month(fleap, emonth)) exit
+       eday_in_month = eday_in_month - num_day_in_month(fleap, emonth)
+    end do
+    WRITE(enddatetime, '(I4.4,"-",I2.2,"-",I2.2,"T",I2.2,":",I2.2,":",I2.2,".",I3.3, "Z")') &
+         eyear, emonth, eday_in_month, &
+         INT(esec)/3600, MODULO(INT(esec), 3600)/60, MODULO(INT(esec), 60), &
+         INT(MODULO(esec, 1.0_WP)*1000)
+
+    CALL yac_fdef_datetime(startdatetime, enddatetime)
+    if (partit%mype == 0) write(*,*) '     YAC run period: ', startdatetime, ' -> ', enddatetime
 
     ! find boundary nodes
     ALLOCATE(node_is_boundary(myDim_nod2D))

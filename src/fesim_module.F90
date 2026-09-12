@@ -239,7 +239,7 @@ contains
 
 #if defined (__cpl_yac)
       ! The ocean<->ice fields are exchanged every cpl_stride steps.
-      call ocn_cpl_define(f%partit, f%mesh, dt*cpl_stride)
+      call ocn_cpl_define(f%partit, f%mesh, dt*cpl_stride, f%total_nsteps)
       if(f%mype==0)  write(*,*) 'FESIM ---->     YAC fields defined, nsend/nrecv:', OCN_NSEND, OCN_NRECV
 #endif
 

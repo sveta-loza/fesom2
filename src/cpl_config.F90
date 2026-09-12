@@ -184,7 +184,8 @@ contains
     if (is_coupled_to_ifs)    n_atm = n_atm + 1
 
 #if defined (__cpl_enabled)
-    if (n_atm == 0 .and. .not. is_coupled_to_fesim) then
+    ! (the sea-ice component's partner is always the ocean)
+    if (n_atm == 0 .and. .not. is_coupled_to_fesim .and. .not. cpl_component_is_sea_ice) then
        call cpl_config_abort(comm, mype, &
             'no external component selected. Set one of '// &
             'is_coupled_to_echam / _oifs / _icon_a / _ifs (at most one '// &

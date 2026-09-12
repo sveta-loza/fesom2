@@ -663,8 +663,8 @@ contains
         ! not coupled must not have its fields registered: yac_fenddef would
         ! wait for a counterpart that never connects. The atmosphere fields
         ! are exchanged every step, the sea-ice fields every cpl_stride steps.
-        if (cpl_has_atmosphere()) call atm_cpl_define(f%partit, f%mesh, dt)
-        if (is_coupled_to_fesim)  call ice_cpl_define(f%partit, f%mesh, dt*cpl_stride)
+        if (cpl_has_atmosphere()) call atm_cpl_define(f%partit, f%mesh, dt, f%total_nsteps)
+        if (is_coupled_to_fesim)  call ice_cpl_define(f%partit, f%mesh, dt*cpl_stride, f%total_nsteps)
         call yac_runtime_enddef()
         if (f%mype==0) then
            if (cpl_has_atmosphere()) write(*,*) 'FESOM ---->     YAC atm fields defined, nsend/nrecv:', ATM_NSEND, ATM_NRECV

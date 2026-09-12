@@ -78,16 +78,17 @@ contains
   ! First call per grid name: defines the grid (and the YAC datetime).
   ! Later calls with the same name return the cached ids; a different name
   ! is a fatal error until multi-grid support is needed.
-  subroutine yac_runtime_ensure_grid(grid_name, partit, mesh, grid_id, points_id)
+  subroutine yac_runtime_ensure_grid(grid_name, partit, mesh, grid_id, points_id, nsteps)
     use MOD_MESH,   only: t_mesh
     use MOD_PARTIT, only: t_partit
     character(len=*), intent(in)            :: grid_name
     type(t_mesh),     intent(in),    target :: mesh
     type(t_partit),   intent(inout), target :: partit
     integer,          intent(out)           :: grid_id, points_id
+    integer,          intent(in)            :: nsteps
 
     if (.not. grid_defined_) then
-       call cpl_yac_define_unstr_generic(partit, mesh, grid_name, grid_id_, points_id_)
+       call cpl_yac_define_unstr_generic(partit, mesh, grid_name, grid_id_, points_id_, nsteps)
        cached_grid_name_ = grid_name
        grid_defined_     = .true.
     else if (trim(cached_grid_name_) /= trim(grid_name)) then

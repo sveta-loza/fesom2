@@ -53,14 +53,22 @@ compiled interface is assumed.
 Section &coupling_partner
 """""""""""""""""""""""""
 
-Exactly one atmosphere must be selected. Each partner requires the interface it
-talks over, and the model aborts at startup if none or several are selected, or
-if the selection does not match the compiled interface.
+At most one atmosphere may be selected, and at least one partner of any role.
+Each partner requires the interface it talks over, and the model aborts at
+startup if no partner or several atmospheres are selected, or if the selection
+does not match the compiled interface.
 
 - **is_coupled_to_echam=.false.** ECHAM6 atmosphere; requires ``oasis28``.
 - **is_coupled_to_oifs=.false.** OpenIFS atmosphere; requires ``oasis50``.
 - **is_coupled_to_icon_a=.false.** ICON-A atmosphere; requires ``yac``.
 - **is_coupled_to_ifs=.false.** IFS atmosphere; requires ``direct``.
+- **is_coupled_to_fesim=.false.** FESIM sea ice as a separate YAC component;
+  requires ``yac``. The ocean then skips its built-in sea-ice step and
+  exchanges ocean state and sea-ice state with FESIM instead. Combined with
+  an atmosphere, the ocean forwards the atmosphere's fluxes to FESIM; on its
+  own, the ocean reads its forcing files and forwards the raw atmospheric
+  state, and FESIM computes the bulk fluxes itself. The field set FESOM
+  registers with YAC follows this choice (``ice_coupling_interface.F90``).
 
 The selection drives the exchanged field set (the ``cpl_send``/``cpl_recv``
 name tables and their counts), whether the ECHAM-only flux-correction

@@ -68,7 +68,11 @@ module fesom_main_storage_module
   use cpl_driver
 #endif
 #if defined (__cpl_yac)
-use cpl_yac_driver
+  use cpl_config,             only: is_coupled_to_icon_a, is_coupled_to_ifs, &
+                                    is_coupled_to_fesim, cpl_has_atmosphere
+  use atm_coupling_interface, only: atm_cpl_init, atm_cpl_define, ATM_NSEND, ATM_NRECV
+  use ice_coupling_interface, only: ice_cpl_define, ICE_NSEND, ICE_NRECV, cpl_timers_report
+  use yac_component_runtime,  only: yac_runtime_enddef
 #endif
 
 ! define recom module
@@ -231,7 +235,7 @@ contains
 #endif
 
 #elif defined (__cpl_yac)
-        call cpl_yac_init(f%partit%MPI_COMM_FESOM)
+        call atm_cpl_init(f%partit%MPI_COMM_FESOM)
 #endif
 
         f%t1 = MPI_Wtime()
@@ -655,8 +659,17 @@ contains
         ! --------------
 
 #if defined (__cpl_yac)
-        call cpl_yac_define_unstr(f%partit, f%mesh)
-        if(f%mype==0)  write(*,*) 'FESOM ---->     cpl_yac_define_unstr nsend, nrecv:',nsend, nrecv
+        ! Fields are registered per partner (namelist.cpl). A partner that is
+        ! not coupled must not have its fields registered: yac_fenddef would
+        ! wait for a counterpart that never connects. The atmosphere fields
+        ! are exchanged every step, the sea-ice fields every cpl_stride steps.
+        if (cpl_has_atmosphere()) call atm_cpl_define(f%partit, f%mesh, dt)
+        if (is_coupled_to_fesim)  call ice_cpl_define(f%partit, f%mesh, dt*cpl_stride)
+        call yac_runtime_enddef()
+        if (f%mype==0) then
+           if (cpl_has_atmosphere()) write(*,*) 'FESOM ---->     YAC atm fields defined, nsend/nrecv:', ATM_NSEND, ATM_NRECV
+           if (is_coupled_to_fesim)  write(*,*) 'FESOM ---->     YAC ice fields defined, nsend/nrecv:', ICE_NSEND, ICE_NRECV
+        end if
 #endif
 
 #if defined (__icepack)
@@ -889,6 +902,12 @@ contains
     ! EO parameters
     integer n, nstart, ntotal, tr_num, tracer_index
     logical :: do_cmor_0d_reset
+    logical :: ice_external   ! sea ice runs in its own component (FESIM)
+
+    ice_external = .false.
+#if defined (__cpl_yac)
+    ice_external = is_coupled_to_fesim
+#endif
 
 #if defined (__recom)
     type(tracers_info_type)               :: tracers_info
@@ -915,6 +934,16 @@ contains
 #if defined(__recom) && defined(__usetp)
         end if
 #endif 
+#if defined (__cpl_yac)
+    ! Cross-component sync before the loop timer starts, so that ocean and
+    ! ice resume from the same instant and the ocean's longer init does not
+    ! show up as ice-side wait in the first step. MPI_Barrier is collective
+    ! over the whole communicator, so this is only possible when
+    ! MPI_COMM_WORLD is exactly ocean + ice: with an atmosphere in the same
+    ! MPMD world its ranks never call it and the barrier would hang.
+    if (ice_external .and. .not. cpl_has_atmosphere()) &
+       call MPI_Barrier(MPI_COMM_WORLD, f%MPIERR)
+#endif
     call MPI_Barrier(f%MPI_COMM_FESOM, f%MPIERR)   
     if (f%mype==0) then
 #if defined(__recom) && defined(__usetp)
@@ -1064,7 +1093,8 @@ contains
         end if
 #endif
             f%t_ice_o2iflx_s = MPI_Wtime()
-            call ocean2ice(f%ice, f%dynamics, f%tracers, f%partit, f%mesh)
+            ! With FESIM the ice reads the ocean state over YAC instead.
+            if (.not. ice_external) call ocean2ice(f%ice, f%dynamics, f%tracers, f%partit, f%mesh)
             
             !___compute update of atmospheric forcing____________________________
 #if defined(__recom) && defined(__usetp)
@@ -1079,7 +1109,16 @@ contains
         call fesom_profiler_start("update_atm_forcing")
 #endif
 #if defined (__cpl_yac)
-            call update_atm_forcing_yac(n, f%ice, f%tracers, f%dynamics, f%partit, f%mesh)
+            if (.not. cpl_has_atmosphere()) then
+                ! no atmosphere partner: forcing files, every step
+                call update_atm_forcing(n, f%ice, f%tracers, f%dynamics, f%partit, f%mesh)
+            else if (.not. ice_external) then
+                ! ICON with the sea ice inside the ocean
+                call update_atm_forcing_yac(n, f%ice, f%tracers, f%dynamics, f%partit, f%mesh)
+            end if
+            ! ICON + FESIM: the atmosphere and sea-ice exchanges run together
+            ! at the sea-ice slot below, where FESIM's state replaces the
+            ! ocean's own ice step.
 #else
             call update_atm_forcing(n, f%ice, f%tracers, f%dynamics, f%partit, f%mesh)
 #endif 
@@ -1107,7 +1146,30 @@ contains
 #if defined (FESOM_PROFILING)
         call fesom_profiler_start("ice_timestep")
 #endif
+#if defined (__cpl_yac)
+                if (ice_external) then
+                    ! The sea ice is FESIM: exchange state over YAC instead of
+                    ! stepping the ice here. The ocean<->ice exchange runs every
+                    ! cpl_stride steps; FESIM gates identically (same n, same
+                    ! cpl_stride) so that yac_fput/yac_fget stay paired.
+                    if (is_coupled_to_icon_a) then
+                        ! atmosphere and sea-ice exchange together (stride applied inside)
+                        call update_atm_forcing_yac(n, f%ice, f%tracers, f%dynamics, f%partit, f%mesh)
+                    else if (is_coupled_to_ifs) then
+                        ! IFS deposited the atm fluxes into the ocean's arrays this step
+                        if (mod(n-1, cpl_stride) == 0) &
+                        call exchange_oce_ice_ifs(n, f%ice, f%tracers, f%dynamics, f%partit, f%mesh)
+                    else
+                        ! forcing files were read above; forward the raw atm state
+                        if (mod(n-1, cpl_stride) == 0) &
+                        call exchange_oce_ice_yac(n, f%ice, f%tracers, f%dynamics, f%partit, f%mesh)
+                    end if
+                else
+                    call ice_timestep(n, f%ice, f%partit, f%mesh)
+                end if
+#else
                 call ice_timestep(n, f%ice, f%partit, f%mesh)
+#endif
 #if defined (FESOM_PROFILING)
         call fesom_profiler_end("ice_timestep")
 #endif
@@ -1558,6 +1620,11 @@ contains
     ! Must finalize XIOS BEFORE MPI/OASIS teardown so server2 receives
     ! the client-finalize signal on MPI_COMM_WORLD (matches NEMO/OIFS).
     call io_xios_close()
+#endif
+
+#if defined (__cpl_yac)
+    ! Coupler cost, collective: must run before par_ex finalizes MPI.
+    if (is_coupled_to_fesim) call cpl_timers_report(f%MPI_COMM_FESOM, f%mype, f%npes, 'fesom')
 #endif
 
 #if defined (__cpl_oasis50) 

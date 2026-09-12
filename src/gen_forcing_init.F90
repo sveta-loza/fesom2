@@ -30,6 +30,9 @@ end module forcing_array_setup_dbgyre_interfaces
 subroutine forcing_setup(partit, mesh)
 use g_CONFIG
 use g_sbf, only: sbc_ini
+#if defined (__cpl_coupler)
+use cpl_config, only: cpl_has_atmosphere
+#endif
 #if defined(__recom)
 use g_sbf, only: sbc_ini_recom
 #endif
@@ -48,7 +51,12 @@ type(t_partit), intent(inout), target :: partit
 #if defined(__recom)
      call sbc_ini_recom(partit)         ! initialize forcing fields
 #endif
-#if !defined (__cpl_coupler)
+#if defined (__cpl_coupler)
+     ! With a coupler the atmospheric forcing normally arrives through it.
+     ! The one exception is a build whose only partner is the sea ice
+     ! (FESOM + FESIM over YAC): the ocean then reads its forcing files.
+     if (.not. cpl_has_atmosphere()) call sbc_ini(partit, mesh)
+#else
      call sbc_ini(partit, mesh)         ! initialize forcing fields
 #endif
   endif
@@ -94,7 +102,7 @@ subroutine forcing_array_setup(partit, mesh)
 #if defined (__cpl_oasis)
   use cpl_driver, only : nrecv
 #elif defined (__cpl_yac)
-  use cpl_yac_driver, only : nrecv
+  use atm_coupling_interface, only : nrecv => ATM_NRECV
 #endif
   implicit none
   type(t_mesh),   intent(in),    target :: mesh

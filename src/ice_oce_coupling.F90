@@ -66,6 +66,9 @@ subroutine oce_fluxes_mom(ice, dynamics, partit, mesh)
 #if defined (__icepack)
     use icedrv_main,   only: icepack_to_fesom
 #endif
+#if defined (__cpl_yac)
+    use cpl_config,    only: is_coupled_to_fesim
+#endif
     implicit none
     type(t_ice)   , intent(inout), target :: ice
     type(t_dyn)   , intent(in)   , target :: dynamics
@@ -74,6 +77,7 @@ subroutine oce_fluxes_mom(ice, dynamics, partit, mesh)
     !___________________________________________________________________________
     integer                  :: n, elem, elnodes(3),n1
     real(kind=WP)            :: aux
+    logical                  :: ice_drag_received
     !___________________________________________________________________________
     ! pointer on necessary derived types
     real(kind=WP), dimension(:), pointer  :: u_ice, v_ice, a_ice, u_w, v_w
@@ -102,6 +106,16 @@ subroutine oce_fluxes_mom(ice, dynamics, partit, mesh)
     !___________________________________________________________________________
     ! compute total surface stress (iceoce+atmoce) on nodes 
 
+    ! With the sea ice in its own component (FESIM), stress_iceoce_x/y were
+    ! received from it (ice_coupling_interface, ICE_RECV_ICE_STRESS): FESIM
+    ! computes the ice-ocean drag from its own EVP velocity and the ocean
+    ! velocity, threshold included. The ocean has no ice velocity to
+    ! recompute it from, so the received value is used as is.
+    ice_drag_received = .false.
+#if defined (__cpl_yac)
+    ice_drag_received = is_coupled_to_fesim
+#endif
+
 !$OMP PARALLEL DEFAULT(SHARED) PRIVATE(n, elem, elnodes, n1, aux)
 !$OMP DO
     do n=1,myDim_nod2D+eDim_nod2D   
@@ -110,6 +124,7 @@ subroutine oce_fluxes_mom(ice, dynamics, partit, mesh)
         if (ulevels_nod2d(n)>1) cycle
         
         !_______________________________________________________________________
+        if (.not. ice_drag_received) then
         if(a_ice(n)>0.001_WP) then
             aux=sqrt((u_ice(n)-u_w(n))**2+(v_ice(n)-v_w(n))**2)*density_0*ice%cd_oce_ice
             stress_iceoce_x(n) = aux * (u_ice(n)-u_w(n))
@@ -117,6 +132,7 @@ subroutine oce_fluxes_mom(ice, dynamics, partit, mesh)
         else
             stress_iceoce_x(n)=0.0_WP
             stress_iceoce_y(n)=0.0_WP
+        end if
         end if
         
         stress_node_surf(1,n) = stress_iceoce_x(n)*a_ice(n) + stress_atmoce_x(n)*(1.0_WP-a_ice(n))

@@ -421,7 +421,15 @@ subroutine recom_init(tracers, partit, mesh)
         ! Skip: DIN, DIC, Alk, DSi and O2 are read from files
         ! Fe [mol/L] => [umol/m3] Check the units again!
 
-        ! --- Small Phytoplankton
+        ! Each phytoplankton class seeds N and C from ITS OWN quota parameters:
+        !   N = tiny_chl/chl2N_max_X          C = tiny_chl/chl2N_max_X/NCmax_X
+        ! Using the small-phyto chl2N_max/NCmax for every class (as this did before
+        ! Sep 2026) starts Phaeocystis at N:C = 0.2, i.e. 2x its own NCmax_p = 0.1.
+        ! quota_phaeo is then clamped to the ceiling, dq = 0, and limitFacN_phaeo is
+        ! exactly 0 -- no N uptake until photosynthesis doubles PhaeoC. Coccolithophores
+        ! had a 1.33x version of the same. DiaSi below already used the _d parameters.
+
+        ! --- Small Phytoplankton  (chl2N_max / NCmax ARE the small-phyto parameters)
         CASE (1004)  ! PhyN - Phytoplankton Nitrogen
             tracers%data(i)%values(:,:) = tiny_chl/chl2N_max
 
@@ -454,10 +462,10 @@ subroutine recom_init(tracers, partit, mesh)
 
         ! --- Diatoms ---
         CASE (1013)  ! DiaN - Diatom Nitrogen
-            tracers%data(i)%values(:,:) = tiny_chl/chl2N_max
+            tracers%data(i)%values(:,:) = tiny_chl/chl2N_max_d
 
         CASE (1014)  ! DiaC - Diatom Carbon
-            tracers%data(i)%values(:,:) = tiny_chl/chl2N_max/NCmax
+            tracers%data(i)%values(:,:) = tiny_chl/chl2N_max_d/NCmax_d
 
         CASE (1015)  ! DiaChl - Diatom Chlorophyll
             tracers%data(i)%values(:,:) = tiny_chl
@@ -503,7 +511,7 @@ subroutine recom_init(tracers, partit, mesh)
                 tracers%data(i)%values(:,:) = tiny
             ELSE IF (enable_coccos .AND. .NOT. enable_3zoo2det) THEN
                 ! CoccoN - Coccolithophore Nitrogen
-                tracers%data(i)%values(:,:) = tiny_chl / chl2N_max
+                tracers%data(i)%values(:,:) = tiny_chl / chl2N_max_c
             END IF
 
         CASE (1024)
@@ -512,7 +520,7 @@ subroutine recom_init(tracers, partit, mesh)
                 tracers%data(i)%values(:,:) = tiny * Redfield
             ELSE IF (enable_coccos .AND. .NOT. enable_3zoo2det) THEN
                 ! CoccoC - Coccolithophore Carbon
-                tracers%data(i)%values(:,:) = tiny_chl / chl2N_max / NCmax
+                tracers%data(i)%values(:,:) = tiny_chl / chl2N_max_c / NCmax_c
             END IF
 
         CASE (1025)
@@ -530,7 +538,7 @@ subroutine recom_init(tracers, partit, mesh)
                 tracers%data(i)%values(:,:) = tiny
             ELSE IF (enable_coccos .AND. .NOT. enable_3zoo2det) THEN
                 ! PhaeoN - Phaeocystis Nitrogen
-                tracers%data(i)%values(:,:) = tiny_chl / chl2N_max
+                tracers%data(i)%values(:,:) = tiny_chl / chl2N_max_p
             END IF
 
         CASE (1027)
@@ -539,7 +547,7 @@ subroutine recom_init(tracers, partit, mesh)
                 tracers%data(i)%values(:,:) = tiny
             ELSE IF (enable_coccos .AND. .NOT. enable_3zoo2det) THEN
                 ! PhaeoC - Phaeocystis Carbon
-                tracers%data(i)%values(:,:) = tiny_chl / chl2N_max / NCmax
+                tracers%data(i)%values(:,:) = tiny_chl / chl2N_max_p / NCmax_p
             END IF
 
         CASE (1028)
@@ -558,7 +566,7 @@ subroutine recom_init(tracers, partit, mesh)
         CASE (1029)
             IF (enable_coccos .AND. enable_3zoo2det) THEN
                 ! CoccoN - Coccolithophore Nitrogen
-                tracers%data(i)%values(:,:) = tiny_chl / chl2N_max
+                tracers%data(i)%values(:,:) = tiny_chl / chl2N_max_c
             ELSE IF (enable_3zoo2det .AND. .NOT. enable_coccos) THEN
                 ! Zoo3N - Microzooplankton Nitrogen
                 tracers%data(i)%values(:,:) = tiny
@@ -567,7 +575,7 @@ subroutine recom_init(tracers, partit, mesh)
         CASE (1030)
             IF (enable_coccos .AND. enable_3zoo2det) THEN
                 ! CoccoC - Coccolithophore Carbon
-                tracers%data(i)%values(:,:) = tiny_chl / chl2N_max / NCmax
+                tracers%data(i)%values(:,:) = tiny_chl / chl2N_max_c / NCmax_c
             ELSE IF (enable_3zoo2det .AND. .NOT. enable_coccos) THEN
                 ! Zoo3C - Microzooplankton Carbon
                 tracers%data(i)%values(:,:) = tiny * Redfield
@@ -585,7 +593,7 @@ subroutine recom_init(tracers, partit, mesh)
         CASE (1032)
             IF (enable_coccos .AND. enable_3zoo2det) THEN
                 ! PhaeoN - Phaeocystis Nitrogen
-                tracers%data(i)%values(:,:) = tiny_chl / chl2N_max
+                tracers%data(i)%values(:,:) = tiny_chl / chl2N_max_p
             ELSEIF (enable_3zoo2det .AND. RECOM_CDOM .AND. RECOM_MARSHALL) THEN   
                 ! D1 protein small phytos
                tracers%data(i)%values(:,:) = tiny
@@ -593,7 +601,7 @@ subroutine recom_init(tracers, partit, mesh)
         CASE (1033)
             IF (enable_coccos .AND. enable_3zoo2det) THEN
                 ! PhaeoC - Phaeocystis Carbon
-                tracers%data(i)%values(:,:) = tiny_chl / chl2N_max / NCmax
+                tracers%data(i)%values(:,:) = tiny_chl / chl2N_max_p / NCmax_p
             ELSEIF (enable_3zoo2det .AND. RECOM_CDOM .AND. RECOM_MARSHALL) THEN 
                 ! D1 protein diatoms
                tracers%data(i)%values(:,:) = tiny
@@ -608,13 +616,13 @@ subroutine recom_init(tracers, partit, mesh)
         CASE (1032)
             IF (enable_coccos .AND. enable_3zoo2det) THEN
                 ! PhaeoN - Phaeocystis Nitrogen
-                tracers%data(i)%values(:,:) = tiny_chl / chl2N_max
+                tracers%data(i)%values(:,:) = tiny_chl / chl2N_max_p
             END IF
 
         CASE (1033)
             IF (enable_coccos .AND. enable_3zoo2det) THEN
                 ! PhaeoC - Phaeocystis Carbon
-                tracers%data(i)%values(:,:) = tiny_chl / chl2N_max / NCmax
+                tracers%data(i)%values(:,:) = tiny_chl / chl2N_max_p / NCmax_p
             END IF
 #endif /* __RECOM_WAVEBANDS */
 

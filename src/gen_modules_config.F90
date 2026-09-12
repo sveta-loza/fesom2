@@ -19,7 +19,9 @@ module g_config
   integer                :: step_per_day=72     ! number of steps per day
   integer                :: run_length=1	! run length
   character              :: run_length_unit='y' ! unit: y, d, s
-  namelist /timestep/ step_per_day, run_length, run_length_unit
+  integer                :: cpl_stride=1        ! call the ice<->ocean YAC exchange every cpl_stride steps (1=every step).
+                                                ! fields are registered with dt*cpl_stride; coupling.yaml coupling_period must match.
+  namelist /timestep/ step_per_day, run_length, run_length_unit, cpl_stride
   
   !_____________________________________________________________________________
   ! *** Paths for all in and out ***

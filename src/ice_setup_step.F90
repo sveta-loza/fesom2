@@ -10,15 +10,12 @@ module ice_setup_step_module
             ice_fem_fct, ice_TG_rhs_div, ice_TG_rhs, ice_update_for_div, ice_fct_solve
     USE ice_EVP_module, only: EVPdynamics
     USE ice_maEVP_module, only: EVPdynamics_a, EVPdynamics_m
-#if !defined (__cpl_enabled)
     use ice_thermo_oce_module, only: thermodynamics, cut_off
-#else
-    use ice_thermo_oce_module, only: cut_off
-#endif
     use cavity_param_module, only: cavity_heat_water_fluxes_3eq, cavity_heat_water_fluxes_2eq, cavity_ice_clean_vel, cavity_ice_clean_ma, cavity_momentum_fluxes
     USE o_arrays
     USE g_read_other_NetCDF, only: read_other_NetCDF
     use ice_init_module, only: ice_init
+    use fesim_ice_init, only: ice_cold_start_pending
 #if defined (__icepack)
     use icedrv_main,   only: step_icepack
 #endif
@@ -471,6 +468,11 @@ end if
 
     else if (.not. ini_ice_from_file) then
         if(mype==0) write(*,*) 'initialize the sea ice: cold start'
+        ! FESIM: the tracers are empty here (the ocean state arrives over YAC
+        ! once the run starts), so the loop below seeds nothing. The cold start
+        ! is deferred to the first SST received from the ocean -- see
+        ! fesim_ice_init. A restart overwrites the ice state afterwards anyway.
+        if (.not. r_restart) ice_cold_start_pending = .true.
         !___________________________________________________________________________
         do i=1,myDim_nod2D+eDim_nod2D
             !_______________________________________________________________________

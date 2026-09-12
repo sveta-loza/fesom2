@@ -1,18 +1,18 @@
 !=============================================================================!
 !
-!                 Finite Volume Sea-ice Ocean Model
+!                 Finite Volume Sea-ice Model
 !
 !=============================================================================!
 !                      The main driving routine
 !=============================================================================!    
 
 program main
-  use fesom_module
+  use fesim_module
 
   integer nsteps
 
-  call fesom_init(nsteps)
-  call fesom_runloop(nsteps)
-  call fesom_finalize
+  call fesim_init(nsteps)
+  call fesim_runloop(nsteps)
+  call fesim_finalize
 
 end program main

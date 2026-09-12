@@ -12,7 +12,7 @@ use g_sbf, only: sbc_ini_recom
 #if defined (__cpl_oasis)
   use cpl_driver, only : nrecv
 #elif defined (__cpl_yac)
-  use cpl_yac_driver, only : nrecv
+  use ocean_coupling_interface, only : nrecv => OCN_NRECV_MAX
 #endif
 
     implicit none
@@ -41,6 +41,8 @@ type(t_partit), intent(inout), target :: partit
 #if !defined (__cpl_coupler)
      call sbc_ini(partit, mesh)         ! initialize forcing fields
 #endif
+     ! (FESIM reads no forcing files: the atmospheric state or fluxes arrive
+     !  from the ocean over YAC.)
   endif
   if ((toy_ocean) .AND. TRIM(which_toy)=="dbgyre" .AND. (use_sw_pene)) then
      call forcing_array_setup_dbgyre(partit, mesh)

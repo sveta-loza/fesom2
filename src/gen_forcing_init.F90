@@ -15,7 +15,7 @@ use g_sbf, only: sbc_ini_recom
   use atm_coupling_interface, only : nrecv => ATM_NRECV
 #endif
 #if defined (__cpl_coupler)
-  use cpl_config, only: cpl_has_atmosphere
+  use cpl_config, only: cpl_has_atmosphere, cpl_component_is_sea_ice
 #endif
 
     implicit none
@@ -45,7 +45,7 @@ type(t_partit), intent(inout), target :: partit
      ! With a coupler the atmospheric forcing normally arrives through it.
      ! The one exception is a build whose only partner is the sea ice
      ! (FESOM + FESIM over YAC): the ocean then reads its forcing files.
-     if (.not. cpl_has_atmosphere()) call sbc_ini(partit, mesh)
+     if (.not. cpl_has_atmosphere() .and. .not. cpl_component_is_sea_ice) call sbc_ini(partit, mesh)
 #else
      call sbc_ini(partit, mesh)         ! initialize forcing fields
 #endif

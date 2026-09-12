@@ -21,6 +21,7 @@ module cpl_config
   public :: is_coupled_to_echam, is_coupled_to_oifs
   public :: is_coupled_to_icon_a, is_coupled_to_ifs
   public :: is_coupled_to_fesim, cpl_has_atmosphere
+  public :: cpl_component_is_sea_ice
   public :: cpl_comp_name, cpl_grid_name, cpl_config_file
   public :: compute_oasis_corners
 
@@ -61,6 +62,13 @@ module cpl_config
   ! fluxes to the ice) or stand alone (the ocean reads forcing files and
   ! forwards the raw atmospheric state).
   logical :: is_coupled_to_fesim  = .false.
+
+  ! Set by the FESIM driver before anything reads the coupling configuration:
+  ! this executable IS the sea-ice component. The atmosphere flags above then
+  ! describe the OCEAN's atmosphere -- i.e. what the ocean forwards to the ice
+  ! (ICON or IFS fluxes, or, with none set, the raw atmospheric state that the
+  ! ice turns into fluxes itself) -- and the sea ice reads no forcing files.
+  logical :: cpl_component_is_sea_ice = .false.
 
   namelist /coupling_partner/ is_coupled_to_echam, is_coupled_to_oifs, &
                               is_coupled_to_icon_a, is_coupled_to_ifs, &
@@ -198,7 +206,16 @@ contains
 #endif
 
     !__________________________________________________________________________
-    ! Each partner needs the interface it talks over.
+    ! Each partner needs the interface it talks over. The sea-ice component
+    ! talks only to the ocean over YAC; its atmosphere flags describe the
+    ! ocean's atmosphere and are not checked against this executable.
+    if (cpl_component_is_sea_ice) then
+#if !defined (__cpl_yac)
+       call cpl_config_abort(comm, mype, &
+            'the sea-ice component needs a build configured with -DFESOM_COUPLING=yac')
+#endif
+       return
+    end if
 #if !defined (__cpl_oasis28)
     if (is_coupled_to_echam) &
        call wrong_interface(comm, mype, 'echam', 'oasis28')
@@ -262,6 +279,9 @@ contains
     write(*,*) '        is_coupled_to_icon_a = ', is_coupled_to_icon_a
     write(*,*) '        is_coupled_to_ifs    = ', is_coupled_to_ifs
     write(*,*) '        is_coupled_to_fesim  = ', is_coupled_to_fesim
+    if (cpl_component_is_sea_ice) &
+    write(*,*) '        (this executable is the sea-ice component; the atmosphere', &
+               ' flags describe what the ocean forwards)'
     write(*,*) '        cpl_comp_name        = ', trim(cpl_comp_name)
     write(*,*) '        cpl_grid_name        = ', trim(cpl_grid_name)
 #if defined (__cpl_oasis)

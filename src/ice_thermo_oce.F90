@@ -9,6 +9,28 @@ module ice_thermodynamics_interfaces
         type(t_partit), intent(inout), target :: partit
         type(t_mesh)  , intent(in)   , target :: mesh
         end subroutine thermodynamics
+
+        subroutine thermodynamics_bulk(ice, partit, mesh)
+        USE MOD_ICE
+        USE MOD_PARTIT
+        USE MOD_PARSUP
+        USE MOD_MESH
+        type(t_ice)   , intent(inout), target :: ice
+        type(t_partit), intent(inout), target :: partit
+        type(t_mesh)  , intent(in)   , target :: mesh
+        end subroutine thermodynamics_bulk
+
+#if defined (__cpl_enabled)
+        subroutine thermodynamics_cpl(ice, partit, mesh)
+        USE MOD_ICE
+        USE MOD_PARTIT
+        USE MOD_PARSUP
+        USE MOD_MESH
+        type(t_ice)   , intent(inout), target :: ice
+        type(t_partit), intent(inout), target :: partit
+        type(t_mesh)  , intent(in)   , target :: mesh
+        end subroutine thermodynamics_cpl
+#endif
         
         subroutine cut_off(ice, partit, mesh)
         USE MOD_ICE
@@ -152,8 +174,41 @@ END DO
        end if
     end if
 end subroutine cut_off
+!
+!
+!_______________________________________________________________________________
+! Which sea-ice thermodynamics runs is a property of where the atmospheric
+! forcing comes from, and that is a run-time choice (namelist.cpl): the
+! coupled scheme when an atmosphere provides the fluxes -- directly, or
+! forwarded by the ocean to the FESIM component -- and the bulk scheme when
+! the model computes the fluxes itself from the atmospheric state (forcing
+! files, or the state the ocean forwards to FESIM). Both are compiled in a
+! coupled build; a standalone build only has the bulk scheme.
+subroutine thermodynamics(ice, partit, mesh)
+    USE MOD_ICE
+    USE MOD_PARTIT
+    USE MOD_PARSUP
+    USE MOD_MESH
+    use ice_thermodynamics_interfaces, only: thermodynamics_bulk
+#if defined (__cpl_enabled)
+    use ice_thermodynamics_interfaces, only: thermodynamics_cpl
+    use cpl_config,                    only: cpl_has_atmosphere
+#endif
+    implicit none
+    type(t_ice)   , intent(inout), target :: ice
+    type(t_partit), intent(inout), target :: partit
+    type(t_mesh)  , intent(in)   , target :: mesh
+#if defined (__cpl_enabled)
+    if (cpl_has_atmosphere()) then
+       call thermodynamics_cpl(ice, partit, mesh)
+    else
+       call thermodynamics_bulk(ice, partit, mesh)
+    end if
+#else
+    call thermodynamics_bulk(ice, partit, mesh)
+#endif
+end subroutine thermodynamics
 
-#if !defined (__cpl_enabled)
 !_______________________________________________________________________________
 ! Sea-ice thermodynamics routines
 !
@@ -164,7 +219,9 @@ end subroutine cut_off
 ! Adjusted for general forcing data and NlFs option, cleaned up, bug fixing,
 ! by Qiang Wang, 13.01.2009
 !_______________________________________________________________________________
-subroutine thermodynamics(ice, partit, mesh)
+! Bulk-formula sea-ice thermodynamics: the atmospheric fluxes are computed
+! here from the atmospheric state. Selected at run time by thermodynamics().
+subroutine thermodynamics_bulk(ice, partit, mesh)
   !
   ! For every surface node, this subroutine extracts the information
   ! needed for computation of thermodydnamics, calls the relevant
@@ -379,7 +436,7 @@ subroutine thermodynamics(ice, partit, mesh)
     end do
 !$OMP END DO
 !$OMP END PARALLEL 
-end subroutine thermodynamics
+end subroutine thermodynamics_bulk
 !
 !
 !_______________________________________________________________________________
@@ -1030,4 +1087,3 @@ end function compute_solar_zenith_angle
 !
 !
 !_______________________________________________________________________________
-#endif /* !defined (__cpl_enabled) */

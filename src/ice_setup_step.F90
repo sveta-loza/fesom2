@@ -376,6 +376,8 @@ subroutine ice_initial_state(ice, tracers, partit, mesh)
     use o_arrays
     use g_CONFIG
     USE g_read_other_NetCDF, only: read_other_NetCDF
+    use g_clock,        only: r_restart
+    use fesim_ice_init, only: ice_cold_start_pending
     implicit none
     type(t_ice)   , intent(inout), target :: ice
     type(t_tracer), intent(in)   , target :: tracers
@@ -519,6 +521,11 @@ end if
 
     else if (.not. ini_ice_from_file) then
         if(mype==0) write(*,*) 'initialize the sea ice: cold start'
+        ! FESIM: the tracers are empty here (the ocean state arrives over YAC
+        ! once the run starts), so the loop below seeds nothing. The cold start
+        ! is deferred to the first SST received from the ocean -- see
+        ! fesim_ice_init. A restart overwrites the ice state afterwards anyway.
+        if (.not. r_restart) ice_cold_start_pending = .true.
         !___________________________________________________________________________
         do i=1,myDim_nod2D+eDim_nod2D
             !_______________________________________________________________________

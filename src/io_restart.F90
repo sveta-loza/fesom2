@@ -35,6 +35,16 @@ MODULE io_RESTART
   integer,       save       :: globalstep=0 ! todo: remove this from module scope as it will mess things up if we use async read/write from the same process
   real(kind=WP)             :: ctime !current time in seconds from the beginning of the year
 
+  ! FESIM (sea-ice component) does NOT own ocean prognostic state: SST, SSS,
+  ! SSH and the surface velocity arrive from the ocean over YAC every coupling
+  ! step, and nothing in FESIM reads tracers%data or dynamics%uv on a live
+  ! path. Registering oce_files here made FESIM read the ocean's restart at
+  ! startup (54 s of a 90 s startup on DARS) and write a second copy of it
+  ! (144 GB on DARS) every restart interval. Leaving the group unregistered
+  ! also empties the raw and bin restart paths, which loop over
+  ! oce_files%nfiles.
+  logical, parameter :: fesim_owns_ocean_restart = .false.
+
   type(restart_file_group) , save :: oce_files
   
   type(restart_file_group) , save :: ice_files
@@ -446,7 +456,7 @@ subroutine read_initial_conditions(which_readr, ice, dynamics, tracers, partit, 
   legacy_bio_path = nc_restart_path_legacy('bio', yearold, RestartInPath)
 
   ! Initialize file groups for reading
-  call ini_ocean_io(dynamics, tracers, partit, mesh)
+  if (fesim_owns_ocean_restart) call ini_ocean_io(dynamics, tracers, partit, mesh)
   if (use_ice) then
 #if defined(__icepack)    
       call ini_icepack_io(yearold, partit, mesh)
@@ -500,8 +510,10 @@ subroutine read_initial_conditions(which_readr, ice, dynamics, tracers, partit, 
     which_readr = 0
     
     ! Read OCEAN restart
-    if (partit%mype==RAW_RESTART_METADATA_RANK) print *, achar(27)//'[1;33m'//' --> read restarts from netcdf file: ocean'//achar(27)//'[0m'
-    call read_netcdf_restarts(read_oce_path, legacy_oce_path, oce_files, partit%MPI_COMM_FESOM, partit%mype)
+    if (fesim_owns_ocean_restart) then   ! skipped in FESIM, see fesim_owns_ocean_restart
+      if (partit%mype==RAW_RESTART_METADATA_RANK) print *, achar(27)//'[1;33m'//' --> read restarts from netcdf file: ocean'//achar(27)//'[0m'
+      call read_netcdf_restarts(read_oce_path, legacy_oce_path, oce_files, partit%MPI_COMM_FESOM, partit%mype)
+    end if
     
     ! Read ICE/ICEPACK restart
     if (use_ice) then
@@ -626,7 +638,7 @@ subroutine write_initial_conditions(istep, nstart, ntotal, which_readr, ice, dyn
   ! Initialize file groups for writing on first call
   if(.not. initialized_io) then
     initialized_io = .true.
-    call ini_ocean_io(dynamics, tracers, partit, mesh)
+    if (fesim_owns_ocean_restart) call ini_ocean_io(dynamics, tracers, partit, mesh)
     if (use_ice) then
 #if defined(__icepack)
         call ini_icepack_io(yearnew, partit, mesh)
@@ -713,8 +725,10 @@ subroutine write_initial_conditions(istep, nstart, ntotal, which_readr, ice, dyn
 #if defined (__cvmix)
         if (mod(mix_scheme_nmb,10)==7) call prepare_idemix2_restart()
 #endif
-        if (partit%mype==RAW_RESTART_METADATA_RANK) print *, achar(27)//'[1;33m'//' --> write restarts to netcdf file: ocean'//achar(27)//'[0m'
-        call write_netcdf_restarts(write_oce_path, oce_files, istep)
+        if (fesim_owns_ocean_restart) then   ! skipped in FESIM, see fesim_owns_ocean_restart
+          if (partit%mype==RAW_RESTART_METADATA_RANK) print *, achar(27)//'[1;33m'//' --> write restarts to netcdf file: ocean'//achar(27)//'[0m'
+          call write_netcdf_restarts(write_oce_path, oce_files, istep)
+        end if
 #if defined(__recom) && defined(__usetp)
     endif !(partit%my_fesom_group == 0) then
 #endif

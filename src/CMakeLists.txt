@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(fesom LANGUAGES C CXX Fortran VERSION 2.0.0)
+# FESIM: the sea-ice component of the FESOM/FESIM split, built from the FESOM
+# source tree with its own driver (fesim_module.F90 / fesim_main.F90).
+project(fesim LANGUAGES C CXX Fortran VERSION 2.0.0)
 set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/../cmake ${CMAKE_MODULE_PATH})
 
 include(fesom_setup)
@@ -228,7 +230,7 @@ add_custom_target(fesom_version_info-generated.F90 ALL
 #   list(REMOVE_ITEM sources_Fortran ${src_home}/cpl_driver.F90)
 #endif()
 list(REMOVE_ITEM sources_Fortran ${src_home}/fvom_init.F90 ${src_home}/oce_local.F90 ${src_home}/gen_comm.F90)
-list(REMOVE_ITEM sources_Fortran ${src_home}/fesom_main.F90)
+list(REMOVE_ITEM sources_Fortran ${src_home}/fesim_main.F90)
 
 find_package( NETCDF REQUIRED COMPONENTS C Fortran )
 find_package( MPI REQUIRED COMPONENTS C Fortran )
@@ -245,7 +247,7 @@ add_library(${PROJECT_NAME} ${sources_Fortran} $<TARGET_OBJECTS:async_threads_cp
 add_dependencies(${PROJECT_NAME} fesom_version_info-generated.F90)
 
 target_include_directories(${PROJECT_NAME} PUBLIC $<BUILD_INTERFACE:${CMAKE_Fortran_MODULE_DIRECTORY}>)
-target_include_directories(${PROJECT_NAME} PUBLIC $<INSTALL_INTERFACE:module/fesom>)
+target_include_directories(${PROJECT_NAME} PUBLIC $<INSTALL_INTERFACE:module/fesim>)
 target_link_libraries(${PROJECT_NAME} PRIVATE MPI::MPI_Fortran)
 
 # Link RECOM code
@@ -623,7 +625,7 @@ endif()
 
    
 # fesom.x executable
-add_executable(${PROJECT_NAME}.x ${src_home}/fesom_main.F90)
+add_executable(${PROJECT_NAME}.x ${src_home}/fesim_main.F90)
 target_compile_options(${PROJECT_NAME}.x PRIVATE ${FESOM_RUNTIME_CHECK_FLAGS} ${FESOM_BUILD_CHECK_FLAGS})
 target_link_libraries(${PROJECT_NAME}.x PUBLIC ${PROJECT_NAME})
 
@@ -654,4 +656,4 @@ if(BUILD_MESHDIAG)
     set(additional_targets ${additional_targets} fesom_meshdiag)
 endif()
 
-fesom_export(TARGETS ${PROJECT_NAME} fesom.x ${additional_targets})
+fesom_export(TARGETS ${PROJECT_NAME} fesim.x ${additional_targets})

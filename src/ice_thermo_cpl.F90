@@ -1,5 +1,8 @@
 #if defined (__cpl_enabled)
-subroutine thermodynamics(ice, partit, mesh)
+! Coupled sea-ice thermodynamics: the atmospheric fluxes are provided by the
+! atmosphere (or, in the FESIM component, forwarded by the ocean). Selected at
+! run time by thermodynamics() in ice_thermo_oce.F90.
+subroutine thermodynamics_cpl(ice, partit, mesh)
 
   !===================================================================
   !
@@ -27,6 +30,7 @@ subroutine thermodynamics(ice, partit, mesh)
   use g_comm_auto
   use g_rotate_grid
   use ice_meltponds, only: meltpond_area, meltpond_albedo
+  use cpl_config,    only: is_coupled_to_ifs
   implicit none
   type(t_ice)   , intent(inout), target :: ice
   type(t_partit), intent(inout), target :: partit
@@ -331,11 +335,12 @@ contains
     !---- NOTE: evaporation and sublimation represent potential fluxes and
     !---- must be area-weighted (like the heat fluxes); in contrast,
     !---- precipitation (snow and rain) and runoff are effective fluxes
-!already weighted in IFS coupling
-#if !defined (__cpl_direct)
-    subli  = A*subli
-    evap   = (1._WP-A)*evap
-#endif
+    ! already weighted in IFS coupling (also when those fluxes reach the
+    ! FESIM component forwarded by the ocean)
+    if (.not. is_coupled_to_ifs) then
+       subli  = A*subli
+       evap   = (1._WP-A)*evap
+    end if
     PmEice = A*snow + subli
     PmEocn = evap + rain + (1._WP-A)*snow + runo
 
@@ -702,5 +707,5 @@ contains
    
  end subroutine ice_albedo
 
-end subroutine thermodynamics
+end subroutine thermodynamics_cpl
 #endif

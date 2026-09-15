@@ -1,6 +1,6 @@
 module gen_forcing_init_module
     USE g_CONFIG
-    USE g_sbf, only: sbc_ini, l_mslp, l_cloud
+    USE g_sbf, only: sbc_ini, sbc_read_namelist, l_mslp, l_cloud
     USE mod_mesh
     USE MOD_PARTIT
     USE g_forcing_arrays
@@ -13,6 +13,9 @@ use g_sbf, only: sbc_ini_recom
   use cpl_driver, only : nrecv
 #elif defined (__cpl_yac)
   use ocean_coupling_interface, only : nrecv => OCN_NRECV_MAX
+#endif
+#if defined (__cpl_coupler)
+  use cpl_config, only: cpl_has_atmosphere, cpl_component_is_sea_ice
 #endif
 
     implicit none
@@ -38,11 +41,20 @@ type(t_partit), intent(inout), target :: partit
 #if defined(__recom)
      call sbc_ini_recom(partit)         ! initialize forcing fields
 #endif
-#if !defined (__cpl_coupler)
+#if defined (__cpl_coupler)
+     ! With a coupler the atmospheric forcing normally arrives through it.
+     ! The sea-ice component reads no forcing files (its forcing comes from
+     ! the ocean) but needs the switches of nam_sbc (l_snow, ...) for its
+     ! bulk thermodynamics. The one build that reads forcing files is the
+     ! ocean whose only partner is the sea ice (FESOM + FESIM over YAC).
+     if (cpl_component_is_sea_ice) then
+        call sbc_read_namelist(partit)
+     else if (.not. cpl_has_atmosphere()) then
+        call sbc_ini(partit, mesh)
+     end if
+#else
      call sbc_ini(partit, mesh)         ! initialize forcing fields
 #endif
-     ! (FESIM reads no forcing files: the atmospheric state or fluxes arrive
-     !  from the ocean over YAC.)
   endif
   if ((toy_ocean) .AND. TRIM(which_toy)=="dbgyre" .AND. (use_sw_pene)) then
      call forcing_array_setup_dbgyre(partit, mesh)

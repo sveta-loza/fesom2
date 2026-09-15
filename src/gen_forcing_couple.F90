@@ -39,7 +39,8 @@ module gen_forcing_couple_module
                                        OCN_NSEND, OCN_NRECV, &
                                        ocn_send_collection_size, ocn_recv_collection_size, &
                                        OCN_SEND_SEA_ICE_BUNDLE, OCN_SEND_ICE_STRESS, OCN_SEND_ICE_FLUX, &
-                                       OCN_RECV_SST_FEOM, &
+                                       OCN_SEND_ICE_THERMO, &
+                                       OCN_RECV_SST_FEOM, OCN_RECV_RUNOFF, &
                                        OCN_RECV_TAUX, OCN_RECV_TAUY, OCN_RECV_FRESH_WATER, &
                                        OCN_RECV_HEAT_FLUX, OCN_RECV_ATM_SEA_ICE_BUNDLE, &
                                        OCN_RECV_ATM_ICE_FLUX, OCN_RECV_ATM_STATE, &
@@ -166,6 +167,14 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
         ! applies them in oce_fluxes (heat_flux=-flx_h, water_flux=-flx_fw).
         exchange(:,1) = ice%flx_h(1:myDim_nod2d)   ! net_heat_flux [W/m2]
         exchange(:,2) = ice%flx_fw(1:myDim_nod2d)  ! fresh_wa_flux [m/s]
+     elseif (i.eq.OCN_SEND_ICE_THERMO) then
+        ! terms of the ice thermodynamics that the ocean's global freshwater
+        ! balancing (oce_fluxes) integrates; its built-in ice would set them.
+        exchange(:,1) = evaporation(1:myDim_nod2d)            ! [m/s], negative up
+        exchange(:,2) = ice_sublimation(1:myDim_nod2d)        ! [m/s]
+        exchange(:,3) = ice%thermo%thdgr(1:myDim_nod2d)       ! ice growth rate  [m/s]
+        exchange(:,4) = ice%thermo%thdgrsn(1:myDim_nod2d)     ! snow growth rate [m/s]
+        exchange(:,5) = ice%data(1)%values_old(1:myDim_nod2d) ! a_ice before the thermodynamics
      endif
      call ocn_cpl_send(i, exchange(:,1:ocn_send_collection_size(i)), action)
      if (flag_debug .and. mype==0) write(*,*) 'FESIM SEND: field ', i, ' max val:', &
@@ -184,6 +193,11 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
         call exchange_nod(t_oce, partit)
         ! cold start: seed the sea ice from the ocean's initial SST
         if (ice_cold_start_pending) call seed_ice_from_sst(ice, t_oce, partit, mesh)
+     elseif (i.eq.OCN_RECV_RUNOFF) then
+        ! River runoff held by the ocean [m/s]; therm_ice adds it to the
+        ! freshwater flux, which is how it reaches the ocean with built-in ice.
+        runoff(1:myDim_nod2d) = exchange(:,1)
+        call exchange_nod(runoff, partit)
      elseif (i.eq.OCN_RECV_OCEAN_TO_ICE_BUNDLE) then
         s_oce(1:myDim_nod2d)     = exchange(:,1) ! sea surface salinity
         eta_n(1:myDim_nod2d)     = exchange(:,2) ! sea surface height

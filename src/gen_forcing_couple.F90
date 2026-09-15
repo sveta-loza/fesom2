@@ -114,7 +114,8 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
                                        cpl_send_collection_size => ocn_send_collection_size, &
                                        cpl_recv_collection_size => ocn_recv_collection_size, &
                                        OCN_SEND_ICE_STRESS, OCN_SEND_ICE_FLUX, &
-                                       OCN_RECV_SST_FEOM, &
+                                       OCN_SEND_ICE_THERMO, &
+                                       OCN_RECV_SST_FEOM, OCN_RECV_RUNOFF, &
                                        OCN_RECV_OCEAN_TO_ICE_BUNDLE, OCN_RECV_OCEAN_TO_ICE_UV
 #if defined (__yac_atm)
   use ocean_coupling_interface, only: OCN_RECV_TAUX, OCN_RECV_TAUY, OCN_RECV_FRESH_WATER, &
@@ -247,6 +248,14 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
         ! flux; ocean applies via oce_fluxes (heat_flux=-flx_h, water_flux=-flx_fw).
         exchange(:,1) = ice%flx_h(1:myDim_nod2d)   ! net_heat_flux [W/m2]
         exchange(:,2) = ice%flx_fw(1:myDim_nod2d)  ! fresh_wa_flux [m/s]
+     elseif (i.eq.OCN_SEND_ICE_THERMO) then
+        ! terms of the ice thermodynamics that the ocean's global freshwater
+        ! balancing (oce_fluxes) integrates; its built-in ice would set them.
+        exchange(:,1) = evaporation(1:myDim_nod2d)            ! [m/s], negative up
+        exchange(:,2) = ice_sublimation(1:myDim_nod2d)        ! [m/s]
+        exchange(:,3) = ice%thermo%thdgr(1:myDim_nod2d)       ! ice growth rate  [m/s]
+        exchange(:,4) = ice%thermo%thdgrsn(1:myDim_nod2d)     ! snow growth rate [m/s]
+        exchange(:,5) = ice%data(1)%values_old(1:myDim_nod2d) ! a_ice before the thermodynamics
      endif
      if (mype==0) write(*,*) 'ice2oce: field ', i, ' max val:', maxval(exchange)
      call ocn_cpl_send(i, exchange(:,1:cpl_send_collection_size(i)), action)
@@ -273,6 +282,11 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
      if (i.eq.OCN_RECV_SST_FEOM) then
         t_oce(1:myDim_nod2d)  =  exchange(:,1) - 273.15      ! sea surface temperature [°C]
         call exchange_nod(t_oce, partit)
+     elseif (i.eq.OCN_RECV_RUNOFF) then
+        ! River runoff held by the ocean [m/s]; therm_ice adds it to the
+        ! freshwater flux, which is how it reaches the ocean with built-in ice.
+        runoff(1:myDim_nod2d) = exchange(:,1)
+        call exchange_nod(runoff, partit)
 #if defined (__yac_atm)
      elseif (i.eq.OCN_RECV_TAUX) then
 !sl     if (mype==0) write(*,*) 'FESIM RECV: stress_atmoce_x ', i

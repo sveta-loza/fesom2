@@ -56,7 +56,7 @@ MODULE g_sbf
    
    include 'netcdf.inc'
 
-   public  sbc_ini  ! routine called before 1st time step (open files, read namelist,...)
+   public  sbc_ini, sbc_read_namelist  ! routine called before 1st time step (open files, read namelist,...)
    public  sbc_do   ! routine called each time step to provide a sbc fileds (wind,...)
    public  sbc_end  ! routine called after last time step
    public  RUNOFF_MAPPER
@@ -1022,6 +1022,41 @@ CONTAINS
       end do
    END SUBROUTINE data_timeinterp
 
+   SUBROUTINE sbc_read_namelist(partit)
+      !!---------------------------------------------------------------------
+      !!                    ***  ROUTINE sbc_read_namelist ***
+      !!
+      !! ** Purpose : read nam_sbc (namelist.forcing): the switches and file
+      !!              names of the surface forcing. Called by sbc_ini, and on
+      !!              its own by a component that reads no forcing files but
+      !!              needs the switches (the sea-ice component, which gets
+      !!              the forcing from the ocean over the coupler).
+      !!----------------------------------------------------------------------
+      IMPLICIT NONE
+      type(t_partit), intent(inout), target :: partit
+      integer            :: iost  ! I/O status
+
+      namelist /nam_sbc/ nm_xwind_file, nm_ywind_file, nm_xstre_file, nm_ystre_file, nm_humi_file, nm_qsr_file, &
+                        nm_qlw_file, nm_tair_file, nm_prec_file, nm_snow_file, &
+                        nm_mslp_file, nm_xwind_var, nm_ywind_var, nm_xstre_var, nm_ystre_var, nm_humi_var, &
+                        nm_qsr_var, nm_qlw_var, nm_tair_var, nm_prec_var, nm_snow_var, &
+                        nm_mslp_var, nm_cloud_var, nm_cloud_file, nm_nc_iyear, nm_nc_imm, nm_nc_idd, nm_nc_freq, nm_nc_tmid, y_perpetual, &
+                        l_xwind, l_ywind, l_xstre, l_ystre, l_humi, l_qsr, l_qlw, l_tair, l_prec, l_mslp, l_cloud, l_snow, &
+                        nm_runoff_file, runoff_data_source, runoff_climatology, nm_sss_data_file, sss_data_source, &
+                        chl_data_source, nm_chl_data_file, chl_const, use_runoff_mapper, runoff_basins_file, runoff_radius
+
+      ! OPEN and read namelist for SBC
+      open(unit=nm_sbc_unit, file='namelist.forcing', action='read', form='formatted', access='sequential', status='old', iostat=iost )
+      if (iost == 0) then
+         if (partit%mype==0) WRITE(*,*) '     file   : ', 'namelist.forcing',' open ok'
+      else
+         if (partit%mype==0) WRITE(*,*) 'ERROR: --> bad opening file   : ', 'namelist.forcing',' ; iostat=',iost
+         call par_ex(partit%MPI_COMM_FESOM, partit%mype, 1)
+      endif
+      READ( nm_sbc_unit, nml=nam_sbc, iostat=iost )
+      close( nm_sbc_unit )
+   END SUBROUTINE sbc_read_namelist
+
    SUBROUTINE sbc_ini(partit, mesh)
       !!---------------------------------------------------------------------
       !!                    ***  ROUTINE sbc_ini ***
@@ -1040,14 +1075,6 @@ CONTAINS
       type(t_partit), intent(inout), target :: partit
       logical            :: file_exist=.false.
 
-      namelist /nam_sbc/ nm_xwind_file, nm_ywind_file, nm_xstre_file, nm_ystre_file, nm_humi_file, nm_qsr_file, &
-                        nm_qlw_file, nm_tair_file, nm_prec_file, nm_snow_file, &
-                        nm_mslp_file, nm_xwind_var, nm_ywind_var, nm_xstre_var, nm_ystre_var, nm_humi_var, &
-                        nm_qsr_var, nm_qlw_var, nm_tair_var, nm_prec_var, nm_snow_var, &
-                        nm_mslp_var, nm_cloud_var, nm_cloud_file, nm_nc_iyear, nm_nc_imm, nm_nc_idd, nm_nc_freq, nm_nc_tmid, y_perpetual, &
-                        l_xwind, l_ywind, l_xstre, l_ystre, l_humi, l_qsr, l_qlw, l_tair, l_prec, l_mslp, l_cloud, l_snow, &
-                        nm_runoff_file, runoff_data_source, runoff_climatology, nm_sss_data_file, sss_data_source, &
-                        chl_data_source, nm_chl_data_file, chl_const, use_runoff_mapper, runoff_basins_file, runoff_radius
 
 #if defined(__recom)
       namelist /nam_rsbc/ fe_data_source, nm_fe_data_file, nm_aen_data_file, nm_river_data_file, nm_erosion_data_file, nm_co2_data_file
@@ -1058,16 +1085,7 @@ CONTAINS
 #include "associate_part_ass.h"
 #include "associate_mesh_ass.h"
 
-      ! OPEN and read namelist for SBC
-      open(unit=nm_sbc_unit, file='namelist.forcing', action='read', form='formatted', access='sequential', status='old', iostat=iost )
-      if (iost == 0) then
-         if (mype==0) WRITE(*,*) '     file   : ', 'namelist.forcing',' open ok'
-      else
-         if (mype==0) WRITE(*,*) 'ERROR: --> bad opening file   : ', 'namelist.forcing',' ; iostat=',iost
-         call par_ex(partit%MPI_COMM_FESOM, partit%mype, 1)
-      endif
-      READ( nm_sbc_unit, nml=nam_sbc, iostat=iost )
-      close( nm_sbc_unit )
+      call sbc_read_namelist(partit)
       
       if (mype==0) then
          write(*,*) "Start: Ocean forcing initialization."

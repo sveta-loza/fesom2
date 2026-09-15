@@ -29,7 +29,7 @@ end module forcing_array_setup_dbgyre_interfaces
 ! ==========================================================
 subroutine forcing_setup(partit, mesh)
 use g_CONFIG
-use g_sbf, only: sbc_ini
+use g_sbf, only: sbc_ini, sbc_read_namelist
 use mod_mesh
 USE MOD_PARTIT
 USE MOD_PARSUP
@@ -44,6 +44,11 @@ type(t_partit), intent(inout), target :: partit
      call forcing_array_setup(partit, mesh)
 #if !defined(__oasis) && !defined(__yac)
      call sbc_ini(partit, mesh)         ! initialize forcing fields
+#else
+     ! The sea-ice component reads no forcing files (its forcing comes from
+     ! the ocean over the coupler) but needs the switches of nam_sbc
+     ! (l_snow, ...) for its bulk thermodynamics.
+     call sbc_read_namelist(partit)
 #endif
   endif 
   if ((toy_ocean) .AND. TRIM(which_toy)=="dbgyre" .AND. (use_sw_pene)) then

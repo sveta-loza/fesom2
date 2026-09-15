@@ -51,21 +51,28 @@ module ocean_coupling_interface
   ! from ICON/IFS/forcing), so ice%flx_h/flx_fw reproduce the standard-FESOM ocean
   ! surface flux; the ocean applies them via the unchanged oce_fluxes.
   integer, parameter, public :: OCN_SEND_ICE_FLUX             = 3
-  integer, parameter, public :: OCN_NSEND                     = 3
+  ! Terms of the ice thermodynamics that the ocean's global freshwater
+  ! balancing (oce_fluxes) integrates and that its built-in ice would set
+  ! itself: evaporation, ice_sublimation, thdgr, thdgrsn, a_ice_old.
+  integer, parameter, public :: OCN_SEND_ICE_THERMO           = 4
+  integer, parameter, public :: OCN_NSEND                     = 4
 
   ! Recv slots (1-based). What the ocean forwards from the atmosphere depends on
   ! __yac_atm (must match the FESOM-side ice_coupling_interface send layout).
   integer, parameter, public :: OCN_RECV_SST_FEOM             = 1
+  ! River runoff held by the ocean; therm_ice adds it to the freshwater flux
+  ! (how it reaches the ocean with the ice built in).
+  integer, parameter, public :: OCN_RECV_RUNOFF               = 2
 #if defined(__yac_atm)
   ! ICON: receive pre-computed atm FLUXES (Stage 3 layout).
-  integer, parameter, public :: OCN_RECV_TAUX                 = 2
-  integer, parameter, public :: OCN_RECV_TAUY                 = 3
-  integer, parameter, public :: OCN_RECV_FRESH_WATER          = 4
-  integer, parameter, public :: OCN_RECV_HEAT_FLUX            = 5
-  integer, parameter, public :: OCN_RECV_ATM_SEA_ICE_BUNDLE   = 6
-  integer, parameter, public :: OCN_RECV_OCEAN_TO_ICE_BUNDLE  = 7
-  integer, parameter, public :: OCN_RECV_OCEAN_TO_ICE_UV      = 8
-  integer, parameter, public :: OCN_NRECV                     = 8
+  integer, parameter, public :: OCN_RECV_TAUX                 = 3
+  integer, parameter, public :: OCN_RECV_TAUY                 = 4
+  integer, parameter, public :: OCN_RECV_FRESH_WATER          = 5
+  integer, parameter, public :: OCN_RECV_HEAT_FLUX            = 6
+  integer, parameter, public :: OCN_RECV_ATM_SEA_ICE_BUNDLE   = 7
+  integer, parameter, public :: OCN_RECV_OCEAN_TO_ICE_BUNDLE  = 8
+  integer, parameter, public :: OCN_RECV_OCEAN_TO_ICE_UV      = 9
+  integer, parameter, public :: OCN_NRECV                     = 9
 #elif defined(__ifs_fwd)
   ! IFS (Stage 4 config #1): receive the IFS atm fluxes the ocean forwards as a
   ! single 10-component bundle, already in FESIM internal units + rotated (NO
@@ -73,19 +80,19 @@ module ocean_coupling_interface
   ! Components: 1 stress_atmice_x 2 stress_atmice_y 3 oce_heat_flux
   !   4 ice_heat_flux 5 shortwave 6 prec_rain 7 prec_snow 8 evap_no_ifrac
   !   9 sublimation 10 enthalpyoffuse   (stress_atmoce is NOT forwarded)
-  integer, parameter, public :: OCN_RECV_ATM_ICE_FLUX         = 2
-  integer, parameter, public :: OCN_RECV_OCEAN_TO_ICE_BUNDLE  = 3
-  integer, parameter, public :: OCN_RECV_OCEAN_TO_ICE_UV      = 4
-  integer, parameter, public :: OCN_NRECV                     = 4
+  integer, parameter, public :: OCN_RECV_ATM_ICE_FLUX         = 3
+  integer, parameter, public :: OCN_RECV_OCEAN_TO_ICE_BUNDLE  = 4
+  integer, parameter, public :: OCN_RECV_OCEAN_TO_ICE_UV      = 5
+  integer, parameter, public :: OCN_NRECV                     = 5
 #else
   ! Standalone (Stage 4 config #2): receive the raw atm STATE bundle and run our
   ! own bulk. Components (FESIM converts units on receive — see gen_forcing_couple):
   !   1 u_wind [m/s]   2 v_wind [m/s]   3 t_air [K]    4 shum [kg/kg]
   !   5 shortwave [W/m2] 6 longwave [W/m2] 7 prec_rain [kg/m2/s] 8 prec_snow [kg/m2/s] 9 mslp [Pa]
-  integer, parameter, public :: OCN_RECV_ATM_STATE            = 2
-  integer, parameter, public :: OCN_RECV_OCEAN_TO_ICE_BUNDLE  = 3
-  integer, parameter, public :: OCN_RECV_OCEAN_TO_ICE_UV      = 4
-  integer, parameter, public :: OCN_NRECV                     = 4
+  integer, parameter, public :: OCN_RECV_ATM_STATE            = 3
+  integer, parameter, public :: OCN_RECV_OCEAN_TO_ICE_BUNDLE  = 4
+  integer, parameter, public :: OCN_RECV_OCEAN_TO_ICE_UV      = 5
+  integer, parameter, public :: OCN_NRECV                     = 5
 #endif
 
   ! Collection sizes per field (indexed by slot constants above).
@@ -94,16 +101,16 @@ module ocean_coupling_interface
 ! sea_ice_bundle (3 or 5 for IFS) + ice_to_ocean_stress (2: stress_iceoce_x/y)
 ! + ice_to_ocean_flux (2: net_heat_flux, fresh_wa_flux) in standalone only.
 #if defined(__ifs_fwd)
-  integer, parameter, public :: ocn_send_collection_size(OCN_NSEND) = [5, 2, 2]
+  integer, parameter, public :: ocn_send_collection_size(OCN_NSEND) = [5, 2, 2, 5]
 #else
-  integer, parameter, public :: ocn_send_collection_size(OCN_NSEND) = [3, 2, 2]
+  integer, parameter, public :: ocn_send_collection_size(OCN_NSEND) = [3, 2, 2, 5]
 #endif
 #if defined(__yac_atm)
-  integer, parameter, public :: ocn_recv_collection_size(OCN_NRECV) = [1, 2, 2, 3, 4, 2, 2, 2]
+  integer, parameter, public :: ocn_recv_collection_size(OCN_NRECV) = [1, 1, 2, 2, 3, 4, 2, 2, 2]
 #elif defined(__ifs_fwd)
-  integer, parameter, public :: ocn_recv_collection_size(OCN_NRECV) = [1, 10, 2, 2]
+  integer, parameter, public :: ocn_recv_collection_size(OCN_NRECV) = [1, 1, 10, 2, 2]
 #else
-  integer, parameter, public :: ocn_recv_collection_size(OCN_NRECV) = [1, 9, 2, 2]
+  integer, parameter, public :: ocn_recv_collection_size(OCN_NRECV) = [1, 1, 9, 2, 2]
 #endif
 
   ! YAC field names per slot (32-char strings, padded). Public so downstream
@@ -111,10 +118,12 @@ module ocean_coupling_interface
   character(len=32), parameter, public :: ocn_send_names(OCN_NSEND) = [character(len=32) :: &
        'sea_ice_bundle', &
        'ice_to_ocean_stress', &
-       'ice_to_ocean_flux' ]
+       'ice_to_ocean_flux', &
+       'ice_to_ocean_thermo' ]
 #if defined(__yac_atm)
   character(len=32), parameter, public :: ocn_recv_names(OCN_NRECV) = [character(len=32) :: &
        'sst_feom_to_ice', &
+       'runoff_to_ice', &
        'taux_to_ice', &
        'tauy_to_ice', &
        'surface_fresh_water_flux_to_ice', &
@@ -125,12 +134,14 @@ module ocean_coupling_interface
 #elif defined(__ifs_fwd)
   character(len=32), parameter, public :: ocn_recv_names(OCN_NRECV) = [character(len=32) :: &
        'sst_feom_to_ice', &
+       'runoff_to_ice', &
        'atm_ice_flux_to_ice', &
        'ocean_to_ice_bundle', &
        'ocean_to_ice_uv' ]
 #else
   character(len=32), parameter, public :: ocn_recv_names(OCN_NRECV) = [character(len=32) :: &
        'sst_feom_to_ice', &
+       'runoff_to_ice', &
        'atm_state_to_ice', &
        'ocean_to_ice_bundle', &
        'ocean_to_ice_uv' ]

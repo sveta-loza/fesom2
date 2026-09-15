@@ -29,7 +29,7 @@ end module forcing_array_setup_dbgyre_interfaces
 ! ==========================================================
 subroutine forcing_setup(partit, mesh)
 use g_CONFIG
-use g_sbf, only: sbc_ini
+use g_sbf, only: sbc_ini, sbc_read_namelist
 #if defined (__cpl_coupler)
 use cpl_config, only: cpl_has_atmosphere, cpl_component_is_sea_ice
 #endif
@@ -53,9 +53,15 @@ type(t_partit), intent(inout), target :: partit
 #endif
 #if defined (__cpl_coupler)
      ! With a coupler the atmospheric forcing normally arrives through it.
-     ! The one exception is a build whose only partner is the sea ice
-     ! (FESOM + FESIM over YAC): the ocean then reads its forcing files.
-     if (.not. cpl_has_atmosphere() .and. .not. cpl_component_is_sea_ice) call sbc_ini(partit, mesh)
+     ! The sea-ice component reads no forcing files (its forcing comes from
+     ! the ocean) but needs the switches of nam_sbc (l_snow, ...) for its
+     ! bulk thermodynamics. The one build that reads forcing files is the
+     ! ocean whose only partner is the sea ice (FESOM + FESIM over YAC).
+     if (cpl_component_is_sea_ice) then
+        call sbc_read_namelist(partit)
+     else if (.not. cpl_has_atmosphere()) then
+        call sbc_ini(partit, mesh)
+     end if
 #else
      call sbc_ini(partit, mesh)         ! initialize forcing fields
 #endif

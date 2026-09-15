@@ -44,43 +44,51 @@ module ocean_coupling_interface
   private
 
   ! --- public field-index parameters ------------------------------------
-  ! Send slots (1-based), the same for every partner.
+  ! Send slots (1-based), the same for every partner: ice state, the
+  ! ice->ocean momentum drag, the net heat + freshwater flux, and the terms
+  ! of the ice thermodynamics that the ocean's freshwater balancing
+  ! (oce_fluxes) integrates and that its built-in ice would set itself.
   integer, parameter, public :: OCN_SEND_SEA_ICE_BUNDLE       = 1
   integer, parameter, public :: OCN_SEND_ICE_STRESS           = 2
   integer, parameter, public :: OCN_SEND_ICE_FLUX             = 3
-  integer, parameter, public :: OCN_NSEND                     = 3
+  integer, parameter, public :: OCN_SEND_ICE_THERMO           = 4
+  integer, parameter, public :: OCN_NSEND                     = 4
 
-  ! Recv slots (1-based). SST first, then the forwarded atmospheric fields,
-  ! whose slots depend on the atmosphere partner, then the native ocean
-  ! state. The three layouts reuse slot 2 onwards, so a slot constant is
-  ! only meaningful under the partner it belongs to.
+  ! Recv slots (1-based). SST and the river runoff first, then the forwarded
+  ! atmospheric fields, whose slots depend on the atmosphere partner, then
+  ! the native ocean state. The three layouts reuse slot 3 onwards, so a
+  ! slot constant is only meaningful under the partner it belongs to.
   integer, parameter, public :: OCN_RECV_SST_FEOM             = 1
+  integer, parameter, public :: OCN_RECV_RUNOFF               = 2
   ! is_coupled_to_icon_a
-  integer, parameter, public :: OCN_RECV_TAUX                 = 2
-  integer, parameter, public :: OCN_RECV_TAUY                 = 3
-  integer, parameter, public :: OCN_RECV_FRESH_WATER          = 4
-  integer, parameter, public :: OCN_RECV_HEAT_FLUX            = 5
-  integer, parameter, public :: OCN_RECV_ATM_SEA_ICE_BUNDLE   = 6
+  integer, parameter, public :: OCN_RECV_TAUX                 = 3
+  integer, parameter, public :: OCN_RECV_TAUY                 = 4
+  integer, parameter, public :: OCN_RECV_FRESH_WATER          = 5
+  integer, parameter, public :: OCN_RECV_HEAT_FLUX            = 6
+  integer, parameter, public :: OCN_RECV_ATM_SEA_ICE_BUNDLE   = 7
   ! is_coupled_to_ifs
-  integer, parameter, public :: OCN_RECV_ATM_ICE_FLUX         = 2
+  integer, parameter, public :: OCN_RECV_ATM_ICE_FLUX         = 3
   ! no atmosphere
-  integer, parameter, public :: OCN_RECV_ATM_STATE            = 2
+  integer, parameter, public :: OCN_RECV_ATM_STATE            = 3
   ! native ocean state: slot depends on the partner, see ocn_cpl_set_layout
   integer,           public, protected, save :: OCN_RECV_OCEAN_TO_ICE_BUNDLE = 0
   integer,           public, protected, save :: OCN_RECV_OCEAN_TO_ICE_UV     = 0
-  integer, parameter, public :: OCN_NRECV_MAX                 = 8
+  integer, parameter, public :: OCN_NRECV_MAX                 = 9
 
   ! --- runtime layout, set by ocn_cpl_define from the partner selection ---
   integer,           public, protected, save :: OCN_NRECV = 0
   integer,           public, protected, save :: ocn_recv_collection_size(OCN_NRECV_MAX) = 0
   character(len=32), public, protected, save :: ocn_recv_names(OCN_NRECV_MAX) = ''
   ! sea_ice_bundle: 3 (m_ice, m_snow, a_ice), or 5 with ice_temp + ice_alb
-  ! under IFS; ice_to_ocean_stress: 2; ice_to_ocean_flux: 2.
-  integer,           public, protected, save :: ocn_send_collection_size(OCN_NSEND) = [3, 2, 2]
+  ! under IFS; ice_to_ocean_stress: 2; ice_to_ocean_flux: 2;
+  ! ice_to_ocean_thermo: 5 (evaporation, ice_sublimation, thdgr, thdgrsn,
+  ! a_ice_old).
+  integer,           public, protected, save :: ocn_send_collection_size(OCN_NSEND) = [3, 2, 2, 5]
   character(len=32), parameter, public :: ocn_send_names(OCN_NSEND) = [character(len=32) :: &
        'sea_ice_bundle', &
        'ice_to_ocean_stress', &
-       'ice_to_ocean_flux' ]
+       'ice_to_ocean_flux', &
+       'ice_to_ocean_thermo' ]
 
   ! Kept for the flux-correction routines that still name these symbols
   ! (force_flux_consv, net_rec_from_atm). Never set under YAC.
@@ -148,27 +156,29 @@ contains
 
     ocn_recv_names(1)           = 'sst_feom_to_ice'
     ocn_recv_collection_size(1) = 1
+    ocn_recv_names(2)           = 'runoff_to_ice'
+    ocn_recv_collection_size(2) = 1
 
     if (is_coupled_to_icon_a) then
-       ocn_recv_names(2:6) = [character(len=32) :: &
+       ocn_recv_names(3:7) = [character(len=32) :: &
             'taux_to_ice', &
             'tauy_to_ice', &
             'surface_fresh_water_flux_to_ice', &
             'total_heat_flux_to_ice', &
             'atmosphere_sea_ice_bundle_to_ice' ]
-       ocn_recv_collection_size(2:6) = [2, 2, 3, 4, 2]
-       OCN_RECV_OCEAN_TO_ICE_BUNDLE = 7
-       OCN_RECV_OCEAN_TO_ICE_UV     = 8
+       ocn_recv_collection_size(3:7) = [2, 2, 3, 4, 2]
+       OCN_RECV_OCEAN_TO_ICE_BUNDLE = 8
+       OCN_RECV_OCEAN_TO_ICE_UV     = 9
     else if (is_coupled_to_ifs) then
-       ocn_recv_names(2)           = 'atm_ice_flux_to_ice'
-       ocn_recv_collection_size(2) = 10
-       OCN_RECV_OCEAN_TO_ICE_BUNDLE = 3
-       OCN_RECV_OCEAN_TO_ICE_UV     = 4
+       ocn_recv_names(3)           = 'atm_ice_flux_to_ice'
+       ocn_recv_collection_size(3) = 10
+       OCN_RECV_OCEAN_TO_ICE_BUNDLE = 4
+       OCN_RECV_OCEAN_TO_ICE_UV     = 5
     else
-       ocn_recv_names(2)           = 'atm_state_to_ice'
-       ocn_recv_collection_size(2) = 9
-       OCN_RECV_OCEAN_TO_ICE_BUNDLE = 3
-       OCN_RECV_OCEAN_TO_ICE_UV     = 4
+       ocn_recv_names(3)           = 'atm_state_to_ice'
+       ocn_recv_collection_size(3) = 9
+       OCN_RECV_OCEAN_TO_ICE_BUNDLE = 4
+       OCN_RECV_OCEAN_TO_ICE_UV     = 5
     end if
     ocn_recv_names(OCN_RECV_OCEAN_TO_ICE_BUNDLE)           = 'ocean_to_ice_bundle'
     ocn_recv_collection_size(OCN_RECV_OCEAN_TO_ICE_BUNDLE) = 2
@@ -176,7 +186,7 @@ contains
     ocn_recv_collection_size(OCN_RECV_OCEAN_TO_ICE_UV)     = 2
     OCN_NRECV = OCN_RECV_OCEAN_TO_ICE_UV
 
-    ocn_send_collection_size = [3, 2, 2]
+    ocn_send_collection_size = [3, 2, 2, 5]
     if (is_coupled_to_ifs) ocn_send_collection_size(OCN_SEND_SEA_ICE_BUNDLE) = 5
   end subroutine ocn_cpl_set_layout
 

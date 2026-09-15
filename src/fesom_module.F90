@@ -1107,8 +1107,12 @@ contains
         end if
 #endif
             f%t_ice_o2iflx_s = MPI_Wtime()
-            ! With FESIM the ice reads the ocean state over YAC instead.
-            if (.not. ice_external) call ocean2ice(f%ice, f%dynamics, f%tracers, f%partit, f%mesh)
+            ! Also with FESIM: ocean2ice prepares the ocean surface state
+            ! (ice%srfoce_*) that the ocean's own bulk formulae read for the
+            ! drag coefficients and the relative wind, and that is sent to
+            ! FESIM so that the external ice sees the same state as the
+            ! built-in one.
+            call ocean2ice(f%ice, f%dynamics, f%tracers, f%partit, f%mesh)
         end if
 
         if (use_ice .or. .not. toy_ocean) then

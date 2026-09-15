@@ -11,7 +11,8 @@
 !
 !   is_coupled_to_icon_a: the ocean receives pre-computed atmospheric FLUXES
 !     from ICON over YAC and forwards them. Sends:
-!       native:    sst_feom_to_ice, ocean_to_ice_bundle, ocean_to_ice_uv
+!       native:    sst_feom_to_ice, ocean_to_ice_bundle, ocean_to_ice_uv,
+!                  runoff_to_ice
 !       forwarded: taux_to_ice, tauy_to_ice, surface_fresh_water_flux_to_ice,
 !                  total_heat_flux_to_ice, atmosphere_sea_ice_bundle_to_ice
 !
@@ -36,10 +37,17 @@
 !       7 prec_rain [kg/m2/s]             8 prec_snow [kg/m2/s]   9 mslp [Pa]
 !
 !   recvs from ice (every partner): sea_ice_bundle, ice_to_ocean_stress,
-!     ice_to_ocean_flux
+!     ice_to_ocean_flux, ice_to_ocean_thermo
 !
-! river_runoff is not forwarded: it is ocean-only. Forwarded fields travel in
-! their source units; FESIM converts on receive.
+! runoff_to_ice carries the river runoff [m/s] the ocean holds (read from its
+! forcing files, or received from the atmosphere). With the sea ice built in,
+! runoff reaches the ocean only through the ice thermodynamics (therm_ice adds
+! it to the freshwater flux), so FESIM needs it for the same purpose.
+! ice_to_ocean_thermo carries the terms of the ice thermodynamics that the
+! ocean's global freshwater balancing (oce_fluxes) integrates and that the
+! built-in ice would otherwise set: evaporation, ice_sublimation, thdgr,
+! thdgrsn and a_ice_old. Forwarded fields travel in their source units;
+! FESIM converts on receive.
 !
 ! `sst_feom_to_ice` duplicates the atmosphere-bound `sst_feom` so that each
 ! interface owns its YAC fields end to end.
@@ -60,41 +68,47 @@ module ice_coupling_interface
   ! --- public field-index parameters ------------------------------------
   ! Send slots (1-based). Native ocean state first, then the forwarded
   ! atmospheric fields, whose slots depend on the atmosphere partner. The
-  ! three layouts reuse slot 4 onwards, so a slot constant is only
+  ! three layouts reuse slot 5 onwards, so a slot constant is only
   ! meaningful under the partner it belongs to.
   integer, parameter, public :: ICE_SEND_SST_FEOM             = 1
   integer, parameter, public :: ICE_SEND_OCEAN_TO_ICE_BUNDLE  = 2
   integer, parameter, public :: ICE_SEND_OCEAN_TO_ICE_UV      = 3
+  integer, parameter, public :: ICE_SEND_RUNOFF               = 4
   ! is_coupled_to_icon_a: forwarded ICON fluxes
-  integer, parameter, public :: ICE_SEND_TAUX                 = 4
-  integer, parameter, public :: ICE_SEND_TAUY                 = 5
-  integer, parameter, public :: ICE_SEND_FRESH_WATER          = 6
-  integer, parameter, public :: ICE_SEND_HEAT_FLUX            = 7
-  integer, parameter, public :: ICE_SEND_ATM_SEA_ICE_BUNDLE   = 8
+  integer, parameter, public :: ICE_SEND_TAUX                 = 5
+  integer, parameter, public :: ICE_SEND_TAUY                 = 6
+  integer, parameter, public :: ICE_SEND_FRESH_WATER          = 7
+  integer, parameter, public :: ICE_SEND_HEAT_FLUX            = 8
+  integer, parameter, public :: ICE_SEND_ATM_SEA_ICE_BUNDLE   = 9
   ! is_coupled_to_ifs: forwarded IFS fluxes
-  integer, parameter, public :: ICE_SEND_ATM_ICE_FLUX         = 4
+  integer, parameter, public :: ICE_SEND_ATM_ICE_FLUX         = 5
   ! no atmosphere: raw atmospheric state from the forcing files
-  integer, parameter, public :: ICE_SEND_ATM_STATE            = 4
-  integer, parameter, public :: ICE_NSEND_MAX                 = 8
+  integer, parameter, public :: ICE_SEND_ATM_STATE            = 5
+  integer, parameter, public :: ICE_NSEND_MAX                 = 9
 
   ! Recv slots (1-based), the same for every partner: ice state, the
-  ! ice->ocean momentum drag, and FESIM's net heat + freshwater flux.
+  ! ice->ocean momentum drag, FESIM's net heat + freshwater flux, and the
+  ! thermodynamic terms of the ocean's freshwater balancing.
   integer, parameter, public :: ICE_RECV_SEA_ICE_BUNDLE       = 1
   integer, parameter, public :: ICE_RECV_ICE_STRESS           = 2
   integer, parameter, public :: ICE_RECV_ICE_FLUX             = 3
-  integer, parameter, public :: ICE_NRECV                     = 3
+  integer, parameter, public :: ICE_RECV_ICE_THERMO           = 4
+  integer, parameter, public :: ICE_NRECV                     = 4
 
   ! --- runtime layout, set by ice_cpl_define from the partner selection ---
   integer,           public, protected, save :: ICE_NSEND = 0
   integer,           public, protected, save :: ice_send_collection_size(ICE_NSEND_MAX) = 0
   character(len=32), public, protected, save :: ice_send_names(ICE_NSEND_MAX) = ''
   ! sea_ice_bundle: 3 (m_ice, m_snow, a_ice), or 5 with ice_temp + ice_alb
-  ! under IFS; ice_to_ocean_stress: 2; ice_to_ocean_flux: 2.
-  integer,           public, protected, save :: ice_recv_collection_size(ICE_NRECV) = [3, 2, 2]
+  ! under IFS; ice_to_ocean_stress: 2; ice_to_ocean_flux: 2;
+  ! ice_to_ocean_thermo: 5 (evaporation, ice_sublimation, thdgr, thdgrsn,
+  ! a_ice_old).
+  integer,           public, protected, save :: ice_recv_collection_size(ICE_NRECV) = [3, 2, 2, 5]
   character(len=32), parameter, public :: ice_recv_names(ICE_NRECV) = [character(len=32) :: &
        'sea_ice_bundle', &
        'ice_to_ocean_stress', &
-       'ice_to_ocean_flux' ]
+       'ice_to_ocean_flux', &
+       'ice_to_ocean_thermo' ]
 
   ! --- private module state ---------------------------------------------
   integer, save :: ice_send_field_id(ICE_NSEND_MAX) = -1
@@ -140,15 +154,16 @@ contains
     ice_send_names            = ''
     ice_send_collection_size  = 0
 
-    ice_send_names(1:3) = [character(len=32) :: &
+    ice_send_names(1:4) = [character(len=32) :: &
          'sst_feom_to_ice', &
          'ocean_to_ice_bundle', &
-         'ocean_to_ice_uv' ]
-    ice_send_collection_size(1:3) = [1, 2, 2]
+         'ocean_to_ice_uv', &
+         'runoff_to_ice' ]
+    ice_send_collection_size(1:4) = [1, 2, 2, 1]
 
     if (is_coupled_to_icon_a) then
-       ICE_NSEND = 8
-       ice_send_names(4:8) = [character(len=32) :: &
+       ICE_NSEND = 9
+       ice_send_names(5:9) = [character(len=32) :: &
             'taux_to_ice', &
             'tauy_to_ice', &
             'surface_fresh_water_flux_to_ice', &
@@ -156,18 +171,18 @@ contains
             'atmosphere_sea_ice_bundle_to_ice' ]
        ! mirror atm_recv_collection_size (taux, tauy, fresh_water, heat_flux,
        ! atm_sea_ice_bundle)
-       ice_send_collection_size(4:8) = [2, 2, 3, 4, 2]
+       ice_send_collection_size(5:9) = [2, 2, 3, 4, 2]
     else if (is_coupled_to_ifs) then
-       ICE_NSEND = 4
-       ice_send_names(4)           = 'atm_ice_flux_to_ice'
-       ice_send_collection_size(4) = 10
+       ICE_NSEND = 5
+       ice_send_names(5)           = 'atm_ice_flux_to_ice'
+       ice_send_collection_size(5) = 10
     else
-       ICE_NSEND = 4
-       ice_send_names(4)           = 'atm_state_to_ice'
-       ice_send_collection_size(4) = 9
+       ICE_NSEND = 5
+       ice_send_names(5)           = 'atm_state_to_ice'
+       ice_send_collection_size(5) = 9
     end if
 
-    ice_recv_collection_size = [3, 2, 2]
+    ice_recv_collection_size = [3, 2, 2, 5]
     if (is_coupled_to_ifs) ice_recv_collection_size(ICE_RECV_SEA_ICE_BUNDLE) = 5
   end subroutine ice_cpl_set_layout
 

@@ -690,7 +690,12 @@ contains
         if(use_ice) then
             !___compute fluxes from ocean to ice________________________________
             if (flag_debug .and. f%mype==0)  print *, achar(27)//'[34m'//' --> call ocean2ice(n)'//achar(27)//'[0m'
-!sl?            call ocean2ice(f%ice, f%dynamics, f%tracers, f%partit, f%mesh)
+            ! Also with FESIM: ocean2ice prepares the ocean surface state
+            ! (ice%srfoce_*) that the ocean's own bulk formulae read for the
+            ! drag coefficients and the relative wind, and that is sent to
+            ! FESIM so that the external ice sees the same state as the
+            ! built-in one.
+            call ocean2ice(f%ice, f%dynamics, f%tracers, f%partit, f%mesh)
             
             !___compute update of atmospheric forcing____________________________
             !slif (flag_debug .and. f%mype==0)  print *, achar(27)//'[34m'//' --> call update_atm_forcing(n)'//achar(27)//'[0m'

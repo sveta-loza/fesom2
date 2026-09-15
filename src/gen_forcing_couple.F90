@@ -110,12 +110,12 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
                                      ICE_NSEND, ICE_NRECV, &
                                      ice_send_collection_size, ice_recv_collection_size, &
                                      ICE_SEND_SST_FEOM, ICE_SEND_OCEAN_TO_ICE_BUNDLE, &
-                                     ICE_SEND_OCEAN_TO_ICE_UV, &
+                                     ICE_SEND_OCEAN_TO_ICE_UV, ICE_SEND_RUNOFF, &
                                      ICE_SEND_TAUX, ICE_SEND_TAUY, &
                                      ICE_SEND_FRESH_WATER, ICE_SEND_HEAT_FLUX, &
                                      ICE_SEND_ATM_SEA_ICE_BUNDLE, &
                                      ICE_RECV_SEA_ICE_BUNDLE, ICE_RECV_ICE_STRESS, &
-                                     ICE_RECV_ICE_FLUX
+                                     ICE_RECV_ICE_FLUX, ICE_RECV_ICE_THERMO
   use gen_bulk
   use force_flux_consv_interface
   USE g_support, only: integrate_nod
@@ -296,6 +296,19 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
         ice%flx_fw(1:myDim_nod2d) = exchange(:,2)  ! fresh_wa_flux [m/s]
         call exchange_nod(ice%flx_h, partit)
         call exchange_nod(ice%flx_fw, partit)
+     elseif (i.eq.ICE_RECV_ICE_THERMO) then
+        ! Terms of the ice thermodynamics that oce_fluxes integrates for the
+        ! global freshwater balancing; the built-in ice sets them itself.
+        evaporation(1:myDim_nod2d)            = exchange(:,1)  ! [m/s], negative up
+        ice_sublimation(1:myDim_nod2d)        = exchange(:,2)  ! [m/s]
+        ice%thermo%thdgr(1:myDim_nod2d)       = exchange(:,3)  ! ice growth rate  [m/s]
+        ice%thermo%thdgrsn(1:myDim_nod2d)     = exchange(:,4)  ! snow growth rate [m/s]
+        ice%data(1)%values_old(1:myDim_nod2d) = exchange(:,5)  ! a_ice before the thermodynamics
+        call exchange_nod(evaporation, partit)
+        call exchange_nod(ice_sublimation, partit)
+        call exchange_nod(ice%thermo%thdgr, partit)
+        call exchange_nod(ice%thermo%thdgrsn, partit)
+        call exchange_nod(ice%data(1)%values_old, partit)
      endif
   end do
 
@@ -319,13 +332,18 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
   do i=1,ICE_NSEND
      exchange  =0.
      if (i.eq.ICE_SEND_SST_FEOM) then
-        exchange(:,1)=tracers%data(1)%values(1, 1:myDim_nod2d)+273.15 ! sea surface temperature [°K]
+        ! ocean surface state as ocean2ice prepares it for the built-in ice
+        exchange(:,1) = ice%srfoce_temp(1:myDim_nod2d) + 273.15_WP        ! SST [K]
      elseif (i.eq.ICE_SEND_OCEAN_TO_ICE_BUNDLE) then
-        exchange(:,1) = tracers%data(2)%values(1, 1:myDim_nod2d)     ! sea surface salinity [psu]
-        exchange(:,2) = dynamics%eta_n(1:myDim_nod2d)             ! see surface hieght [m]
+        exchange(:,1) = ice%srfoce_salt(1:myDim_nod2d)     ! sea surface salinity [psu]
+        exchange(:,2) = ice%srfoce_ssh(1:myDim_nod2d)             ! see surface hieght [m]
      elseif (i.eq.ICE_SEND_OCEAN_TO_ICE_UV) then
-        exchange(:,1) = dynamics%uvnode(1,1,1:myDim_nod2d)            ! surface_velocity u comp. [m/s]
-        exchange(:,2) = dynamics%uvnode(2,1,1:myDim_nod2d)            ! surface velocity v comp [m/s]
+        exchange(:,1) = ice%srfoce_u(1:myDim_nod2d)            ! surface_velocity u comp. [m/s]
+        exchange(:,2) = ice%srfoce_v(1:myDim_nod2d)            ! surface velocity v comp [m/s]
+     elseif (i.eq.ICE_SEND_RUNOFF) then
+        ! River runoff [m/s]. With the ice built in it enters the ocean only
+        ! through the ice thermodynamics (therm_ice), so FESIM adds it there.
+        exchange(:,1) = runoff(1:myDim_nod2d)
      elseif (i.eq.ICE_SEND_TAUX) then
         exchange(:,1:ice_send_collection_size(ICE_SEND_TAUX)) = fwd_taux         ! raw atm taux forwarded
      elseif (i.eq.ICE_SEND_TAUY) then
@@ -914,13 +932,14 @@ subroutine exchange_oce_ice_yac(istep, ice, tracers, dynamics, partit, mesh)
   use g_comm_auto
   use g_sbf, only: atmdata, i_xwind, i_ywind, i_tair, i_humi, i_qsr, i_qlw, &
                    i_prec, i_snow, i_mslp
+  use g_forcing_arrays, only: runoff, evaporation, ice_sublimation
   use ice_coupling_interface, only: ice_cpl_send, ice_cpl_recv, &
                                      ICE_NSEND, ICE_NRECV, &
                                      ice_send_collection_size, ice_recv_collection_size, &
                                      ICE_SEND_SST_FEOM, ICE_SEND_OCEAN_TO_ICE_BUNDLE, &
-                                     ICE_SEND_OCEAN_TO_ICE_UV, ICE_SEND_ATM_STATE, &
+                                     ICE_SEND_OCEAN_TO_ICE_UV, ICE_SEND_RUNOFF, ICE_SEND_ATM_STATE, &
                                      ICE_RECV_SEA_ICE_BUNDLE, ICE_RECV_ICE_STRESS, &
-                                     ICE_RECV_ICE_FLUX
+                                     ICE_RECV_ICE_FLUX, ICE_RECV_ICE_THERMO
   use ice_coupling_interface, only: cpl_call_tic, cpl_call_toc
   implicit none
   integer,        intent(in)            :: istep
@@ -973,6 +992,19 @@ subroutine exchange_oce_ice_yac(istep, ice, tracers, dynamics, partit, mesh)
         ice%flx_fw(1:myDim_nod2d) = exchange(:,2)  ! fresh_wa_flux [m/s]
         call exchange_nod(ice%flx_h, partit)
         call exchange_nod(ice%flx_fw, partit)
+     elseif (i.eq.ICE_RECV_ICE_THERMO) then
+        ! Terms of the ice thermodynamics that oce_fluxes integrates for the
+        ! global freshwater balancing; the built-in ice sets them itself.
+        evaporation(1:myDim_nod2d)            = exchange(:,1)  ! [m/s], negative up
+        ice_sublimation(1:myDim_nod2d)        = exchange(:,2)  ! [m/s]
+        ice%thermo%thdgr(1:myDim_nod2d)       = exchange(:,3)  ! ice growth rate  [m/s]
+        ice%thermo%thdgrsn(1:myDim_nod2d)     = exchange(:,4)  ! snow growth rate [m/s]
+        ice%data(1)%values_old(1:myDim_nod2d) = exchange(:,5)  ! a_ice before the thermodynamics
+        call exchange_nod(evaporation, partit)
+        call exchange_nod(ice_sublimation, partit)
+        call exchange_nod(ice%thermo%thdgr, partit)
+        call exchange_nod(ice%thermo%thdgrsn, partit)
+        call exchange_nod(ice%data(1)%values_old, partit)
      endif
   end do
 
@@ -980,13 +1012,18 @@ subroutine exchange_oce_ice_yac(istep, ice, tracers, dynamics, partit, mesh)
   do i=1,ICE_NSEND
      exchange = 0.
      if (i.eq.ICE_SEND_SST_FEOM) then
-        exchange(:,1)=tracers%data(1)%values(1, 1:myDim_nod2d)+273.15 ! SST [K]
+        ! ocean surface state as ocean2ice prepares it for the built-in ice
+        exchange(:,1) = ice%srfoce_temp(1:myDim_nod2d) + 273.15_WP        ! SST [K]
      elseif (i.eq.ICE_SEND_OCEAN_TO_ICE_BUNDLE) then
-        exchange(:,1) = tracers%data(2)%values(1, 1:myDim_nod2d)      ! SSS [psu]
-        exchange(:,2) = dynamics%eta_n(1:myDim_nod2d)                 ! SSH [m]
+        exchange(:,1) = ice%srfoce_salt(1:myDim_nod2d)      ! SSS [psu]
+        exchange(:,2) = ice%srfoce_ssh(1:myDim_nod2d)                 ! SSH [m]
      elseif (i.eq.ICE_SEND_OCEAN_TO_ICE_UV) then
-        exchange(:,1) = dynamics%uvnode(1,1,1:myDim_nod2d)               ! surface u [m/s]
-        exchange(:,2) = dynamics%uvnode(2,1,1:myDim_nod2d)               ! surface v [m/s]
+        exchange(:,1) = ice%srfoce_u(1:myDim_nod2d)               ! surface u [m/s]
+        exchange(:,2) = ice%srfoce_v(1:myDim_nod2d)               ! surface v [m/s]
+     elseif (i.eq.ICE_SEND_RUNOFF) then
+        ! River runoff [m/s]. With the ice built in it enters the ocean only
+        ! through the ice thermodynamics (therm_ice), so FESIM adds it there.
+        exchange(:,1) = runoff(1:myDim_nod2d)
      elseif (i.eq.ICE_SEND_ATM_STATE) then
         ! Raw atmospheric state from the forcing files (atmdata, refreshed by
         ! sbc_do in update_atm_forcing this step). FESIM converts units on recv.
@@ -1030,14 +1067,15 @@ subroutine exchange_oce_ice_ifs(istep, ice, tracers, dynamics, partit, mesh)
   use MOD_ICE
   use MOD_DYN
   use g_comm_auto
-  use g_forcing_arrays, only: shortwave, prec_rain, prec_snow, evap_no_ifrac, sublimation
+  use g_forcing_arrays, only: shortwave, prec_rain, prec_snow, evap_no_ifrac, sublimation, &
+                              runoff, evaporation, ice_sublimation
   use ice_coupling_interface, only: ice_cpl_send, ice_cpl_recv, &
                                      ICE_NSEND, ICE_NRECV, &
                                      ice_send_collection_size, ice_recv_collection_size, &
                                      ICE_SEND_SST_FEOM, ICE_SEND_OCEAN_TO_ICE_BUNDLE, &
-                                     ICE_SEND_OCEAN_TO_ICE_UV, ICE_SEND_ATM_ICE_FLUX, &
+                                     ICE_SEND_OCEAN_TO_ICE_UV, ICE_SEND_RUNOFF, ICE_SEND_ATM_ICE_FLUX, &
                                      ICE_RECV_SEA_ICE_BUNDLE, ICE_RECV_ICE_STRESS, &
-                                     ICE_RECV_ICE_FLUX
+                                     ICE_RECV_ICE_FLUX, ICE_RECV_ICE_THERMO
   implicit none
   integer,        intent(in)            :: istep
   type(t_ice)   , intent(inout), target :: ice
@@ -1099,6 +1137,19 @@ subroutine exchange_oce_ice_ifs(istep, ice, tracers, dynamics, partit, mesh)
         ice%flx_fw(1:myDim_nod2d) = exchange(:,2)  ! fresh_wa_flux [m/s]
         call exchange_nod(ice%flx_h, partit)
         call exchange_nod(ice%flx_fw, partit)
+     elseif (i.eq.ICE_RECV_ICE_THERMO) then
+        ! Terms of the ice thermodynamics that oce_fluxes integrates for the
+        ! global freshwater balancing; the built-in ice sets them itself.
+        evaporation(1:myDim_nod2d)            = exchange(:,1)  ! [m/s], negative up
+        ice_sublimation(1:myDim_nod2d)        = exchange(:,2)  ! [m/s]
+        ice%thermo%thdgr(1:myDim_nod2d)       = exchange(:,3)  ! ice growth rate  [m/s]
+        ice%thermo%thdgrsn(1:myDim_nod2d)     = exchange(:,4)  ! snow growth rate [m/s]
+        ice%data(1)%values_old(1:myDim_nod2d) = exchange(:,5)  ! a_ice before the thermodynamics
+        call exchange_nod(evaporation, partit)
+        call exchange_nod(ice_sublimation, partit)
+        call exchange_nod(ice%thermo%thdgr, partit)
+        call exchange_nod(ice%thermo%thdgrsn, partit)
+        call exchange_nod(ice%data(1)%values_old, partit)
      endif
   end do
 
@@ -1106,13 +1157,18 @@ subroutine exchange_oce_ice_ifs(istep, ice, tracers, dynamics, partit, mesh)
   do i=1,ICE_NSEND
      exchange = 0.
      if (i.eq.ICE_SEND_SST_FEOM) then
-        exchange(:,1)=tracers%data(1)%values(1, 1:myDim_nod2d)+273.15 ! SST [K]
+        ! ocean surface state as ocean2ice prepares it for the built-in ice
+        exchange(:,1) = ice%srfoce_temp(1:myDim_nod2d) + 273.15_WP        ! SST [K]
      elseif (i.eq.ICE_SEND_OCEAN_TO_ICE_BUNDLE) then
-        exchange(:,1) = tracers%data(2)%values(1, 1:myDim_nod2d)      ! SSS [psu]
-        exchange(:,2) = dynamics%eta_n(1:myDim_nod2d)                 ! SSH [m]
+        exchange(:,1) = ice%srfoce_salt(1:myDim_nod2d)      ! SSS [psu]
+        exchange(:,2) = ice%srfoce_ssh(1:myDim_nod2d)                 ! SSH [m]
      elseif (i.eq.ICE_SEND_OCEAN_TO_ICE_UV) then
-        exchange(:,1) = dynamics%uvnode(1,1,1:myDim_nod2d)               ! surface u [m/s]
-        exchange(:,2) = dynamics%uvnode(2,1,1:myDim_nod2d)               ! surface v [m/s]
+        exchange(:,1) = ice%srfoce_u(1:myDim_nod2d)               ! surface u [m/s]
+        exchange(:,2) = ice%srfoce_v(1:myDim_nod2d)               ! surface v [m/s]
+     elseif (i.eq.ICE_SEND_RUNOFF) then
+        ! River runoff [m/s]. With the ice built in it enters the ocean only
+        ! through the ice thermodynamics (therm_ice), so FESIM adds it there.
+        exchange(:,1) = runoff(1:myDim_nod2d)
      elseif (i.eq.ICE_SEND_ATM_ICE_FLUX) then
         ! Atm fluxes as deposited by the IFS interface this step, forwarded 1:1
         ! (already FESOM internal units + rotated; FESIM does not re-convert).

@@ -21,10 +21,17 @@
 !       - native: sst_feom_to_ice, ocean_to_ice_bundle, ocean_to_ice_uv
 !       - forwarded state: atm_state_to_ice (9-component bundle)
 !
-!   recvs from ice (both): sea_ice_bundle
+!   native in every config, in addition: runoff_to_ice (the river runoff the
+!     ocean holds; with the ice built in it reaches the ocean only through the
+!     ice thermodynamics, therm_ice, so FESIM needs it for the same purpose).
 !
-! river_runoff is intentionally NOT forwarded — it is ocean-only, no FESIM
-! consumer. Unit convention: forwarded fields travel in raw/source units; FESIM
+!   recvs from ice (all configs): sea_ice_bundle, ice_to_ocean_stress,
+!     ice_to_ocean_flux, ice_to_ocean_thermo (the terms of the ice
+!     thermodynamics that the ocean's global freshwater balancing, oce_fluxes,
+!     integrates and that the built-in ice would set itself: evaporation,
+!     ice_sublimation, thdgr, thdgrsn, a_ice_old).
+!
+! Unit convention: forwarded fields travel in raw/source units; FESIM
 ! converts on receive (see ocean_coupling_interface on the FESIM side).
 !
 ! NB: `sst_feom_to_ice` is the *duplicate* of the atm-bound `sst_feom`.
@@ -60,14 +67,15 @@ module ice_coupling_interface
   integer, parameter, public :: ICE_SEND_SST_FEOM             = 1
   integer, parameter, public :: ICE_SEND_OCEAN_TO_ICE_BUNDLE  = 2
   integer, parameter, public :: ICE_SEND_OCEAN_TO_ICE_UV      = 3
+  integer, parameter, public :: ICE_SEND_RUNOFF               = 4
 #if defined(__yac_atm)
   ! ICON: forward pre-computed atm fluxes (Stage 3).
-  integer, parameter, public :: ICE_SEND_TAUX                 = 4
-  integer, parameter, public :: ICE_SEND_TAUY                 = 5
-  integer, parameter, public :: ICE_SEND_FRESH_WATER          = 6
-  integer, parameter, public :: ICE_SEND_HEAT_FLUX            = 7
-  integer, parameter, public :: ICE_SEND_ATM_SEA_ICE_BUNDLE   = 8
-  integer, parameter, public :: ICE_NSEND                     = 8
+  integer, parameter, public :: ICE_SEND_TAUX                 = 5
+  integer, parameter, public :: ICE_SEND_TAUY                 = 6
+  integer, parameter, public :: ICE_SEND_FRESH_WATER          = 7
+  integer, parameter, public :: ICE_SEND_HEAT_FLUX            = 8
+  integer, parameter, public :: ICE_SEND_ATM_SEA_ICE_BUNDLE   = 9
+  integer, parameter, public :: ICE_NSEND                     = 9
 #elif defined(__ifs_fwd)
   ! IFS (Stage 4 config #1): the atmosphere reaches the ocean via the IFS
   ! interface, which deposits *already FESOM-unit* fluxes (precip/evap in m/s,
@@ -80,16 +88,16 @@ module ice_coupling_interface
   !   3 oce_heat_flux [W/m2]   4 ice_heat_flux [W/m2]   5 shortwave [W/m2]
   !   6 prec_rain [m/s]        7 prec_snow [m/s]         8 evap_no_ifrac [m/s]
   !   9 sublimation [m/s]     10 enthalpyoffuse [W/m2]
-  integer, parameter, public :: ICE_SEND_ATM_ICE_FLUX         = 4
-  integer, parameter, public :: ICE_NSEND                     = 4
+  integer, parameter, public :: ICE_SEND_ATM_ICE_FLUX         = 5
+  integer, parameter, public :: ICE_NSEND                     = 5
 #else
   ! Standalone: forward raw atm state as one 9-component bundle (FESIM bulks it).
   ! Components (wire units; FESIM converts on receive):
   !   1 u_wind [m/s]   2 v_wind [m/s]   3 t_air [K]    4 shum [kg/kg]
   !   5 shortwave [W/m2] down           6 longwave [W/m2] down
   !   7 prec_rain [kg/m2/s]             8 prec_snow [kg/m2/s]   9 mslp [Pa]
-  integer, parameter, public :: ICE_SEND_ATM_STATE            = 4
-  integer, parameter, public :: ICE_NSEND                     = 4
+  integer, parameter, public :: ICE_SEND_ATM_STATE            = 5
+  integer, parameter, public :: ICE_NSEND                     = 5
 #endif
 
   ! Recv slots (1-based). ice_to_ocean_stress (the ice->ocean momentum drag) is
@@ -99,17 +107,19 @@ module ice_coupling_interface
   ! FESIM's net heat + freshwater flux, received in ALL configs (FESIM's ice thermo
   ! produces the standard-FESOM ocean surface flux regardless of atm source).
   integer, parameter, public :: ICE_RECV_ICE_FLUX             = 3
-  integer, parameter, public :: ICE_NRECV                     = 3
+  ! Terms of the ice thermodynamics for the ocean's freshwater balancing.
+  integer, parameter, public :: ICE_RECV_ICE_THERMO           = 4
+  integer, parameter, public :: ICE_NRECV                     = 4
 
   ! Collection sizes per field.
 #if defined(__yac_atm)
   ! Forwarded flux sizes mirror atm_recv_collection_size (taux=2, tauy=2,
   ! fresh_water=3, heat_flux=4, atm_sea_ice_bundle=2).
-  integer, parameter, public :: ice_send_collection_size(ICE_NSEND) = [1, 2, 2, 2, 2, 3, 4, 2]
+  integer, parameter, public :: ice_send_collection_size(ICE_NSEND) = [1, 2, 2, 1, 2, 2, 3, 4, 2]
 #elif defined(__ifs_fwd)
-  integer, parameter, public :: ice_send_collection_size(ICE_NSEND) = [1, 2, 2, 10]
+  integer, parameter, public :: ice_send_collection_size(ICE_NSEND) = [1, 2, 2, 1, 10]
 #else
-  integer, parameter, public :: ice_send_collection_size(ICE_NSEND) = [1, 2, 2, 9]
+  integer, parameter, public :: ice_send_collection_size(ICE_NSEND) = [1, 2, 2, 1, 9]
 #endif
   ! IFS config #1 also relays the ice surface temperature + albedo up to IFS, so
   ! the sea-ice bundle carries 5 components there (m_ice, m_snow, a_ice, ice_temp,
@@ -117,9 +127,9 @@ module ice_coupling_interface
   ! sea_ice_bundle (3, or 5 for IFS) + ice_to_ocean_stress (2: stress_iceoce_x/y)
   ! + ice_to_ocean_flux (2: net_heat_flux, fresh_wa_flux) in standalone only.
 #if defined(__ifs_fwd)
-  integer, parameter, public :: ice_recv_collection_size(ICE_NRECV) = [5, 2, 2]
+  integer, parameter, public :: ice_recv_collection_size(ICE_NRECV) = [5, 2, 2, 5]
 #else
-  integer, parameter, public :: ice_recv_collection_size(ICE_NRECV) = [3, 2, 2]
+  integer, parameter, public :: ice_recv_collection_size(ICE_NRECV) = [3, 2, 2, 5]
 #endif
 
   ! YAC field names per slot. The "_to_ice" suffix distinguishes forwarded
@@ -130,6 +140,7 @@ module ice_coupling_interface
        'sst_feom_to_ice', &
        'ocean_to_ice_bundle', &
        'ocean_to_ice_uv', &
+       'runoff_to_ice', &
        'taux_to_ice', &
        'tauy_to_ice', &
        'surface_fresh_water_flux_to_ice', &
@@ -140,18 +151,21 @@ module ice_coupling_interface
        'sst_feom_to_ice', &
        'ocean_to_ice_bundle', &
        'ocean_to_ice_uv', &
+       'runoff_to_ice', &
        'atm_ice_flux_to_ice' ]
 #else
   character(len=32), parameter, public :: ice_send_names(ICE_NSEND) = [character(len=32) :: &
        'sst_feom_to_ice', &
        'ocean_to_ice_bundle', &
        'ocean_to_ice_uv', &
+       'runoff_to_ice', &
        'atm_state_to_ice' ]
 #endif
   character(len=32), parameter, public :: ice_recv_names(ICE_NRECV) = [character(len=32) :: &
        'sea_ice_bundle', &
        'ice_to_ocean_stress', &
-       'ice_to_ocean_flux' ]
+       'ice_to_ocean_flux', &
+       'ice_to_ocean_thermo' ]
 
   ! Grid this interface registers its fields on. Today identical to
   ! ATM_GRID_NAME; could diverge in the future if atm and ice need

@@ -566,7 +566,12 @@ contains
 #if defined (FESIM_PROFILING)
         call fesim_profiler_start("restart")
 #endif
-!sl        call write_initial_conditions(n, nstart, f%total_nsteps, f%which_readr, f%ice, f%partit, f%mesh)
+        !___restart (netCDF ice restart + clock; no ocean group is registered,
+        !   see fesim_owns_ocean_restart in io_restart.F90). Re-enabled 2026-09-16:
+        !   without it FESIM wrote neither a restart nor its clock file and could
+        !   not be continued into the next year.
+        if (flag_debug .and. f%mype==0)  print *, achar(27)//'[34m'//' --> call write_initial_conditions(n,...)'//achar(27)//'[0m'
+        call write_initial_conditions(n, nstart, f%total_nsteps, f%which_readr, f%ice, f%dynamics, f%tracers, f%partit, f%mesh)
 #if defined (FESIM_PROFILING)
         call fesim_profiler_end("restart")
 #endif

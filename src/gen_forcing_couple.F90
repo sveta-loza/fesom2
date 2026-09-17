@@ -182,11 +182,11 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
   do i=1,nrecv
      exchange =0.0
      CALL cpl_yac_recv (i, exchange(:,1:cpl_recv_collection_size(i)), action)
-#ifdef VERBOSE
+!#ifdef VERBOSE
      if (mype==0) then
         write(*,*) 'FESOM RECV: flux ', i, ', max val: ', maxval(exchange), ' . ACTION? ', action
      end if
-#endif
+!#endif
      if (.not. action) cycle
      !Do not apply a correction at first time step!
      if (i.eq.1) then
@@ -221,6 +221,9 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
 !SL-- add river runoff ------------------------------
      elseif (i.eq.6) then
         runoff(1:myDim_nod2D) = exchange(:,1) * mesh%area_inv(1,1:myDim_nod2D)
+!        do n=1, myDim_nod2D 
+!        runoff(n) = (exchange(n,1))*mesh%area_inv(1,n) 
+!        enddo
         call exchange_nod(runoff, partit)
         call integrate_nod(runoff, net, partit, mesh)
         if(mype==0) write(*,*) 'RUNOFF CHECK:', net

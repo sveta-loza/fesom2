@@ -83,7 +83,7 @@ module fesom_main_storage_module
 #endif
 #if defined (__cpl_yac)
   use cpl_config,             only: is_coupled_to_icon_a, is_coupled_to_ifs, &
-                                    is_coupled_to_fesim, cpl_has_atmosphere
+                                    is_coupled_to_fesim, is_coupled_to_atmosphere
   use atm_coupling_interface, only: atm_cpl_init, atm_cpl_define, ATM_NSEND, ATM_NRECV
   use ice_coupling_interface, only: ice_cpl_define, ICE_NSEND, ICE_NRECV, cpl_timers_report
   use yac_component_runtime,  only: yac_runtime_enddef
@@ -677,11 +677,11 @@ contains
         ! not coupled must not have its fields registered: yac_fenddef would
         ! wait for a counterpart that never connects. The atmosphere fields
         ! are exchanged every step, the sea-ice fields every cpl_stride steps.
-        if (cpl_has_atmosphere()) call atm_cpl_define(f%partit, f%mesh, dt, f%total_nsteps)
+        if (is_coupled_to_atmosphere()) call atm_cpl_define(f%partit, f%mesh, dt, f%total_nsteps)
         if (is_coupled_to_fesim)  call ice_cpl_define(f%partit, f%mesh, dt*cpl_stride, f%total_nsteps)
         call yac_runtime_enddef()
         if (f%mype==0) then
-           if (cpl_has_atmosphere()) write(*,*) 'FESOM ---->     YAC atm fields defined, nsend/nrecv:', ATM_NSEND, ATM_NRECV
+           if (is_coupled_to_atmosphere()) write(*,*) 'FESOM ---->     YAC atm fields defined, nsend/nrecv:', ATM_NSEND, ATM_NRECV
            if (is_coupled_to_fesim)  write(*,*) 'FESOM ---->     YAC ice fields defined, nsend/nrecv:', ICE_NSEND, ICE_NRECV
         end if
 #endif
@@ -955,7 +955,7 @@ contains
     ! over the whole communicator, so this is only possible when
     ! MPI_COMM_WORLD is exactly ocean + ice: with an atmosphere in the same
     ! MPMD world its ranks never call it and the barrier would hang.
-    if (ice_external .and. .not. cpl_has_atmosphere()) &
+    if (ice_external .and. .not. is_coupled_to_atmosphere()) &
        call MPI_Barrier(MPI_COMM_WORLD, f%MPIERR)
 #endif
     call MPI_Barrier(f%MPI_COMM_FESOM, f%MPIERR)   
@@ -1129,7 +1129,7 @@ contains
         call fesom_profiler_start("update_atm_forcing")
 #endif
 #if defined (__cpl_yac)
-            if (.not. cpl_has_atmosphere()) then
+            if (.not. is_coupled_to_atmosphere()) then
                 ! no atmosphere partner: forcing files, every step
                 call update_atm_forcing(n, f%ice, f%tracers, f%dynamics, f%partit, f%mesh)
             else if (.not. ice_external) then

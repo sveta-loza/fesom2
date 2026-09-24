@@ -20,7 +20,7 @@ module cpl_config
   public :: read_cpl_namelist, check_cpl_config
   public :: is_coupled_to_echam, is_coupled_to_oifs
   public :: is_coupled_to_icon_a, is_coupled_to_ifs
-  public :: is_coupled_to_fesim, cpl_has_atmosphere
+  public :: is_coupled_to_fesim, is_coupled_to_atmosphere
   public :: cpl_component_is_sea_ice
   public :: cpl_comp_name, cpl_grid_name, cpl_config_file
   public :: compute_oasis_corners
@@ -252,10 +252,10 @@ contains
   !> True when an atmosphere reaches the ocean through the compiled interface.
   !> False for a coupled build whose only partner is the sea ice: the ocean
   !> then reads its atmospheric forcing from files, as a standalone run does.
-  logical function cpl_has_atmosphere()
-    cpl_has_atmosphere = is_coupled_to_echam .or. is_coupled_to_oifs .or. &
-                         is_coupled_to_icon_a .or. is_coupled_to_ifs
-  end function cpl_has_atmosphere
+  logical function is_coupled_to_atmosphere()
+    is_coupled_to_atmosphere = is_coupled_to_echam .or. is_coupled_to_oifs .or. &
+                               is_coupled_to_icon_a .or. is_coupled_to_ifs
+  end function is_coupled_to_atmosphere
 
   !____________________________________________________________________________
   subroutine wrong_interface(comm, mype, partner, interface_name)

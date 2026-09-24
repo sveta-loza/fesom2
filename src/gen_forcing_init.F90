@@ -15,7 +15,7 @@ use g_sbf, only: sbc_ini_recom
   use atm_coupling_interface, only : nrecv => ATM_NRECV
 #endif
 #if defined (__cpl_coupler)
-  use cpl_config, only: cpl_has_atmosphere, cpl_component_is_sea_ice
+  use cpl_config, only: is_coupled_to_atmosphere, cpl_component_is_sea_ice
 #endif
 
     implicit none
@@ -49,7 +49,7 @@ type(t_partit), intent(inout), target :: partit
      ! ocean whose only partner is the sea ice (FESOM + FESIM over YAC).
      if (cpl_component_is_sea_ice) then
         call sbc_read_namelist(partit)
-     else if (.not. cpl_has_atmosphere()) then
+     else if (.not. is_coupled_to_atmosphere()) then
         call sbc_ini(partit, mesh)
      end if
 #else

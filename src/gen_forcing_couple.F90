@@ -30,7 +30,7 @@ module gen_forcing_couple_module
 #if defined (__cpl_oasis)
   use cpl_driver,	 only : nrecv, cpl_recv, a2o_fcorr_stat
 #elif defined (__cpl_yac)
-  use cpl_config,     only: is_coupled_to_icon_a, is_coupled_to_ifs, cpl_has_atmosphere
+  use cpl_config,     only: is_coupled_to_icon_a, is_coupled_to_ifs, is_coupled_to_atmosphere
   use fesim_ice_init, only: ice_cold_start_pending, seed_ice_from_sst
   use ocean_coupling_interface, only: nrecv    => OCN_NRECV_MAX, &
                                        cpl_recv => ocn_recv_names, &
@@ -307,7 +307,7 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
      do_rotate_ice_wind=.false.
   end if
 
-  if (.not. cpl_has_atmosphere()) then
+  if (.not. is_coupled_to_atmosphere()) then
      ! No atmosphere: the received state is turned into drag/heat-exchange
      ! coefficients and wind stress here, exactly as update_atm_forcing does
      ! for forcing files; the heat and freshwater fluxes follow in

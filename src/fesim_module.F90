@@ -49,7 +49,7 @@ module fesom_main_storage_module
 #endif
 #if defined (__cpl_yac)
   use cpl_config, only: read_cpl_namelist, check_cpl_config, cpl_component_is_sea_ice, &
-                        cpl_has_atmosphere
+                        is_coupled_to_atmosphere
   use ocean_coupling_interface
 #endif
 
@@ -317,7 +317,7 @@ contains
     ! over the whole communicator, so this is only possible when
     ! MPI_COMM_WORLD is exactly ocean + ice: with an atmosphere in the same
     ! MPMD world its ranks never call it and the barrier would hang.
-    if (.not. cpl_has_atmosphere()) call MPI_Barrier(MPI_COMM_WORLD, f%MPIERR)
+    if (.not. is_coupled_to_atmosphere()) call MPI_Barrier(MPI_COMM_WORLD, f%MPIERR)
 #endif
     call MPI_Barrier(f%MPI_COMM_FESOM, f%MPIERR)
     if (f%mype==0) then

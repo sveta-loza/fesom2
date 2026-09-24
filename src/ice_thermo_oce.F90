@@ -117,7 +117,7 @@ end subroutine cut_off
 ! coupled build; a standalone build only has the bulk scheme.
 subroutine thermodynamics(ice, partit, mesh)
 #if defined (__cpl_enabled)
-    use cpl_config, only: cpl_has_atmosphere
+    use cpl_config, only: is_coupled_to_atmosphere
 #endif
     implicit none
     type(t_ice)   , intent(inout), target :: ice
@@ -126,19 +126,19 @@ subroutine thermodynamics(ice, partit, mesh)
 #if defined (__cpl_enabled)
     ! the coupled scheme lives outside this module (ice_thermo_cpl.F90)
     interface
-        subroutine thermodynamics_cpl(ice, partit, mesh)
+        subroutine thermodynamics_coupled(ice, partit, mesh)
         USE MOD_ICE
         USE MOD_PARTIT
         USE MOD_MESH
         type(t_ice)   , intent(inout), target :: ice
         type(t_partit), intent(inout), target :: partit
         type(t_mesh)  , intent(in)   , target :: mesh
-        end subroutine thermodynamics_cpl
+        end subroutine thermodynamics_coupled
     end interface
 #endif
 #if defined (__cpl_enabled)
-    if (cpl_has_atmosphere()) then
-       call thermodynamics_cpl(ice, partit, mesh)
+    if (is_coupled_to_atmosphere()) then
+       call thermodynamics_coupled(ice, partit, mesh)
     else
        call thermodynamics_bulk(ice, partit, mesh)
     end if

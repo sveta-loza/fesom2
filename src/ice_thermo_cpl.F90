@@ -2,7 +2,7 @@
 ! Coupled sea-ice thermodynamics: the atmospheric fluxes are provided by the
 ! atmosphere (or, in the FESIM component, forwarded by the ocean). Selected at
 ! run time by thermodynamics() in ice_thermo_oce.F90.
-subroutine thermodynamics_cpl(ice, partit, mesh)
+subroutine thermodynamics_coupled(ice, partit, mesh)
 
   !===================================================================
   !
@@ -715,5 +715,5 @@ contains
    
  end subroutine ice_albedo
 
-end subroutine thermodynamics_cpl
+end subroutine thermodynamics_coupled
 #endif

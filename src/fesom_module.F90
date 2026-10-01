@@ -130,6 +130,9 @@ contains
 #if defined(__MULTIO)
       use iom
 #endif
+#if defined(__yac) && defined(__ifsinterface)
+      use ifs_mpmd_world, only: ifs_mpmd_fesim_ntasks, ifs_mpmd_connect_yac_world
+#endif
       integer, intent(out) :: fesom_total_nsteps
       ! EO parameters
       logical mpi_is_initialized
@@ -175,6 +178,10 @@ contains
         ! config #1: MPI_COMM_FESOM was set to IFS's icomm in nemogcmcoup_init and
         ! must stay that communicator (the IFS interface addresses FESOM through
         ! it). The YAC component communicator spans the same ranks; keep it aside.
+        ! With a separate FESIM executable in the same MPI world, first join its
+        ! tasks to ours (YAC must not see the IFS IO / multio server ranks).
+        if (ifs_mpmd_fesim_ntasks() > 0) &
+             call ifs_mpmd_connect_yac_world(f%partit%MPI_COMM_FESOM, is_fesim = .false.)
         call atm_cpl_init(yac_local_comm)
 #else
         call atm_cpl_init(f%partit%MPI_COMM_FESOM)

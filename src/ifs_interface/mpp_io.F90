@@ -13,7 +13,7 @@ MODULE mpp_io
 #if defined(__yac)
     ! TerraDT config #1: a separate FESIM executable shares MPI_COMM_WORLD with
     ! ifsMASTER (see ifs_mpmd_world.F90 for the full choreography).
-    USE ifs_mpmd_world, ONLY : ifs_mpmd_fesim_ntasks, ifs_mpmd_split_yac_world
+    USE ifs_mpmd_world, ONLY : ifs_mpmd_fesim_ntasks
 #endif
     IMPLICIT NONE
     PRIVATE
@@ -123,11 +123,6 @@ MODULE mpp_io
             WRITE(*,*)' mpp_io_init: Error in routine mpi_comm_split'
             CALL mpi_abort( mpi_comm_world, icode, ierr )
         ENDIF
-#if defined(__yac)
-        ! TerraDT config #1: build the YAC world (compute tasks + FESIM) while all
-        ! ranks of MPI_COMM_WORLD are still in lockstep; FESIM mirrors this split.
-        IF (ntask_fesim > 0) CALL ifs_mpmd_split_yac_world(is_member = .NOT. lioserver)
-#endif
         IF (lioserver) THEN
             CALL mpi_comm_rank( iicomm, mppiorank, ierr )
             CALL mpi_comm_size( iicomm, mppiosize, ierr )

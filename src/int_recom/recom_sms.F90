@@ -2526,6 +2526,11 @@ endif !/* RECOM_MARSHALL */
             if (Cphot < tiny) Cphot = zero
 #endif /* __RECOM_WAVEBANDS */
 
+            !sl Platt et al. (1980) photoinhibition, carbon-specific form: P = P_sat*exp(-beta*Chl:C*PAR/pMax).
+            !sl beta_inh in [mmol C m2/(mg Chl W day)] (units of alfa); PARave is W m-2 in both builds.
+            !sl Default 0 skips it, so results are bit-identical (2 Oct 2026).
+            if (beta_inh > 0.d0 .and. Cphot >= tiny .and. pMax >= tiny) &
+                Cphot = Cphot * exp(-beta_inh * CHL2C * PARave / pMax)
             ! Store final photosynthesis rate for diagnostics and output
             VTCphot_phyto(k) = Cphot
 
@@ -2580,6 +2585,11 @@ endif !/* RECOM_MARSHALL */
 
             if (Cphot_dia < tiny) Cphot_dia = zero
 #endif /* __RECOM_WAVEBANDS */
+            !sl Platt et al. (1980) photoinhibition, carbon-specific form: P = P_sat*exp(-beta*Chl:C*PAR/pMax).
+            !sl beta_inh_d in [mmol C m2/(mg Chl W day)] (units of alfa); PARave is W m-2 in both builds.
+            !sl Default 0 skips it, so results are bit-identical (2 Oct 2026).
+            if (beta_inh_d > 0.d0 .and. Cphot_dia >= tiny .and. pMax_dia >= tiny) &
+                Cphot_dia = Cphot_dia * exp(-beta_inh_d * CHL2C_dia * PARave / pMax_dia)
             VTCphot_diatoms(k) = Cphot_dia
 
             !-------------------------------------------------------------------------------
@@ -2635,6 +2645,11 @@ endif !/* RECOM_MARSHALL */
 
                 if (Cphot_cocco < tiny) Cphot_cocco = zero
 #endif /* __RECOM_WAVEBANDS */
+                !sl Platt et al. (1980) photoinhibition, carbon-specific form: P = P_sat*exp(-beta*Chl:C*PAR/pMax).
+                !sl beta_inh_c in [mmol C m2/(mg Chl W day)] (units of alfa); PARave is W m-2 in both builds.
+                !sl Default 0 skips it, so results are bit-identical (2 Oct 2026).
+                if (beta_inh_c > 0.d0 .and. Cphot_cocco >= tiny .and. pMax_cocco >= tiny) &
+                    Cphot_cocco = Cphot_cocco * exp(-beta_inh_c * CHL2C_cocco * PARave / pMax_cocco)
                 VTCphot_cocco(k) = Cphot_cocco
 
                 !---------------------------------------------------------------------------
@@ -2688,6 +2703,11 @@ endif !/* RECOM_MARSHALL */
 
                 if (Cphot_phaeo < tiny) Cphot_phaeo = zero
 #endif /* __RECOM_WAVEBANDS */
+                !sl Platt et al. (1980) photoinhibition, carbon-specific form: P = P_sat*exp(-beta*Chl:C*PAR/pMax).
+                !sl beta_inh_p in [mmol C m2/(mg Chl W day)] (units of alfa); PARave is W m-2 in both builds.
+                !sl Default 0 skips it, so results are bit-identical (2 Oct 2026).
+                if (beta_inh_p > 0.d0 .and. Cphot_phaeo >= tiny .and. pMax_phaeo >= tiny) &
+                    Cphot_phaeo = Cphot_phaeo * exp(-beta_inh_p * CHL2C_phaeo * PARave / pMax_phaeo)
                 VTCphot_phaeo(k) = Cphot_phaeo
 
             endif

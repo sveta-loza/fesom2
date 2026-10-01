@@ -279,7 +279,16 @@ module recom_config
   Real(kind=8)                 :: alfa_c         = 0.10d0         ! NEW
   Real(kind=8)                 :: alfa_p         = 0.10d0         ! Phaeocystis (to be tuned)
   Real(kind=8)                 :: parFrac        = 0.43d0
-  namelist /paphotosynthesis/ alfa, alfa_d, alfa_c, alfa_p, parFrac
+!sl Platt et al. (1980) photoinhibition coefficients beta^Chl, same units as alfa [(mmol C*m2)/(mg Chl*W*day)].
+!sl Applied to Cphot in both builds as exp(-beta*Chl:C*PAR/pMax). Default 0 = no photoinhibition (bit-identical).
+!sl Motivation: E. huxleyi shows no photoinhibition to >= 1000 uE m-2 s-1 (Nanninga & Tyrrell 1996, MEPS 136:195),
+!sl so a test sets beta_inh_c = 0 and beta > 0 for the others. 2 Oct 2026.
+  Real(kind=8)                 :: beta_inh       = 0.d0           ! small phytoplankton
+  Real(kind=8)                 :: beta_inh_d     = 0.d0           ! diatoms
+  Real(kind=8)                 :: beta_inh_c     = 0.d0           ! coccolithophores
+  Real(kind=8)                 :: beta_inh_p     = 0.d0           ! Phaeocystis (NB beta_phaeo is the Blanchard temperature parameter)
+  namelist /paphotosynthesis/ alfa, alfa_d, alfa_c, alfa_p, parFrac, &
+                              beta_inh, beta_inh_d, beta_inh_c, beta_inh_p
 !!------------------------------------------------------------------------------
 !! *** Assimilation ***
   Real(kind=8)                 :: V_cm_fact      = 0.7d0          ! scaling factor for temperature dependent maximum of C-specific N-uptake

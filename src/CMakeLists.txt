@@ -247,6 +247,7 @@ if(${USE_YAC})
     target_compile_definitions(${PROJECT_NAME} PRIVATE __yac_atm)
   endif()
   list(APPEND sources_Fortran ${src_home}/yac_grid_utils.F90
+                              ${src_home}/ifs_mpmd_world.F90
                               ${src_home}/ocean_coupling_interface.F90)
 endif()
 

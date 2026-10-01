@@ -34,6 +34,11 @@ module ocean_coupling_interface
 
   use yac
   use o_PARAM, only: WP
+#if defined(__ifs_fwd)
+  ! config #1 (IFS + FESIM): YAC lives on the sub-communicator "FESOM compute
+  ! tasks + FESIM" built by fesim_mpmd_join_ifs_world (ifs_mpmd_world.F90).
+  use ifs_mpmd_world, only: yac_world_comm, ifs_mpmd_have_yac_world
+#endif
 
   implicit none
   private
@@ -205,7 +210,15 @@ contains
        print *, 'ocn_cpl_init : coupler initialization for YAC'
        print *, '*************************************************'
 #endif
+#if defined(__ifs_fwd)
+       if (ifs_mpmd_have_yac_world()) then
+          call yac_finit_comm(yac_world_comm)
+       else
+          call yac_finit()
+       end if
+#else
        call yac_finit()
+#endif
        call yac_fdef_calendar(YAC_PROLEPTIC_GREGORIAN)
        call yac_fread_config_yaml("coupling.yaml")
        call yac_fdef_comp(OCN_COMP_NAME, ocn_comp_id)

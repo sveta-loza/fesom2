@@ -121,6 +121,9 @@ contains
 #if defined(__MULTIO)
       use iom
 #endif
+#if defined(__ifs_fwd)
+      use ifs_mpmd_world, only: fesim_mpmd_join_ifs_world
+#endif
       integer, intent(out) :: fesim_total_nsteps
       ! EO parameters
       logical mpi_is_initialized
@@ -150,6 +153,12 @@ contains
 #if defined (__oasis)
         call cpl_oasis3mct_init(f%partit,f%partit%MPI_COMM_FESOM)
 #elif defined (__yac)
+#if defined(__ifs_fwd)
+        ! config #1: FESIM is a separate executable in ifsMASTER's MPI_COMM_WORLD.
+        ! Mirror the IFS executable's world-collective start-up calls and obtain
+        ! the YAC world communicator BEFORE the first YAC call.
+        call fesim_mpmd_join_ifs_world()
+#endif
         call ocn_cpl_init(f%partit%MPI_COMM_FESOM)
 #endif
 

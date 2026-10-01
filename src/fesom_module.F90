@@ -134,6 +134,9 @@ contains
       ! EO parameters
       logical mpi_is_initialized
       integer              :: tr_num
+#if defined(__yac) && defined(__ifsinterface)
+      integer              :: yac_local_comm   ! YAC component comm; FESOM itself keeps IFS's icomm
+#endif
 #if !defined  __ifsinterface
       if(command_argument_count() > 0) then
         call command_line_options%parse()
@@ -168,7 +171,14 @@ contains
 
         call cpl_oasis3mct_init(f%partit,f%partit%MPI_COMM_FESOM)
 #elif defined (__yac)
+#if defined(__ifsinterface)
+        ! config #1: MPI_COMM_FESOM was set to IFS's icomm in nemogcmcoup_init and
+        ! must stay that communicator (the IFS interface addresses FESOM through
+        ! it). The YAC component communicator spans the same ranks; keep it aside.
+        call atm_cpl_init(yac_local_comm)
+#else
         call atm_cpl_init(f%partit%MPI_COMM_FESOM)
+#endif
 #endif
 
 !sl introduce __yac_fesim

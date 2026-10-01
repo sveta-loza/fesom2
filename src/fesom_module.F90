@@ -594,8 +594,10 @@ contains
     ! config #0 (ICON in the same MPMD world) or config #1 (IFS likewise) the
     ! ocean and ice ranks would block here forever waiting for atmosphere ranks
     ! that never call it. Config #0/#1 therefore sync on their own component
-    ! communicator only.                     [gated 2026-09-09, ICON three-way prep]
-#if !defined(__yac_atm) && !defined(__ifs_fwd)
+    ! communicator only. The plain IFS build (__ifsinterface without YAC) shares
+    ! MPI_COMM_WORLD with the IFS I/O and FESOM multio server ranks, which never
+    ! reach this point either.              [gated 2026-09-09, ICON three-way prep]
+#if !defined(__yac_atm) && !defined(__ifs_fwd) && !defined(__ifsinterface)
     call MPI_Barrier(MPI_COMM_WORLD, f%MPIERR)      ! [scalability shared-clock fix 2026-07]
 #endif
     call MPI_Barrier(f%MPI_COMM_FESOM, f%MPIERR)

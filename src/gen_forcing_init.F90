@@ -15,7 +15,7 @@ use g_sbf, only: sbc_ini_recom
   use cpl_yac_driver, only : nrecv
 #endif
 #if defined (__cpl_coupler)
-  use cpl_config, only: is_coupled_to_atmosphere, is_coupled_to_fesom
+  use cpl_config, only: is_coupled_to_atmosphere, is_coupled_to_fesom, is_coupled_to_ifs
 #endif
 
     implicit none
@@ -48,7 +48,11 @@ type(t_partit), intent(inout), target :: partit
      ! but its bulk thermodynamics needs the switches of nam_sbc (l_snow, ...).
      if (is_coupled_to_fesom) then
         call sbc_read_namelist(partit)
-     else if (.not. is_coupled_to_atmosphere()) then
+     else if (.not. is_coupled_to_atmosphere() .or. is_coupled_to_ifs) then
+        ! ... and the in-process IFS ocean of a direct build with the YAC sea
+        ! ice added (FESOM_SEA_ICE_YAC): the plain direct build runs sbc_ini
+        ! unconditionally, and the IFS interface relies on it
+        ! (ocean_update_runoff needs the runoff mapper it builds).
         call sbc_ini(partit, mesh)
      end if
 #else

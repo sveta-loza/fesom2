@@ -38,6 +38,7 @@ module cpl_yac_driver
 contains
 
   subroutine cpl_yac_init( localCommunicator )
+    use ifs_mpmd_world, only: yac_world_comm, ifs_mpmd_have_yac_world
     implicit none
 
     integer, intent(out) :: localCommunicator
@@ -48,7 +49,14 @@ contains
     print *, '*************************************************'
 #endif /* VERBOSE */
 
-    CALL yac_finit()
+    ! IFS + FESIM: MPI_COMM_WORLD also holds the IFS IO servers and the FESOM
+    ! multio servers, which never call YAC; both executables initialise YAC on
+    ! the communicator ifs_mpmd_world joined them into instead.
+    if (ifs_mpmd_have_yac_world()) then
+       CALL yac_finit_comm(yac_world_comm)
+    else
+       CALL yac_finit()
+    end if
     CALL yac_fdef_calendar(YAC_PROLEPTIC_GREGORIAN)
     CALL yac_fread_config_yaml (trim(cpl_config_file))
     CALL yac_fdef_comp(trim(cpl_comp_name), comp_id)

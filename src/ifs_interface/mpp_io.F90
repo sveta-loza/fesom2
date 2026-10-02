@@ -10,6 +10,11 @@ MODULE mpp_io
 #if defined(__MULTIO)        
     USE iom, only : iom_enable_multio, iom_initialize, iom_init_server, iom_finalize
 #endif
+#if defined(__cpl_yac)
+    ! IFS + FESIM: a separate FESIM executable shares MPI_COMM_WORLD with
+    ! ifsMASTER (see ifs_mpmd_world.F90 for the full choreography).
+    USE ifs_mpmd_world, ONLY : ifs_mpmd_fesim_ntasks
+#endif
     IMPLICIT NONE
     PRIVATE
 
@@ -20,6 +25,7 @@ MODULE mpp_io
 
     INTEGER :: ntask_multio  = 0
     INTEGER :: ntask_xios    = 0
+    INTEGER :: ntask_fesim   = 0   ! FESIM tasks appended to MPI_COMM_WORLD (env FESIM_NTASKS)
     LOGICAL, PUBLIC :: lioserver, lmultioserver, lmultiproc
     INTEGER :: ntask_notio
     INTEGER, SAVE :: mppallrank, mppallsize, mppiorank, mppiosize
@@ -84,13 +90,23 @@ MODULE mpp_io
         ENDIF
 #endif
 
-        IF ( ntask_xios + ntask_multio == 0 ) THEN
+#if defined(__cpl_yac)
+        ! IFS + FESIM: the LAST ntask_fesim ranks of MPI_COMM_WORLD belong to the
+        ! FESIM executable. They take part in the split below with their own
+        ! colour (see ifs_mpmd_world) and must not be counted as compute tasks.
+        ntask_fesim = ifs_mpmd_fesim_ntasks()
+        IF (mppallrank == 0 .AND. ntask_fesim > 0) &
+            WRITE(*,*) ' mpp_io_init: FESIM_NTASKS =', ntask_fesim, &
+                       ' -> the last', ntask_fesim, ' ranks of MPI_COMM_WORLD are the FESIM executable'
+#endif
+
+        IF ( ntask_xios + ntask_multio + ntask_fesim == 0 ) THEN
             iicomm = mpi_comm_world
             lio=.FALSE.
             RETURN
         ENDIF
 
-        ntask_notio = mppallsize - ntask_xios - ntask_multio
+        ntask_notio = mppallsize - ntask_xios - ntask_multio - ntask_fesim
         IF ((mppallrank+1)<=ntask_notio) THEN
             icolor=1
             lioserver=.FALSE.

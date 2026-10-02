@@ -48,7 +48,10 @@ module fesim_main_storage_module
 #endif
 #if defined (__cpl_yac)
   use cpl_config, only: read_cpl_namelist, check_cpl_config, &
-                        is_coupled_to_atmosphere, is_coupled_to_fesom
+                        is_coupled_to_atmosphere, is_coupled_to_fesom, is_coupled_to_ifs
+  ! IFS + FESIM: this executable shares MPI_COMM_WORLD with ifsMASTER (FESOM
+  ! inside); see ifs_mpmd_world.F90.
+  use ifs_mpmd_world, only: ifs_mpmd_fesim_ntasks, fesim_mpmd_join_ifs_world
   use cpl_fields, only: define_cpl_fields
   use cpl_yac_driver, only: cpl_yac_init, cpl_yac_define_unstr, nsend, nrecv
 #endif
@@ -124,6 +127,18 @@ contains
       end if
 
 #if defined (__cpl_yac)
+      if (is_coupled_to_ifs) then
+         ! The ocean's atmosphere is IFS, i.e. FESOM runs inside ifsMASTER and
+         ! this executable is appended to its MPI_COMM_WORLD. Mirror the IFS
+         ! world-collective start-up and obtain the YAC world communicator
+         ! BEFORE the first YAC call. The launcher tells both sides how many
+         ! ranks FESIM has (env FESIM_NTASKS).
+         if (ifs_mpmd_fesim_ntasks() <= 0) then
+            write(*,*) 'FESIM: is_coupled_to_ifs needs FESIM_NTASKS (number of FESIM MPI tasks) in the environment'
+            error stop 'FESIM_NTASKS not set'
+         end if
+         call fesim_mpmd_join_ifs_world()
+      end if
       call cpl_yac_init(f%partit%MPI_COMM_FESOM)
 #endif
 

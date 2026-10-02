@@ -89,6 +89,11 @@ module fesom_main_storage_module
 #endif
 #if defined (__cpl_yac)
 use cpl_yac_driver
+#if defined (__cpl_direct)
+  ! IFS + FESIM: FESOM runs inside ifsMASTER and FESIM is a separate executable
+  ! in the same MPI_COMM_WORLD (see ifs_mpmd_world.F90).
+  use ifs_mpmd_world, only: ifs_mpmd_fesim_ntasks, ifs_mpmd_connect_yac_world
+#endif
 #endif
 
 ! define recom module
@@ -186,6 +191,9 @@ contains
       logical mpi_is_initialized
       integer              :: tr_num, n
       real(kind=WP)        :: salt_max_loc, salt_max_glob   ! use_salt_anomaly restart detect
+#if defined (__cpl_yac) && defined (__cpl_direct)
+      integer              :: yac_local_comm   ! YAC component comm; FESOM itself keeps IFS's communicator
+#endif
 
 #if defined (__recom)
       type(tracers_info_type)               :: tracers_info
@@ -259,7 +267,19 @@ contains
 #endif
 
 #elif defined (__cpl_yac)
+#if defined (__cpl_direct)
+        ! IFS + FESIM: MPI_COMM_FESOM was set to IFS's communicator in
+        ! nemogcmcoup_init and must stay that communicator (the IFS interface
+        ! addresses FESOM through it). The YAC component communicator spans the
+        ! same ranks; keep it aside. With a separate FESIM executable in the same
+        ! MPI world, first join its tasks to ours: YAC must not see the IFS IO
+        ! server and FESOM multio server ranks.
+        if (ifs_mpmd_fesim_ntasks() > 0) &
+             call ifs_mpmd_connect_yac_world(f%partit%MPI_COMM_FESOM, is_fesim = .false.)
+        call cpl_yac_init(yac_local_comm)
+#else
         call cpl_yac_init(f%partit%MPI_COMM_FESOM)
+#endif
 #endif
 
         f%t1 = MPI_Wtime()
@@ -1142,6 +1162,8 @@ contains
             else if (is_coupled_to_icon_a .and. .not. ice_external) then
                 call update_atm_forcing_yac(n, f%ice, f%tracers, f%dynamics, f%partit, f%mesh)
             end if
+            ! IFS deposits its fluxes into the ocean's arrays through the direct
+            ! interface before each step; nothing to receive here.
             ! ICON with the sea ice in FESIM: the atmosphere and sea-ice
             ! exchanges run together in place of the ice step below.
 #else

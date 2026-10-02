@@ -4,8 +4,9 @@ MODULE io_RESTART
   use restart_derivedtype_module
   use g_clock
   use g_config
-  use cpl_config, only: fesom_provides_ice_surface
+  use cpl_config, only: fesom_provides_ice_surface, is_coupled_to_fesim, is_coupled_to_fesom
   use o_arrays
+  use g_forcing_arrays, only: evaporation, ice_sublimation
   use g_backscatter
   use MOD_TRACER
   use MOD_ICE
@@ -362,6 +363,28 @@ subroutine ini_ice_io(ice, partit, mesh)
     call ice_files%def_node_var_optional('ice_albedo', 'ice albedo',    '-',   ice%atmcoupl%ice_alb, mesh, partit)
     call ice_files%def_node_var_optional('ice_temp', 'ice surface temperature',  'K',   ice%data(ice%ist_itracer_idx)%values, mesh, partit)
   end if
+#endif /* __cpl_enabled */
+
+  ! Ocean and sea ice in separate components: the sea ice sends its ice->ocean
+  ! stress, net heat and freshwater flux and the thermodynamic terms the ocean's
+  ! freshwater balance integrates at the START of its step, i.e. the values
+  ! computed in the previous step (src_lag = 1). They are state at the coupling
+  ! boundary and must survive a restart: without them the first exchange after
+  ! a restart carried zeros into the ocean's oce_fluxes (one step with no
+  ! ice-ocean stress/flux). Optional, so older restarts still load (then zero).
+  ! The ocean registers the same fields (its copies are the received ones).
+  if (is_coupled_to_fesim .or. is_coupled_to_fesom) then
+    call ice_files%def_node_var_optional('stress_iceoce_x', 'ice to ocean stress, x',   'Pa',   ice%stress_iceoce_x, mesh, partit)
+    call ice_files%def_node_var_optional('stress_iceoce_y', 'ice to ocean stress, y',   'Pa',   ice%stress_iceoce_y, mesh, partit)
+    call ice_files%def_node_var_optional('flx_h',           'ice to ocean net heat flux',       'W/m2', ice%flx_h,  mesh, partit)
+    call ice_files%def_node_var_optional('flx_fw',          'ice to ocean fresh water flux',    'm/s',  ice%flx_fw, mesh, partit)
+    call ice_files%def_node_var_optional('evaporation',     'evaporation (ice thermodynamics)', 'm/s',  evaporation,     mesh, partit)
+    call ice_files%def_node_var_optional('ice_sublimation', 'sublimation of ice',               'm/s',  ice_sublimation, mesh, partit)
+    call ice_files%def_node_var_optional('thdgr',           'thermodynamic ice growth rate',    'm/s',  ice%thermo%thdgr,   mesh, partit)
+    call ice_files%def_node_var_optional('thdgrsn',         'thermodynamic snow growth rate',   'm/s',  ice%thermo%thdgrsn, mesh, partit)
+    call ice_files%def_node_var_optional('area_old',        'ice concentration before the thermodynamics', '-', ice%data(1)%values_old, mesh, partit)
+  end if
+#if defined (__cpl_enabled)
   !---wiso-code
   if (lwiso) then
     call ice_files%def_node_var_optional('h2o18_ice', 'h2o18 concentration in sea ice', 'kmol/m**3', tr_arr_ice(:,1), mesh, partit)

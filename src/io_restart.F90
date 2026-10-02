@@ -279,10 +279,15 @@ subroutine ini_ice_io(ice, partit, mesh)
   ! t_skin (:280, stored back at :321) and runs a fixed imax=5 iterations with no convergence
   ! test (:713, :741), so the result depends on the seed -> prognostic. Binary path saves it.
   call ice_files%def_node_var_optional('t_skin', 'ice skin temperature (Newton-Raphson seed)', 'C', ice%thermo%t_skin, mesh, partit)
-#if defined (__oifs)
+  ! The IFS-family atmospheres get the ice surface temperature and albedo back
+  ! from the sea ice (OpenIFS over OASIS, IFS through the direct interface, and
+  ! FESIM forwarding them to the ocean under __ifs_fwd). ice_temp is prognostic
+  ! there (ice_surftemp iterates from the previous value), so both must survive
+  ! a restart; without them the first exchange after a restart carried 0 K.
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
   call ice_files%def_node_var_optional('ice_albedo', 'ice albedo',    '-',   ice%atmcoupl%ice_alb, mesh, partit)
   call ice_files%def_node_var_optional('ice_temp', 'ice surface temperature',  'K',   ice%data(4)%values, mesh, partit)
-#endif /* (__oifs) */
+#endif /* (__oifs) || (__ifsinterface) || (__ifs_fwd) */
 #if defined (__oasis)
   !---wiso-code
   if (lwiso) then

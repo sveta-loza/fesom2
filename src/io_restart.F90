@@ -342,7 +342,11 @@ subroutine ini_ice_io(ice, partit, mesh)
 ! TODO: still compile-time. These field sets are only meaningful for the
 ! IFS-family partners, and widening them would change the file layout for
 ! the other partners -- decided together with the restart format.
-#if defined (__cpl_direct) || defined (__cpl_oasis50)
+! __cpl_yac is included because a YAC-coupled sea-ice component serves an
+! IFS-family atmosphere through the ocean (runtime is_coupled_to_ifs creates
+! the ice_temp tracer); without it the restarted sea ice sent an
+! uninitialised ice surface temperature at its first exchange.
+#if defined (__cpl_direct) || defined (__cpl_oasis50) || defined (__cpl_yac)
   call ice_files%def_node_var_optional('ice_albedo', 'ice albedo',    '-',   ice%atmcoupl%ice_alb, mesh, partit)
   if (ice%ist_itracer_idx > 0) &
     call ice_files%def_node_var_optional('ice_temp', 'ice surface temperature',  'K',   ice%data(ice%ist_itracer_idx)%values, mesh, partit)

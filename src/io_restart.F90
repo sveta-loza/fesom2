@@ -968,7 +968,10 @@ subroutine read_all_raw_restarts(dirpath, infopath, mpicomm, mype)
     end if
     
     
-    ! compare the restart time with our actual time
+    ! compare the restart time with our actual time. ctime is only computed by
+    ! the netCDF reader (read_netcdf_restarts); without this the raw path
+    ! compares against 0 and warns on every raw restart.
+    ctime = timeold + (dayold - 1.0_WP) * 86400.0_WP
     if(int(ctime) /= int(rtime)) then
         write(*,*)
         print *, achar(27)//'[5,33m'  

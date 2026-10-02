@@ -737,10 +737,20 @@ subroutine read_all_raw_restarts(dirpath, infopath, mpicomm, mype)
       stop 1
     end if
     
-    ! compare the restart time with our actual time
+    ! compare the restart time with our actual time. ctime is only computed by
+    ! the netCDF reader, so the raw path compared against 0 and stopped on every
+    ! raw restart (one rank stops, the others hang in the Bcast below).
+    ctime = timeold + (dayold - 1.0_WP) * 86400.0_WP
     if(int(ctime) /= int(rtime)) then
-      print *, "raw restart time ",rtime,"does not match current clock time",ctime
-      stop 1
+        write(*,*)
+        write(*,*) '____________________________________________________________________'
+        write(*,*) "WARNING: raw restart time ",rtime," does not match current clock time",ctime
+        write(*,*) "         If you restart with a different time step this might be ok!"
+        write(*,*) "         If that is not the case, check your fesom.clock file and"
+        write(*,*) "         the time information of your restart file, make sure they "
+        write(*,*) "         are not messed up!!!"
+        write(*,*) '____________________________________________________________________'
+        write(*,*)
     end if
     globalstep = rstep
     print *,"reading raw restart from " // dirpath

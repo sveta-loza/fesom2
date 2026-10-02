@@ -532,10 +532,17 @@ CONTAINS
             CALL ctl_stop('iom_synchronize: md%set_int(timeStep) failed: ', multio_error_string(cerr))
         END IF
 
+#if defined (__MULTIO_LEGACY_API)
+        ! MultIO releases before the synchronize API (e.g. the DestinE CY48R1
+        ! bundle) offer only flush/notify: no blocking checkpoint. io_flush_sync
+        ! cannot be honoured with such a MultIO.
+        CALL ctl_stop('iom_synchronize: this MultIO has no synchronize(); set io_flush_sync=.false.')
+#else
         cerr = mio_handle%synchronize(md)
         IF (cerr /= MULTIO_SUCCESS) THEN
             CALL ctl_stop('iom_synchronize: mio_handle%synchronize failed: ', multio_error_string(cerr))
         END IF
+#endif
 
         cerr = md%delete()
         IF (cerr /= MULTIO_SUCCESS) THEN

@@ -346,6 +346,13 @@ if(USE_ICEPACK)
    target_compile_definitions(${PROJECT_NAME} PRIVATE __icepack)
 endif()
 
+# MultIO releases before the synchronize API (flush/notify only, e.g. the
+# DestinE CY48R1 bundle): compile iom_synchronize without the call.
+option(MULTIO_LEGACY_API "MultIO without synchronize(): disable the blocking checkpoint in iom_synchronize" OFF)
+if(MULTIO_LEGACY_API)
+   target_compile_definitions(${PROJECT_NAME} PRIVATE __MULTIO_LEGACY_API)
+endif()
+
 if(USE_SINGLE_PRECISION)
    target_compile_definitions(${PROJECT_NAME} PRIVATE USE_SINGLE_PRECISION)
 endif()

@@ -15,7 +15,7 @@ use g_sbf, only: sbc_ini_recom
   use atm_coupling_interface, only : nrecv => ATM_NRECV
 #endif
 #if defined (__cpl_coupler)
-  use cpl_config, only: is_coupled_to_atmosphere, cpl_component_is_sea_ice
+  use cpl_config, only: is_coupled_to_atmosphere, is_coupled_to_ifs, cpl_component_is_sea_ice
 #endif
 
     implicit none
@@ -49,7 +49,12 @@ type(t_partit), intent(inout), target :: partit
      ! ocean whose only partner is the sea ice (FESOM + FESIM over YAC).
      if (cpl_component_is_sea_ice) then
         call sbc_read_namelist(partit)
-     else if (.not. is_coupled_to_atmosphere()) then
+     else if (.not. is_coupled_to_atmosphere() .or. is_coupled_to_ifs) then
+        ! Forcing files (standalone, or the ocean whose only partner is the sea
+        ! ice), or IFS in the same executable: the plain direct build has no
+        ! __cpl_coupler and runs sbc_ini unconditionally, and the IFS interface
+        ! relies on it (ocean_update_runoff needs the runoff mapper it builds).
+        ! Keep that when the YAC sea-ice interface is added to the direct build.
         call sbc_ini(partit, mesh)
      end if
 #else

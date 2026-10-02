@@ -25,6 +25,8 @@ contains
 ! Exactly one interface macro is defined; see cmake/FesomCoupling.cmake.
 #ifdef __standalone
       print '(g0)', 'coupling interface: standalone'
+#elif defined (__cpl_direct) && defined (__cpl_yac)
+      print '(g0)', 'coupling interface: direct (in-process IFS) + yac (external sea ice)'
 #elif defined (__cpl_direct)
       print '(g0)', 'coupling interface: direct (in-process IFS)'
 #elif defined (__cpl_oasis28)

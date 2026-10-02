@@ -87,6 +87,11 @@ module fesom_main_storage_module
   use atm_coupling_interface, only: atm_cpl_init, atm_cpl_define, ATM_NSEND, ATM_NRECV
   use ice_coupling_interface, only: ice_cpl_define, ICE_NSEND, ICE_NRECV, cpl_timers_report
   use yac_component_runtime,  only: yac_runtime_enddef
+#if defined (__cpl_direct)
+  ! IFS + FESIM: FESOM runs inside ifsMASTER and FESIM is a separate executable
+  ! in the same MPI_COMM_WORLD (see ifs_mpmd_world.F90).
+  use ifs_mpmd_world,         only: ifs_mpmd_fesim_ntasks, ifs_mpmd_connect_yac_world
+#endif
 #endif
 
 ! define recom module
@@ -183,6 +188,9 @@ contains
       logical mpi_is_initialized
       integer              :: tr_num, n
       real(kind=WP)        :: salt_max_loc, salt_max_glob   ! use_salt_anomaly restart detect
+#if defined (__cpl_yac) && defined (__cpl_direct)
+      integer              :: yac_local_comm   ! YAC component comm; FESOM itself keeps IFS's communicator
+#endif
 
 #if defined (__recom)
       type(tracers_info_type)               :: tracers_info
@@ -249,7 +257,19 @@ contains
 #endif
 
 #elif defined (__cpl_yac)
+#if defined (__cpl_direct)
+        ! IFS + FESIM: MPI_COMM_FESOM was set to IFS's communicator in
+        ! nemogcmcoup_init and must stay that communicator (the IFS interface
+        ! addresses FESOM through it). The YAC component communicator spans the
+        ! same ranks; keep it aside. With a separate FESIM executable in the same
+        ! MPI world, first join its tasks to ours: YAC must not see the IFS IO
+        ! server and FESOM multio server ranks.
+        if (ifs_mpmd_fesim_ntasks() > 0) &
+             call ifs_mpmd_connect_yac_world(f%partit%MPI_COMM_FESOM, is_fesim = .false.)
+        call atm_cpl_init(yac_local_comm)
+#else
         call atm_cpl_init(f%partit%MPI_COMM_FESOM)
+#endif
 #endif
 
         f%t1 = MPI_Wtime()
@@ -677,11 +697,13 @@ contains
         ! not coupled must not have its fields registered: yac_fenddef would
         ! wait for a counterpart that never connects. The atmosphere fields
         ! are exchanged every step, the sea-ice fields every cpl_stride steps.
-        if (is_coupled_to_atmosphere()) call atm_cpl_define(f%partit, f%mesh, dt, f%total_nsteps)
+        ! ICON is the only atmosphere that is itself a YAC component; IFS
+        ! reaches the ocean through the direct interface and has no YAC fields.
+        if (is_coupled_to_icon_a) call atm_cpl_define(f%partit, f%mesh, dt, f%total_nsteps)
         if (is_coupled_to_fesim)  call ice_cpl_define(f%partit, f%mesh, dt*cpl_stride, f%total_nsteps)
         call yac_runtime_enddef()
         if (f%mype==0) then
-           if (is_coupled_to_atmosphere()) write(*,*) 'FESOM ---->     YAC atm fields defined, nsend/nrecv:', ATM_NSEND, ATM_NRECV
+           if (is_coupled_to_icon_a) write(*,*) 'FESOM ---->     YAC atm fields defined, nsend/nrecv:', ATM_NSEND, ATM_NRECV
            if (is_coupled_to_fesim)  write(*,*) 'FESOM ---->     YAC ice fields defined, nsend/nrecv:', ICE_NSEND, ICE_NRECV
         end if
 #endif
@@ -1132,10 +1154,12 @@ contains
             if (.not. is_coupled_to_atmosphere()) then
                 ! no atmosphere partner: forcing files, every step
                 call update_atm_forcing(n, f%ice, f%tracers, f%dynamics, f%partit, f%mesh)
-            else if (.not. ice_external) then
+            else if (is_coupled_to_icon_a .and. .not. ice_external) then
                 ! ICON with the sea ice inside the ocean
                 call update_atm_forcing_yac(n, f%ice, f%tracers, f%dynamics, f%partit, f%mesh)
             end if
+            ! IFS deposits its fluxes into the ocean's arrays through the direct
+            ! interface before each step; nothing to receive here.
             ! ICON + FESIM: the atmosphere and sea-ice exchanges run together
             ! at the sea-ice slot below, where FESIM's state replaces the
             ! ocean's own ice step.

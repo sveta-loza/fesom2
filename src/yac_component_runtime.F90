@@ -32,6 +32,12 @@ module yac_component_runtime
   use yac
   use yac_grid_utils, only: cpl_yac_define_unstr_generic
   use cpl_config,     only: cpl_comp_name, cpl_config_file
+#if defined (__cpl_direct)
+  ! IFS + FESIM: YAC must be initialised on the sub-communicator "FESOM compute
+  ! tasks + FESIM" -- MPI_COMM_WORLD also holds IFS IO servers and FESOM multio
+  ! servers that never call YAC. See ifs_mpmd_world.F90.
+  use ifs_mpmd_world, only: yac_world_comm, ifs_mpmd_have_yac_world
+#endif
 
   implicit none
   private
@@ -65,7 +71,15 @@ contains
        print *, 'yac_runtime_init : coupler initialization for YAC'
        print *, '*************************************************'
 #endif
+#if defined (__cpl_direct)
+       if (ifs_mpmd_have_yac_world()) then
+          call yac_finit_comm(yac_world_comm)
+       else
+          call yac_finit()
+       end if
+#else
        call yac_finit()
+#endif
        call yac_fdef_calendar(YAC_PROLEPTIC_GREGORIAN)
        call yac_fread_config_yaml(trim(cpl_config_file))
        call yac_fdef_comp(trim(cpl_comp_name), comp_id_)

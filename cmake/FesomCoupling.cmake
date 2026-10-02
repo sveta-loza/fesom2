@@ -155,6 +155,28 @@ endif()
 # plain set()s shadow the cache entries for every subdirectory, so code that
 # has not been migrated yet still sees the right value. Remove together with
 # the last consumer.
+# Sea ice as a separate YAC component next to the in-process IFS interface
+# (IFS + FESOM + FESIM). FESOM_COUPLING names the interface the atmosphere
+# uses; the sea-ice component always talks to the ocean over YAC, so this
+# adds the YAC interface to a direct build. Off by default; no effect on any
+# other configuration. Selected at run time with is_coupled_to_ifs together
+# with is_coupled_to_fesim in namelist.cpl.
+option(FESOM_SEA_ICE_YAC
+       "Also compile the YAC interface for an external sea-ice component (FESIM) when FESOM_COUPLING=direct"
+       OFF)
+if(FESOM_SEA_ICE_YAC)
+   if(FESOM_COUPLING STREQUAL "direct")
+      set(FESOM_COUPLING_COUPLER ON)
+      set(FESOM_COUPLING_IS_YAC  ON)
+      list(APPEND FESOM_CPL_MACROS __cpl_yac __cpl_coupler)
+   elseif(NOT FESOM_COUPLING STREQUAL "yac")
+      message(FATAL_ERROR
+              "FESOM_SEA_ICE_YAC=ON needs FESOM_COUPLING=direct "
+              "(got '${FESOM_COUPLING}'); with FESOM_COUPLING=yac the sea ice "
+              "already couples over YAC.")
+   endif()
+endif()
+
 set(FESOM_COUPLED ${FESOM_COUPLING_IS_OASIS})
 set(USE_YAC ${FESOM_COUPLING_IS_YAC})
 set(ENABLE_IFS_INTERFACE ${FESOM_COUPLING_IS_DIRECT})
@@ -165,3 +187,6 @@ else()
 endif()
 
 message(STATUS "FESOM_COUPLING: ${FESOM_COUPLING}")
+if(FESOM_SEA_ICE_YAC)
+   message(STATUS "FESOM_SEA_ICE_YAC: ON (YAC interface added for an external sea-ice component)")
+endif()

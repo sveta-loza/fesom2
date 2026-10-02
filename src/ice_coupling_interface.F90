@@ -263,6 +263,7 @@ contains
     cpl_time_put = cpl_time_put + (MPI_Wtime() - t_cpl0)
     cpl_n_put = cpl_n_put + 1
     action = info == YAC_ACTION_COUPLING
+    if (info == YAC_ACTION_OUT_OF_BOUND) call cpl_out_of_bound_abort('put', ice_send_names(ind))
     if (action) cpl_n_put_act = cpl_n_put_act + 1
     call cpl_check_period()
   end subroutine ice_cpl_send
@@ -280,6 +281,7 @@ contains
     cpl_time_get = cpl_time_get + (MPI_Wtime() - t_cpl0)
     cpl_n_get = cpl_n_get + 1
     action = info == YAC_ACTION_COUPLING
+    if (info == YAC_ACTION_OUT_OF_BOUND) call cpl_out_of_bound_abort('get', ice_recv_names(ind))
     if (action) cpl_n_get_act = cpl_n_get_act + 1
   end subroutine ice_cpl_recv
 
@@ -339,6 +341,20 @@ contains
   end subroutine cpl_timers_report
 
   ! Fires once, ~10 coupling calls in, on rank 0 only.
+  !> YAC answers a put/get outside the start_date..end_date window of coupling.yaml
+  !> with YAC_ACTION_OUT_OF_BOUND and only prints a warning; the component then
+  !> runs on with stale or zero partner fields (a 4-day control run on 2026-10-02
+  !> was silently uncoupled for its last 2 days because its yaml still said 2
+  !> days). A run that has left its coupling window is not a valid run: stop.
+  subroutine cpl_out_of_bound_abort(what, name)
+    use mpi
+    character(len=*), intent(in) :: what, name
+    integer :: ierr
+    write(*,'(a)') 'FATAL: YAC '//what//' of '//trim(name)//' returned YAC_ACTION_OUT_OF_BOUND:'
+    write(*,'(a)') '       the model clock is outside the start_date/end_date window of coupling.yaml.'
+    call MPI_Abort(MPI_COMM_WORLD, 1, ierr)
+  end subroutine cpl_out_of_bound_abort
+
   subroutine cpl_check_period()
     if (cpl_checked .or. cpl_n_put < 40) return
     cpl_checked = .true.

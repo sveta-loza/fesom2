@@ -4,6 +4,7 @@ MODULE io_RESTART
   use g_clock
   use g_config
   use o_arrays
+  use g_forcing_arrays, only: evaporation, ice_sublimation
   use g_cvmix_tke
   use g_cvmix_idemix
   use g_backscatter
@@ -271,6 +272,27 @@ subroutine ini_ice_io(ice, partit, mesh)
   call ice_files%def_node_var_optional('ice_albedo', 'ice albedo',    '-',   ice%atmcoupl%ice_alb, mesh, partit)
   call ice_files%def_node_var_optional('ice_temp', 'ice surface temperature',  'K',   ice%data(4)%values, mesh, partit)
 #endif /* (__oifs) || (__ifsinterface) || (__ifs_fwd) */
+
+  ! Decoupled (YAC) layout: the sea ice sends its ice->ocean stress, net heat and
+  ! freshwater flux and the thermodynamic terms the ocean's freshwater balance
+  ! integrates at the START of its step, i.e. the values computed in the previous
+  ! step (gen_forcing_couple.F90, update_atm_forcing_yac; src_lag = 1). They are
+  ! therefore state at the coupling boundary and must survive a restart: without
+  ! them the first exchange after a restart carried zeros into the ocean's
+  ! oce_fluxes (one step with no ice-ocean stress/flux), ~10x the restart noise of
+  ! the monolithic model. Optional, so older restarts still load (then zero).
+  ! The ocean tree registers the same fields (its copies are the received ones).
+#if defined (__yac)
+  call ice_files%def_node_var_optional('stress_iceoce_x', 'ice to ocean stress, x',   'Pa',   ice%stress_iceoce_x, mesh, partit)
+  call ice_files%def_node_var_optional('stress_iceoce_y', 'ice to ocean stress, y',   'Pa',   ice%stress_iceoce_y, mesh, partit)
+  call ice_files%def_node_var_optional('flx_h',           'ice to ocean net heat flux',       'W/m2', ice%flx_h,  mesh, partit)
+  call ice_files%def_node_var_optional('flx_fw',          'ice to ocean fresh water flux',    'm/s',  ice%flx_fw, mesh, partit)
+  call ice_files%def_node_var_optional('evaporation',     'evaporation (ice thermodynamics)', 'm/s',  evaporation,     mesh, partit)
+  call ice_files%def_node_var_optional('ice_sublimation', 'sublimation of ice',               'm/s',  ice_sublimation, mesh, partit)
+  call ice_files%def_node_var_optional('thdgr',           'thermodynamic ice growth rate',    'm/s',  ice%thermo%thdgr,   mesh, partit)
+  call ice_files%def_node_var_optional('thdgrsn',         'thermodynamic snow growth rate',   'm/s',  ice%thermo%thdgrsn, mesh, partit)
+  call ice_files%def_node_var_optional('area_old',        'ice concentration before the thermodynamics', '-', ice%data(1)%values_old, mesh, partit)
+#endif /* (__yac) */
 #if defined (__oasis)
   !---wiso-code
   if (lwiso) then

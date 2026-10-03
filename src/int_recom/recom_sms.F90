@@ -2949,6 +2949,21 @@ endif !/* RECOM_MARSHALL */
         limitFacN = recom_limiter(NMaxSlope, quota, NCmax)
         N_assim = V_cm * pMax * NCuptakeRatio * limitFacN * (DIN/(DIN + k_din))
 
+        !sl Pseudo N2 fixation (diagnostic switch, 3 Oct 2026; nfix_floor = 0 is off and bit-identical).
+        !sl In water warmer than nfix_Tmin the DIN uptake term of small phytoplankton gets a floor:
+        !sl the shortfall max(nfix_floor - DIN/(DIN+k_din), 0) is supplied from N2, scaled by the light
+        !sl saturation Cphot/pMax (fixation needs energy; none in the dark). N_fix enters PhyN but is
+        !sl taken from neither DIN nor alkalinity, so it is new nitrogen. No P or extra Fe cost.
+        N_fix = 0.0d0
+        if (nfix_floor > 0.0d0) then
+            if (Temp(k) > nfix_Tmin) then
+                N_fix = V_cm * pMax * NCuptakeRatio * limitFacN                     &
+                      * max(nfix_floor - DIN/(DIN + k_din), 0.0d0)                  &
+                      * min(Cphot / max(pMax, tiny), 1.0d0)
+                N_assim = N_assim + N_fix
+            endif
+        endif
+
         ! --- Diatom Nitrogen Uptake ---
         V_cm = V_cm_fact_d
         limitFacN_dia = recom_limiter(NMaxSlope, quota_dia, NCmax_d)
@@ -4582,7 +4597,7 @@ endif !/* RECOM_MARSHALL */
             ! SINKS: Nitrogen Uptake (decreases DIN)
             !---------------------------------------------------------------------------
             ! Phytoplankton assimilation of NO3- and NH4+
-            - N_assim        * PhyC                               & ! Small phytoplankton
+            - (N_assim - N_fix) * PhyC                            & ! Small phytoplankton (N_fix comes from N2, not DIN)
             - N_assim_Dia    * DiaC                               & ! Diatoms
             - N_assim_Cocco  * CoccoC  * is_coccos                & ! Coccolithophores
             - N_assim_Phaeo  * PhaeoC  * is_coccos                & ! Phaeocystis
@@ -4699,7 +4714,7 @@ endif !/* RECOM_MARSHALL */
             ! SOURCES: Nutrient Uptake (increases alkalinity)
             !---------------------------------------------------------------------------
             ! Phytoplankton uptake of NO3- increases alkalinity
-            + 1.0625 * N_assim        * PhyC                               & ! Small phytoplankton
+            + 1.0625 * (N_assim - N_fix) * PhyC                            & ! Small phytoplankton (N2 fixation leaves Alk unchanged)
             + 1.0625 * N_assim_Dia    * DiaC                               & ! Diatoms
             + 1.0625 * N_assim_Cocco  * CoccoC  * is_coccos                & ! Coccolithophores
             + 1.0625 * N_assim_Phaeo  * PhaeoC  * is_coccos                & ! Phaeocystis

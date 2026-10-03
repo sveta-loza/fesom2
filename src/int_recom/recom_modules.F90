@@ -321,9 +321,14 @@ module recom_config
   Real(kind=8)                 :: res_phy_p      = 0.008d0        ! Phaeocystis (to be tuned (?))
   Real(kind=8)                 :: biosynth       = 2.33d0         ! [mmol C/mmol N] Cost of biosynthesis
   Real(kind=8)                 :: biosynthSi     = 0.d0
+!sl Pseudo N2 fixation by small phytoplankton (diagnostic, default off): floor under DIN/(DIN+k_din)
+!sl in water warmer than nfix_Tmin, the shortfall supplied from N2 (see recom_sms). 3 Oct 2026.
+  Real(kind=8)                 :: nfix_floor     = 0.d0           ! [-] 0 = off; 1 = N uptake as if DIN-replete
+  Real(kind=8)                 :: nfix_Tmin      = 20.d0          ! [degC] fixation only above this temperature
   namelist /paassimilation/ V_cm_fact, V_cm_fact_d, V_cm_fact_c, V_cm_fact_p, NMaxSlope, SiMaxSlope, NCmax, NCmax_d, NCmax_c, NCmax_p, SiCmax, &
                        NCuptakeRatio, NCUptakeRatio_d, NCUptakeRatio_c, NCUptakeRatio_p, SiCUptakeRatio, k_din, k_din_d, k_din_c, k_din_p, &
-                       Chl2N_max, Chl2N_max_d, Chl2N_max_c, Chl2N_max_p, res_phy, res_phy_d, res_phy_c, res_phy_p, biosynth, biosynthSi
+                       Chl2N_max, Chl2N_max_d, Chl2N_max_c, Chl2N_max_p, res_phy, res_phy_d, res_phy_c, res_phy_p, biosynth, biosynthSi, &
+                       nfix_floor, nfix_Tmin
 !!------------------------------------------------------------------------------
 !! *** Iron chemistry ***
   Real(kind=8)                 :: totalligand     = 1.d0        ! [mumol/m3] order 1. Total free ligand
@@ -1646,6 +1651,7 @@ Module REcoM_declarations
   Real(kind=8)  :: limitFacN,limitFacN_dia,limitFacN_cocco, limitFacN_phaeo ! Factor that regulates N-assimilation. Calc from function recom_limiter
   Real(kind=8)  :: limitFacSi
   Real(kind=8)  :: N_assim, N_assim_dia, N_assim_Cocco, N_assim_phaeo       ! [mmol N/(mmol C * day)] C specific N utilization rate
+  Real(kind=8)  :: N_fix                                                    ! [mmol N/(mmol C * day)] part of N_assim supplied from N2 (nfix_floor)
   Real(kind=8)  :: Si_assim
 !!------------------------------------------------------------------------------
 !! *** Chlorophyll ***

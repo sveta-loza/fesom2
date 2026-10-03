@@ -325,10 +325,11 @@ module recom_config
 !sl in water warmer than nfix_Tmin, the shortfall supplied from N2 (see recom_sms). 3 Oct 2026.
   Real(kind=8)                 :: nfix_floor     = 0.d0           ! [-] 0 = off; 1 = N uptake as if DIN-replete
   Real(kind=8)                 :: nfix_Tmin      = 20.d0          ! [degC] fixation only above this temperature
+  Real(kind=8)                 :: nfix_max       = 0.d0           ! [mmol N/(m2 day)] cap on column-integrated fixation; 0 = no cap
   namelist /paassimilation/ V_cm_fact, V_cm_fact_d, V_cm_fact_c, V_cm_fact_p, NMaxSlope, SiMaxSlope, NCmax, NCmax_d, NCmax_c, NCmax_p, SiCmax, &
                        NCuptakeRatio, NCUptakeRatio_d, NCUptakeRatio_c, NCUptakeRatio_p, SiCUptakeRatio, k_din, k_din_d, k_din_c, k_din_p, &
                        Chl2N_max, Chl2N_max_d, Chl2N_max_c, Chl2N_max_p, res_phy, res_phy_d, res_phy_c, res_phy_p, biosynth, biosynthSi, &
-                       nfix_floor, nfix_Tmin
+                       nfix_floor, nfix_Tmin, nfix_max
 !!------------------------------------------------------------------------------
 !! *** Iron chemistry ***
   Real(kind=8)                 :: totalligand     = 1.d0        ! [mumol/m3] order 1. Total free ligand
@@ -1652,6 +1653,7 @@ Module REcoM_declarations
   Real(kind=8)  :: limitFacSi
   Real(kind=8)  :: N_assim, N_assim_dia, N_assim_Cocco, N_assim_phaeo       ! [mmol N/(mmol C * day)] C specific N utilization rate
   Real(kind=8)  :: N_fix                                                    ! [mmol N/(mmol C * day)] part of N_assim supplied from N2 (nfix_floor)
+  Real(kind=8)  :: nfix_col                                                 ! [mmol N/(m2 day)] fixation accumulated from the surface in this column (nfix_max)
   Real(kind=8)  :: Si_assim
 !!------------------------------------------------------------------------------
 !! *** Chlorophyll ***

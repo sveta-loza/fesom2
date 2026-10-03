@@ -2954,12 +2954,19 @@ endif !/* RECOM_MARSHALL */
         !sl the shortfall max(nfix_floor - DIN/(DIN+k_din), 0) is supplied from N2, scaled by the light
         !sl saturation Cphot/pMax (fixation needs energy; none in the dark). N_fix enters PhyN but is
         !sl taken from neither DIN nor alkalinity, so it is new nitrogen. No P or extra Fe cost.
+        !sl nfix_max > 0 caps the column-integrated fixation [mmol N m-2 day-1], filled from the surface down
+        !sl (observed: Station ALOHA 0.23 +- 0.14, Boettjer et al. 2017); nfix_max = 0 means no cap.
         N_fix = 0.0d0
         if (nfix_floor > 0.0d0) then
+            if (k == 1) nfix_col = 0.0d0
             if (Temp(k) > nfix_Tmin) then
                 N_fix = V_cm * pMax * NCuptakeRatio * limitFacN                     &
                       * max(nfix_floor - DIN/(DIN + k_din), 0.0d0)                  &
                       * min(Cphot / max(pMax, tiny), 1.0d0)
+                if (nfix_max > 0.0d0) then
+                    N_fix = min(N_fix, max(nfix_max - nfix_col, 0.0d0) / max(PhyC * thick(k), tiny))
+                    nfix_col = nfix_col + N_fix * PhyC * thick(k)
+                endif
                 N_assim = N_assim + N_fix
             endif
         endif

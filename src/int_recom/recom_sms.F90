@@ -1462,6 +1462,27 @@ endif
            PAR(k) = PARave
 #else /* not RECOM_WAVEBANDS */
             
+            if (par_layer_mean) then
+                !sl REcoM-MITgcm form (recom_sms.F, Alvarez et al. 2022): grid-cell mean of the
+                !sl exponential profile, attenuated with this layer's own chlorophyll.
+                !sl   kappa      = k_w + a_chl*Chl(k)
+                !sl   kdzLower   = kdzUpper + kappa/cosAI * thick(k)
+                !sl   PARave     = (I_top - I_bot) / (kappa/cosAI * thick(k))
+                !sl kdzUpper is reset to 0 at the top of the column (start of each biostep).
+                Chlave = PhyChl + DiaChl
+                if (enable_coccos) then
+                    Chlave = Chlave + CoccoChl + PhaeoChl
+                endif
+                kappa = k_w + a_chl * Chlave
+                kappastar = kappa / cosAI(n)
+                kdzLower = kdzUpper + kappastar * thick(k)
+                Upperlight = SurfSR * exp(-kdzUpper)
+                Lowerlight = SurfSR * exp(-kdzLower)
+                PARave = (Upperlight - Lowerlight) / (kappastar * thick(k))
+                PARave = max(tiny, PARave)
+                PAR(k) = PARave
+                kdzUpper = kdzLower
+            else
 
             if (k == 1) then
 
@@ -1542,6 +1563,7 @@ endif
                 kdzUpper = kdzLower          ! Current cumulative depth for next layer
 
             end if
+            end if   ! par_layer_mean
 #endif /* __RECOM_WAVEBANDS */
 !sl consider the following in any case: PAR(k) = PARave
 !sl         PAR(k) = PARave

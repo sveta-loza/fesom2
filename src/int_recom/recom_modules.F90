@@ -272,13 +272,15 @@ module recom_config
   Real(kind=8)                 :: k_w            = 0.04d0         ! [1/m]              Light attenuation coefficient
   Real(kind=8)                 :: a_chl          = 0.03d0         ! [1/m * 1/(mg Chl)] Chlorophyll specific attenuation coefficients
   !sl par_layer_mean (7 Oct 2026): broadband (RECOM_WAVEBANDS=OFF) PAR convention.
-  !sl .false. (default, FESOM-REcoM as published): PAR(k) is the light at the TOP interface of layer k
-  !sl         (PAR(1) = SurfSR, no attenuation inside the layer); bit-identical to all earlier runs.
-  !sl .true.  (REcoM-MITgcm / Alvarez et al. 2022 form): PAR(k) is the exact mean of the exponential
-  !sl         profile over layer k, (I_top - I_bot)/(kappastar*thick(k)), attenuated with the layer's own
-  !sl         chlorophyll. This is the same convention as the spectral build, where PAR is the geometric
-  !sl         mean of the top and bottom irradiance (i.e. the mid-layer value). No effect in a spectral build.
-  Logical                      :: par_layer_mean = .false.
+  !sl .true.  (DEFAULT since 7 Oct 2026, Svetlana's decision; REcoM-MITgcm / Alvarez et al. 2022 form):
+  !sl         PAR(k) is the exact mean of the exponential profile over layer k,
+  !sl         (I_top - I_bot)/(kappastar*thick(k)), attenuated with the layer's own chlorophyll. This is the
+  !sl         same convention as the spectral build, where PAR is the geometric mean of the top and bottom
+  !sl         irradiance (the mid-layer value). Costs ~7% NPPn / ~5% NPPd against the old form (nowb12m vs nowb12t).
+  !sl .false. (FESOM-REcoM as published, every broadband run before 7 Oct 2026): PAR(k) is the light at the
+  !sl         TOP interface of layer k (PAR(1) = SurfSR, no attenuation inside the layer). Set it explicitly
+  !sl         to reproduce those runs. No effect in a spectral build.
+  Logical                      :: par_layer_mean = .true.
   namelist /palight_calculations/ k_w, a_chl, par_layer_mean
 !!------------------------------------------------------------------------------
 !! *** Photosynthesis ***

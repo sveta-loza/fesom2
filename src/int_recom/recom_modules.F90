@@ -329,6 +329,11 @@ module recom_config
   Real(kind=8)                 :: res_phy_d      = 0.01d0
   Real(kind=8)                 :: res_phy_c      = 0.0075d0       ! NEW
   Real(kind=8)                 :: res_phy_p      = 0.008d0        ! Phaeocystis (to be tuned (?))
+  !sl res_phy_const (7 Oct 2026, NEXT_STEPS 21c.3): .true. = maintenance respiration res_phy_X is NOT scaled by the
+  !sl NCmax limiter limitFacN_X (it stays on in the dark when the quota is full), for all four PFTs. The biosynthesis
+  !sl term biosynth*N_assim and the DOC/DON excretion (lossC/lossN * limitFacN) are unchanged. Default .false. is the
+  !sl published form R = res_phy*limitFacN + biosynth*N_assim (bit-identical).
+  Logical                      :: res_phy_const  = .false.
   Real(kind=8)                 :: biosynth       = 2.33d0         ! [mmol C/mmol N] Cost of biosynthesis
   Real(kind=8)                 :: biosynthSi     = 0.d0
 !sl Pseudo N2 fixation by small phytoplankton (diagnostic, default off): floor under DIN/(DIN+k_din)
@@ -338,7 +343,7 @@ module recom_config
   Real(kind=8)                 :: nfix_max       = 0.d0           ! [mmol N/(m2 day)] cap on column-integrated fixation; 0 = no cap
   namelist /paassimilation/ V_cm_fact, V_cm_fact_d, V_cm_fact_c, V_cm_fact_p, NMaxSlope, SiMaxSlope, NCmax, NCmax_d, NCmax_c, NCmax_p, SiCmax, &
                        NCuptakeRatio, NCUptakeRatio_d, NCUptakeRatio_c, NCUptakeRatio_p, SiCUptakeRatio, k_din, k_din_d, k_din_c, k_din_p, &
-                       Chl2N_max, Chl2N_max_d, Chl2N_max_c, Chl2N_max_p, res_phy, res_phy_d, res_phy_c, res_phy_p, biosynth, biosynthSi, &
+                       Chl2N_max, Chl2N_max_d, Chl2N_max_c, Chl2N_max_p, res_phy, res_phy_d, res_phy_c, res_phy_p, res_phy_const, biosynth, biosynthSi, &
                        nfix_floor, nfix_Tmin, nfix_max
 !!------------------------------------------------------------------------------
 !! *** Iron chemistry ***

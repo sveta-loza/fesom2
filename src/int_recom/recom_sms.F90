@@ -3150,6 +3150,15 @@ endif !/* RECOM_MARSHALL */
         ! Equation: R = res_phy * limitFacN + biosynth * N_assim + biosynthSi * Si_assim
         !-------------------------------------------------------------------------------
 
+        if (res_phy_const) then
+            !sl 21c.3 (7 Oct 2026): maintenance respiration not scaled by the NCmax limiter.
+            phyRespRate     = res_phy   + biosynth * N_assim
+            phyRespRate_dia = res_phy_d + biosynth * N_assim_dia + biosynthSi * Si_assim
+            if (enable_coccos) then
+                phyRespRate_cocco = res_phy_c + biosynth * N_assim_cocco
+                phyRespRate_phaeo = res_phy_p + biosynth * N_assim_phaeo
+            endif
+        else
         ! --- Small phytoplankton Respiration ---
         phyRespRate = res_phy * limitFacN + biosynth * N_assim
 
@@ -3162,6 +3171,7 @@ endif !/* RECOM_MARSHALL */
             phyRespRate_cocco = res_phy_c * limitFacN_cocco + biosynth * N_assim_cocco
             phyRespRate_phaeo = res_phy_p * limitFacN_phaeo + biosynth * N_assim_phaeo
         endif
+        endif   ! res_phy_const
 
         !===============================================================================
         ! MESOZOOPLANKTON GRAZING

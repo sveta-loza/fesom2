@@ -1067,6 +1067,7 @@ subroutine exchange_oce_ice_ifs(istep, ice, tracers, dynamics, partit, mesh)
   use MOD_ICE
   use MOD_DYN
   use g_comm_auto
+  use cpl_sync_mode, only: cpl_sync_step   ! TerraDT: FESOM_CPL_SYNC
   use g_forcing_arrays, only: shortwave, prec_rain, prec_snow, evap_no_ifrac, sublimation, &
                               runoff, evaporation, ice_sublimation
   use ice_coupling_interface, only: ice_cpl_send, ice_cpl_recv, &
@@ -1083,8 +1084,8 @@ subroutine exchange_oce_ice_ifs(istep, ice, tracers, dynamics, partit, mesh)
   type(t_partit), intent(inout), target :: partit
   type(t_mesh),   intent(in),    target :: mesh
   type(t_dyn)   , intent(in),    target :: dynamics
-  integer :: i
-  logical :: action
+  integer :: i, ipass
+  logical :: action, send_first
   real(kind=WP), dimension(:,:), allocatable, save :: exchange
   real(kind=WP), dimension(:), pointer :: a_ice, m_ice, m_snow, ice_temp, ice_alb
   real(kind=WP), dimension(:), pointer :: stress_atmice_x, stress_atmice_y
@@ -1110,6 +1111,11 @@ subroutine exchange_oce_ice_ifs(istep, ice, tracers, dynamics, partit, mesh)
      exchange = 0
   end if
 
+  ! TerraDT: FESOM_CPL_SYNC (cpl_sync_mode.F90): send before recv = sequential exchange,
+  ! the sea ice then computes this step's fluxes from this step's ocean state.
+  send_first = cpl_sync_step(istep, partit%mype)
+  do ipass = 1, 2
+  if ((ipass == 1) .neqv. send_first) then
   ! ---- recv ice state from FESIM (incl. ice_temp + ice_alb for IFS) --------
   do i=1,ICE_NRECV
      exchange = 0.0
@@ -1152,7 +1158,9 @@ subroutine exchange_oce_ice_ifs(istep, ice, tracers, dynamics, partit, mesh)
         call exchange_nod(ice%data(1)%values_old, partit)
      endif
   end do
+  end if
 
+  if ((ipass == 1) .eqv. send_first) then
   ! ---- send native ocean state + forwarded IFS atm fluxes to FESIM ---------
   do i=1,ICE_NSEND
      exchange = 0.
@@ -1186,6 +1194,8 @@ subroutine exchange_oce_ice_ifs(istep, ice, tracers, dynamics, partit, mesh)
      endif
      call ice_cpl_send(i, exchange(:,1:ice_send_collection_size(i)), action)
   enddo
+  end if
+  end do ! ipass
 
 end subroutine exchange_oce_ice_ifs
 #endif

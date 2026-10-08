@@ -25,6 +25,9 @@ module fesom_main_storage_module
   use ocean2ice_interface
   use oce_fluxes_interface
   use update_atm_forcing_interface
+#if defined (__yac) && defined (__ifs_fwd)
+  use cpl_atm_stress_lag, only: atm_stress_lag_begin, atm_stress_lag_end
+#endif
   use before_oce_step_interface
   use oce_timestep_ale_interface
   use read_mesh_interface
@@ -779,8 +782,14 @@ contains
 
             !___compute fluxes to the ocean: heat, freshwater, momentum_________
             if (flag_debug .and. f%mype==0)  print *, achar(27)//'[34m'//' --> call oce_fluxes_mom...'//achar(27)//'[0m'
+#if defined (__yac) && defined (__ifs_fwd)
+            call atm_stress_lag_begin(f%mype)   ! TerraDT: optional one-step lag of the atm stress (see cpl_atm_stress_lag.F90)
+#endif
             call oce_fluxes_mom(f%ice, f%dynamics, f%partit, f%mesh) ! momentum only
             call oce_fluxes(f%ice, f%dynamics, f%tracers, f%partit, f%mesh)
+#if defined (__yac) && defined (__ifs_fwd)
+            call atm_stress_lag_end()
+#endif
         end if
         call before_oce_step(f%dynamics, f%tracers, f%partit, f%mesh) ! prepare the things if required
         f%t2 = MPI_Wtime()

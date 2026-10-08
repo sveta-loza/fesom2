@@ -59,7 +59,7 @@ module update_atm_forcing_interface
         type(t_mesh),   intent(in),    target :: mesh
         type(t_dyn)   , intent(in),    target :: dynamics
         end subroutine update_atm_forcing
-        subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
+        subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh, phase)
         USE MOD_TRACER
         USE MOD_ICE
         USE MOD_PARTIT
@@ -72,6 +72,7 @@ module update_atm_forcing_interface
         type(t_partit), intent(inout), target :: partit
         type(t_mesh),   intent(in),    target :: mesh
         type(t_dyn)   , intent(in),    target :: dynamics
+        integer, optional, intent(in) :: phase   ! TerraDT FESOM_CPL_SYNC: 1 = receive only, 2 = send only, absent = send then receive
         end subroutine update_atm_forcing_yac
     end interface
 end module update_atm_forcing_interface
@@ -89,7 +90,7 @@ end module net_rec_from_atm_interface
 ! Routines for updating ocean surface forcing fields
 !-------------------------------------------------------------------------
 #if defined (__yac)
-subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
+subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh, phase)
   use o_PARAM
   use MOD_MESH
   USE MOD_PARTIT
@@ -136,6 +137,8 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
   type(t_partit), intent(inout), target :: partit
   type(t_mesh),   intent(in),    target :: mesh
   type(t_dyn)   , intent(in), target :: dynamics
+  integer, optional, intent(in) :: phase   ! TerraDT FESOM_CPL_SYNC: 1 = receive only, 2 = send only, absent = send then receive
+  logical :: do_send, do_recv
   !_____________________________________________________________________________
   integer                  :: i, itime,n2,n,nz,k,elem
   real(kind=WP)            :: i_coef, aux
@@ -222,6 +225,11 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
 !     ALLOCATE(mask(myDim_nod2D))
 !     mask = 1.
 !  end if
+  do_send = .true.; do_recv = .true.
+  if (present(phase)) then
+     do_send = (phase /= 1); do_recv = (phase /= 2)
+  end if
+  if (do_send) then
   do i=1,nsend
      exchange  =0.
      if (i.eq.1) then
@@ -261,11 +269,13 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
      call ocn_cpl_send(i, exchange(:,1:cpl_send_collection_size(i)), action)
      if (mype==0) write(*,*) 'SEND: field ', i, ' max val:', maxval(exchange), ' . ACTION? ', action
   enddo
+  end if ! do_send
 #ifdef VERBOSE
 !sl  do i=1, nsend
 !sl     if (mype==0) write(*,*) 'SEND: field ', i, ' max val:', maxval(exchange), ' . ACTION? ', action
 !sl  enddo
 #endif
+  if (do_recv) then
   do i=1,nrecv !sl nrecv
      exchange =0.0
      if (mype==0) then
@@ -389,6 +399,7 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
 !SL--------------------------------------------------
      endif
   end do
+  end if ! do_recv
 
   if ((do_rotate_oce_wind .AND. do_rotate_ice_wind) .AND. rotated_grid) then
      do n=1, myDim_nod2D+eDim_nod2D

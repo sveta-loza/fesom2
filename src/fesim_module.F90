@@ -25,6 +25,9 @@ module fesom_main_storage_module
   use ice_setup_interface
   use oce_fluxes_interface
   use update_atm_forcing_interface
+#if defined (__yac)
+  use cpl_sync_mode, only: cpl_sync_step   ! TerraDT: FESOM_CPL_SYNC
+#endif
 !sl  use before_oce_step_interface
   use oce_timestep_ale_interface
   use read_mesh_interface
@@ -501,8 +504,15 @@ contains
             ! call-gating: only exchange on coupling steps (cpl_stride). Off-steps
             ! reuse the cached ocean/atm fields (zero-order hold). Ocean side gates
             ! identically (same n, same cpl_stride) so yac_fput/fget stay paired.
-            if (mod(n-1, cpl_stride) == 0) &
-            call update_atm_forcing_yac(n, f%ice, f%tracers, f%dynamics, f%partit, f%mesh)
+            if (mod(n-1, cpl_stride) == 0) then
+               if (cpl_sync_step(n, f%mype)) then
+                  ! TerraDT FESOM_CPL_SYNC: receive the ocean's state of THIS step now; the
+                  ! send of this step's ice state/fluxes follows after oce_fluxes_mom below.
+                  call update_atm_forcing_yac(n, f%ice, f%tracers, f%dynamics, f%partit, f%mesh, phase=1)
+               else
+                  call update_atm_forcing_yac(n, f%ice, f%tracers, f%dynamics, f%partit, f%mesh)
+               end if
+            end if
            if (f%mype==0)  print *, achar(27)//'[34m'//' --> after update_atm_forcing(n)'//achar(27)//'[0m'
 #endif 
 #if defined (FESIM_PROFILING)
@@ -532,6 +542,14 @@ contains
             !___compute fluxes to the ocean: heat, freshwater, momentum_________
             if (flag_debug .and. f%mype==0)  print *, achar(27)//'[34m'//' --> call oce_fluxes_mom...'//achar(27)//'[0m'
             call oce_fluxes_mom(f%ice, f%dynamics, f%partit, f%mesh) ! momentum only: fills ice%stress_iceoce_x/y for the ice->ocean YAC send
+#if defined (__yac)
+            ! TerraDT FESOM_CPL_SYNC: sequential exchange -> send this step's ice state and
+            ! fluxes now (after thermo, dynamics and the ice-ocean stress), the ocean waits for it.
+            if (mod(n-1, cpl_stride) == 0) then
+               if (cpl_sync_step(n, f%mype)) &
+               call update_atm_forcing_yac(n, f%ice, f%tracers, f%dynamics, f%partit, f%mesh, phase=2)
+            end if
+#endif
             ! (no oce_fluxes: the heat/freshwater flux to the ocean is sent as
             !  `ice_to_ocean_flux` from gen_forcing_couple, not applied locally)
 !sl        end if  !sl??

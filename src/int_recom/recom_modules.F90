@@ -478,7 +478,12 @@ module recom_config
   Logical                      :: ovf_to_cdom   = .true.          !sl if RECOM_CDOM: .true. = overflow DOC is split with CDOM by fcdom
                                                                     !   like the regular excretion; .false. = all of it to DOC (overflow
                                                                     !   exudates are mostly carbohydrate/TEP precursors, not chromophoric)
-  namelist /paphytoplankton_C/ lossC, lossC_d, lossC_c, lossC_p, f_ovf, ovf_to_cdom
+  Real(kind=8)                 :: res_ovf       = 0.0d0           !sl [-] Carbon overflow RESPIRED (8 Oct 2026, NEXT_STEPS 21i option 2):
+                                                                    !   res_ovf*(1-qN)*Cphot, same qN as f_ovf, all PFTs, but the carbon goes
+                                                                    !   to DIC (with O2 consumption, redO2C) instead of DOC/CDOM, so it leaves
+                                                                    !   the organic pool and cannot darken the water. 0 = off, bit-identical.
+                                                                    !   Counted in the respp/respn/respd/respc diagnostics. No ciso terms.
+  namelist /paphytoplankton_C/ lossC, lossC_d, lossC_c, lossC_p, f_ovf, ovf_to_cdom, res_ovf
 !!------------------------------------------------------------------------------
 !! *** Phytoplankton ChlA ***
   Real(8)                      :: deg_Chl       = 0.25d0          ! [1/day]
@@ -1753,6 +1758,8 @@ Module REcoM_declarations
   Real(kind=8)  :: AggregationRate_phaeo             ! [1/day] As AggregationRate, scaled by agg_fac_phaeo, applied to Phaeocystis only
   Real(kind=8)  :: ovfRate, ovfRate_dia, ovfRate_cocco, ovfRate_phaeo  ! [1/day] carbon-overflow DOC exudation (f_ovf), per unit PFT carbon
   Real(kind=8)  :: ovfFlux, ovfFrac                                  ! [mmol C m-3 day-1] total overflow DOC flux; share of it going to DOC (not CDOM)
+  Real(kind=8)  :: ovrRate, ovrRate_dia, ovrRate_cocco, ovrRate_phaeo  ! [1/day] carbon-overflow respiration (res_ovf), per unit PFT carbon
+  Real(kind=8)  :: ovrFlux                                           ! [mmol C m-3 day-1] total overflow respiration flux (to DIC)
   Real(kind=8)  :: MortRate_phaeo                    ! [1/day] Phaeocystis linear mortality to detritus (mort_phaeo, x mort_fac_fe_phaeo if DFe < k_Fe_p)
   Real(kind=8)  :: AggregationRate_det               ! [1/day] Detritus part agg_PD*(DetN+DetZ2N) of AggregationRate, scaled by agg_fac_phaeo_det for Phaeocystis
 !!------------------------------------------------------------------------------                                                                                

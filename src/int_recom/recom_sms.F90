@@ -4300,6 +4300,19 @@ endif !/* RECOM_MARSHALL */
            endif
        endif
 
+       ! Carbon overflow respired (res_ovf): the same quota-dependent overflow term, but the
+       ! carbon is respired to DIC (O2 consumed) instead of exuded as DOC. Guarded, so
+       ! res_ovf = 0 is bit-identical. (8 Oct 2026)
+       ovrRate = 0.0d0; ovrRate_dia = 0.0d0; ovrRate_cocco = 0.0d0; ovrRate_phaeo = 0.0d0
+       if (res_ovf > 0.0d0) then
+           ovrRate     = res_ovf * (1.0d0 - recom_limiter(NMinSlope, NCmin,   quota))     * Cphot
+           ovrRate_dia = res_ovf * (1.0d0 - recom_limiter(NMinSlope, NCmin_d, quota_dia)) * Cphot_dia
+           if (enable_coccos) then
+               ovrRate_cocco = res_ovf * (1.0d0 - recom_limiter(NMinSlope, NCmin_c, quota_cocco)) * Cphot_cocco
+               ovrRate_phaeo = res_ovf * (1.0d0 - recom_limiter(NMinSlope, NCmin_p, quota_phaeo)) * Cphot_phaeo
+           endif
+       endif
+
        !===============================================================================
        ! MARINE CALCIFICATION
        !===============================================================================
@@ -6549,6 +6562,23 @@ endif !/* RECOM_CDOM */
             sms(k,idoc) = sms(k,idoc) + ovfFrac * ovfFlux * dt_b
         endif
 
+        !-------------------------------------------------------------------------------
+        ! Carbon overflow respired (res_ovf > 0 only): PFT carbon -> DIC, O2 consumed at
+        ! redO2C, like autotrophic respiration. Carbon-conserving. (8 Oct 2026)
+        !-------------------------------------------------------------------------------
+        if (res_ovf > 0.0d0) then
+            ovrFlux = ovrRate * PhyC + ovrRate_dia * DiaC
+            sms(k,iphyc) = sms(k,iphyc) - ovrRate     * PhyC * dt_b
+            sms(k,idiac) = sms(k,idiac) - ovrRate_dia * DiaC * dt_b
+            if (enable_coccos) then
+                ovrFlux = ovrFlux + ovrRate_cocco * CoccoC + ovrRate_phaeo * PhaeoC
+                sms(k,icocc) = sms(k,icocc) - ovrRate_cocco * CoccoC * dt_b
+                sms(k,iphac) = sms(k,iphac) - ovrRate_phaeo * PhaeoC * dt_b
+            endif
+            sms(k,idic) = sms(k,idic) + ovrFlux * dt_b
+            sms(k,ioxy) = sms(k,ioxy) - ovrFlux * redO2C * dt_b
+        endif
+
         !===============================================================================
         ! 36. DISSOLVED OXYGEN (O2)
         !===============================================================================
@@ -7622,22 +7652,26 @@ endif !/* RECOM_CDOM */
                 ! Small phytoplankton respiration
                 vertrespn(k) = vertrespn(k) + ( &
                     + PhyRespRate * PhyC &        ! Maintenance respiration
+                    + ovrRate * PhyC &            ! Overflow respiration (res_ovf; 0 by default)
                 ) * recipbiostep
 
                 ! Diatom respiration
                 vertrespd(k) = vertrespd(k) + ( &
                     + PhyRespRate_dia * DiaC &
+                    + ovrRate_dia * DiaC &
                 ) * recipbiostep
 
                 if (enable_coccos) then
                     ! Coccolithophore respiration
                     vertrespc(k) = vertrespc(k) + ( &
                         + PhyRespRate_cocco * CoccoC &
+                        + ovrRate_cocco * CoccoC &
                     ) * recipbiostep
 
                     ! Phaeocystis respiration
                     vertrespp(k) = vertrespp(k) + ( &
                         + PhyRespRate_phaeo * PhaeoC &
+                        + ovrRate_phaeo * PhaeoC &
                     ) * recipbiostep
                 endif
 

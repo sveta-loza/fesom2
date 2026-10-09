@@ -723,13 +723,20 @@ module recom_config
 !sl Against OC-CCI a_dg(443) 2003-2012 the tracer gives the right pattern but ~1.3x too much absorption
 !sl (~1.9x S of 45S), which suggests ~0.10-0.13; see obs_data/cchl/adg_compare.txt.
   Real(kind=8)           :: cdomcoeff = 0.18d0
+!sl 9 Oct 2026, clear-water backscatter (NEXT_STEPS 21k): bb_to_b was a compile-time constant in module REcoM_spectral
+!sl (the detritus backscatter ratio used with RECOM_CALC_APART; 0.05 is ~9x the ratio the detritus optics file implies).
+!sl bb_bg443 [1/m] adds a non-algal background backscatter bb_bg443*(443/lambda)**bb_bg_slope to the total bb at every
+!sl level (the submicron particle pool REcoM does not carry; Stramski et al. 2004). 0 = off, bit-identical.
+  Real(kind=8)           :: bb_to_b     = 0.05d0
+  Real(kind=8)           :: bb_bg443    = 0.0d0
+  Real(kind=8)           :: bb_bg_slope = 1.0d0
 
   namelist /spectral/ RECOM_CDOM, RECOM_MARSHALL, RECOM_RADTRANS, OASIM, RECOM_BMASS, &
                       RECOM_CALC_ACDOM,  RECOM_CALC_APART, RECOM_CALC_APHYT,         &
                       RECOM_CALC_REFLEC, &
                       DAR_NONSPECTRAL_BACKSCATTERING_RATIO, darwin_bbphy, &
                       QYmax, QYmax_d, QYmax_cocco, QYmax_phaeo, &
-                      cdomcoeff, &
+                      cdomcoeff, bb_to_b, bb_bg443, bb_bg_slope, &
                       aphyt_slope_phy, aphyt_icept_phy, &
                       aphyt_slope_dia, aphyt_icept_dia, &
                       aphyt_slope_cocco, aphyt_icept_cocco, &
@@ -2572,7 +2579,7 @@ module REcoM_spectral
          Real(kind=8),dimension(tlam) :: exbpar                     ! bPart exponent
          Real(kind=8)                 :: bparcoeff=0.345            ! specific Particles scatter
          Integer                      :: nlaBPAR                    ! nl number where bPart is given used in bPart calculations
-         Real(kind=8)                 :: bb_to_b=0.05               ! backscatter to total scatter ratio
+!sl bb_to_b moved to module recom_config (&spectral) on 9 Oct 2026
 !sl else
          Real(kind=8),dimension(tlam) :: apart
          Real(kind=8),dimension(tlam) :: bpart

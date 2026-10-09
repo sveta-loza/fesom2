@@ -651,6 +651,9 @@ endif
                          + bctot(k,ilam) + bpart_k(k,ilam)
             bb_k(k,ilam) = darwin_bbw * bw(ilam)                 &
                          + bbctot(k,ilam) + bbpart_k(k,ilam)
+!sl non-algal background backscatter (9 Oct 2026); bb_bg443 = 0 leaves bb_k untouched
+            if (bb_bg443 > 0.0d0) bb_k(k,ilam) = bb_k(k,ilam)   &
+                 + bb_bg443 * (443.0d0/dble(pwaves(ilam)))**bb_bg_slope
             bb_k(k,ilam) = MAX(darwin_bbmin, bb_k(k,ilam))
 !   initialize output variables
             Edz(ilam,k) = 0.0

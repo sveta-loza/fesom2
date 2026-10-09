@@ -188,7 +188,7 @@ subroutine ice_timestep(step, ice, partit, mesh)
     real(kind=WP), dimension(:), pointer  :: u_ice, v_ice
     !LA 2023-03-08
     real(kind=WP), dimension(:), pointer  :: u_ice_ib, v_ice_ib
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
     real(kind=WP), dimension(:), pointer  :: a_ice, ice_temp
     !LA 2023-03-08
     real(kind=WP), dimension(:), pointer  :: a_ice_ib
@@ -225,7 +225,7 @@ subroutine ice_timestep(step, ice, partit, mesh)
 !$omp end parallel sections
   end if
 !---------------------------------------------
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
     a_ice    => ice%data(1)%values(:)    
     ice_temp => ice%data(4)%values(:)
 #endif
@@ -254,7 +254,7 @@ subroutine ice_timestep(step, ice, partit, mesh)
     !$ACC DEVICE (ice%data(1)%dvalues, ice%data(2)%dvalues, ice%data(3)%dvalues) &
     !$ACC DEVICE (ice%data(1)%values_rhs, ice%data(2)%values_rhs, ice%data(3)%values_rhs) &
     !$ACC DEVICE (ice%data(1)%values_div_rhs, ice%data(2)%values_div_rhs, ice%data(3)%values_div_rhs)
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
     !$ACC UPDATE DEVICE (ice%data(4)%values, ice%data(4)%valuesl, ice%data(4)%dvalues, ice%data(4)%values_rhs, ice%data(4)%values_div_rhs)
 #endif
     !___________________________________________________________________________
@@ -293,7 +293,7 @@ subroutine ice_timestep(step, ice, partit, mesh)
     ! call ice_fct_solve
     ! call cut_off
     ! new FCT routines from Sergey Danilov 08.05.2018
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
 #ifndef ENABLE_OPENACC
 !$OMP PARALLEL DO
 #else
@@ -333,11 +333,11 @@ subroutine ice_timestep(step, ice, partit, mesh)
     !$ACC HOST (ice%data(1)%dvalues, ice%data(2)%dvalues, ice%data(3)%dvalues) &
     !$ACC HOST (ice%data(1)%values_rhs, ice%data(2)%values_rhs, ice%data(3)%values_rhs) &
     !$ACC HOST (ice%data(1)%values_div_rhs, ice%data(2)%values_div_rhs, ice%data(3)%values_div_rhs)
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
     !$ACC UPDATE HOST (ice%data(4)%values, ice%data(4)%valuesl, ice%data(4)%dvalues, ice%data(4)%values_rhs, ice%data(4)%values_div_rhs)
 #endif
 
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
 !$OMP PARALLEL DO
     do i=1,myDim_nod2D+eDim_nod2D
         if (a_ice(i)>0.0_WP) ice_temp(i) = ice_temp(i)/max(a_ice(i), 1.e-6_WP)

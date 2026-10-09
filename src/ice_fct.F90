@@ -107,7 +107,7 @@ subroutine ice_TG_rhs(ice, partit, mesh)
     real(kind=WP), dimension(:), pointer  :: u_ice, v_ice
     real(kind=WP), dimension(:), pointer  :: a_ice, m_ice, m_snow
     real(kind=WP), dimension(:), pointer  :: rhs_a, rhs_m, rhs_ms
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
     real(kind=WP), dimension(:), pointer  :: ice_temp, rhs_temp
 #endif
 #include "associate_part_def.h"
@@ -122,7 +122,7 @@ subroutine ice_TG_rhs(ice, partit, mesh)
     rhs_a    => ice%data(1)%values_rhs(:)
     rhs_m    => ice%data(2)%values_rhs(:)
     rhs_ms   => ice%data(3)%values_rhs(:)
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
     ice_temp => ice%data(4)%values(:)
     rhs_temp => ice%data(4)%values_rhs(:)
 #endif
@@ -138,7 +138,7 @@ subroutine ice_TG_rhs(ice, partit, mesh)
         rhs_m(row)=0._WP
         rhs_a(row)=0._WP
         rhs_ms(row)=0._WP
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
         rhs_temp(row)=0._WP
 #endif
     END DO
@@ -190,7 +190,7 @@ subroutine ice_TG_rhs(ice, partit, mesh)
             rhs_m(row)=rhs_m(row)+sum(entries*m_ice(elnodes))
             rhs_a(row)=rhs_a(row)+sum(entries*a_ice(elnodes))
             rhs_ms(row)=rhs_ms(row)+sum(entries*m_snow(elnodes))
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
             rhs_temp(row)=rhs_temp(row)+sum(entries*ice_temp(elnodes))
 #endif
         END DO
@@ -232,7 +232,7 @@ subroutine ice_fct_solve(ice, partit, mesh)
   call ice_fem_fct(2, ice, partit, mesh)    ! a_ice
   call ice_fem_fct(3, ice, partit, mesh)    ! m_snow
 
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
   call ice_fem_fct(4, ice, partit, mesh)    ! ice_temp
 #endif
 
@@ -270,7 +270,7 @@ subroutine ice_solve_low_order(ice, partit, mesh)
     real(kind=WP), dimension(:), pointer  :: rhs_a, rhs_m, rhs_ms
     real(kind=WP), dimension(:), pointer  :: a_icel, m_icel, m_snowl
     real(kind=WP), dimension(:), pointer  :: mass_matrix
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
     real(kind=WP), dimension(:), pointer  :: ice_temp, rhs_temp, m_templ
 #endif
 #include "associate_part_def.h"
@@ -287,7 +287,7 @@ subroutine ice_solve_low_order(ice, partit, mesh)
     m_icel       => ice%data(2)%valuesl(:)
     m_snowl      => ice%data(3)%valuesl(:)
     mass_matrix  => ice%work%fct_massmatrix(:)
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
     ice_temp     => ice%data(4)%values(:)
     rhs_temp     => ice%data(4)%values_rhs(:)
     m_templ      => ice%data(4)%valuesl(:)
@@ -320,7 +320,7 @@ subroutine ice_solve_low_order(ice, partit, mesh)
         m_snowl(row)=(rhs_ms(row)+gamma*sum(mass_matrix(clo:clo2)* &
                     m_snow(location(1:cn))))/area(1,row) + &
                     (1.0_WP-gamma)*m_snow(row)
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
         m_templ(row)=(rhs_temp(row)+gamma*sum(mass_matrix(clo:clo2)* &
                   ice_temp(location(1:cn))))/area(1,row) + &
                   (1.0_WP-gamma)*ice_temp(row)
@@ -333,7 +333,7 @@ subroutine ice_solve_low_order(ice, partit, mesh)
 #endif
     ! Low-order solution must be known to neighbours
     call exchange_nod(m_icel,a_icel,m_snowl, partit, luse_g2g = .true.)
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
     call exchange_nod(m_templ, partit, luse_g2g = .true.)
 #endif
 
@@ -366,7 +366,7 @@ subroutine ice_solve_high_order(ice, partit, mesh)
     real(kind=WP), dimension(:), pointer  :: a_icel, m_icel, m_snowl
     real(kind=WP), dimension(:), pointer  :: da_ice, dm_ice, dm_snow
     real(kind=WP), dimension(:), pointer  :: mass_matrix
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
     real(kind=WP), dimension(:), pointer  :: rhs_temp, m_templ, dm_temp
 #endif
 #include "associate_part_def.h"
@@ -383,7 +383,7 @@ subroutine ice_solve_high_order(ice, partit, mesh)
     dm_ice       => ice%data(2)%dvalues(:)
     dm_snow      => ice%data(3)%dvalues(:)
     mass_matrix  => ice%work%fct_massmatrix(:)
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
     rhs_temp     => ice%data(4)%values_rhs(:)
     m_templ      => ice%data(4)%valuesl(:)
     dm_temp      => ice%data(4)%dvalues(:)
@@ -404,7 +404,7 @@ subroutine ice_solve_high_order(ice, partit, mesh)
         dm_ice(row)=rhs_m(row)/area(1,row)
         da_ice(row)=rhs_a(row)/area(1,row)
         dm_snow(row)=rhs_ms(row)/area(1,row)
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
         dm_temp(row)=rhs_temp(row)/area(1,row)
 #endif
     end do
@@ -414,7 +414,7 @@ subroutine ice_solve_high_order(ice, partit, mesh)
     !$ACC END PARALLEL LOOP
 #endif
     call exchange_nod(dm_ice, da_ice, dm_snow, partit, luse_g2g = .true.)
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
     call exchange_nod(dm_temp, partit, luse_g2g = .true.)
 #endif /* (__oifs) */
 #ifndef ENABLE_OPENACC
@@ -445,7 +445,7 @@ subroutine ice_solve_high_order(ice, partit, mesh)
             a_icel(row) = da_ice(row)+rhs_new/area(1,row)
             rhs_new     = rhs_ms(row) - sum(mass_matrix(clo:clo2)*dm_snow(location(1:cn)))
             m_snowl(row)= dm_snow(row)+rhs_new/area(1,row)
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
             rhs_new     = rhs_temp(row) - sum(mass_matrix(clo:clo2)*dm_temp(location(1:cn)))
             m_templ(row)= dm_temp(row)+rhs_new/area(1,row)
 #endif
@@ -467,7 +467,7 @@ subroutine ice_solve_high_order(ice, partit, mesh)
             dm_ice(row)=m_icel(row)
             da_ice(row)=a_icel(row)
             dm_snow(row)=m_snowl(row)
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
             dm_temp(row)=m_templ(row)
 #endif
         end do
@@ -479,7 +479,7 @@ subroutine ice_solve_high_order(ice, partit, mesh)
 #endif
         !_______________________________________________________________________
         call exchange_nod(dm_ice, da_ice, dm_snow, partit, luse_g2g = .true.)
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
         call exchange_nod(dm_temp, partit, luse_g2g = .true.)
 #endif /* (__oifs) */
 #ifndef ENABLE_OPENACC
@@ -517,7 +517,7 @@ subroutine ice_fem_fct(tr_array_id, ice, partit, mesh)
     real(kind=WP), dimension(:)  , pointer  :: da_ice, dm_ice, dm_snow
     real(kind=WP), dimension(:)  , pointer  :: icepplus, icepminus, tmax, tmin
     real(kind=WP), dimension(:,:), pointer  :: icefluxes
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
     real(kind=WP), dimension(:)  , pointer  :: ice_temp, m_templ, dm_temp
 #endif
 #include "associate_part_def.h"
@@ -538,7 +538,7 @@ subroutine ice_fem_fct(tr_array_id, ice, partit, mesh)
     icepminus => ice%work%fct_minus(:)
     tmax      => ice%work%fct_tmax(:)
     tmin      => ice%work%fct_tmin(:)
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
     ice_temp  => ice%data(4)%values(:)
     m_templ   => ice%data(4)%valuesl(:)
     dm_temp   => ice%data(4)%dvalues(:)
@@ -622,7 +622,7 @@ subroutine ice_fem_fct(tr_array_id, ice, partit, mesh)
             end do
         end if
 
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
         if (tr_array_id==4) then
             do q=1,3
                 icefluxes(elem,q)=-sum(icoef(:,q)*(gamma*ice_temp(elnodes) + &
@@ -717,7 +717,7 @@ subroutine ice_fem_fct(tr_array_id, ice, partit, mesh)
 #endif
     end if
 
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
     if (tr_array_id==4) then
 #ifndef ENABLE_OPENACC
 !$OMP DO
@@ -1065,7 +1065,7 @@ subroutine ice_fem_fct(tr_array_id, ice, partit, mesh)
 #endif
     end if
 
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
     if(tr_array_id==4) then
 #ifndef ENABLE_OPENACC
 !$OMP DO
@@ -1128,7 +1128,7 @@ subroutine ice_fem_fct(tr_array_id, ice, partit, mesh)
 !$OMP END PARALLEL
 #endif
     call exchange_nod(m_ice, a_ice, m_snow, partit, luse_g2g = .true.)
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
     call exchange_nod(ice_temp, partit, luse_g2g = .true.)
 #endif
 
@@ -1271,7 +1271,7 @@ subroutine ice_TG_rhs_div(ice, partit, mesh)
     real(kind=WP), dimension(:), pointer  :: a_ice, m_ice, m_snow
     real(kind=WP), dimension(:), pointer  :: rhs_a, rhs_m, rhs_ms
     real(kind=WP), dimension(:), pointer  :: rhs_adiv, rhs_mdiv, rhs_msdiv
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
     real(kind=WP), dimension(:), pointer  :: ice_temp, rhs_temp, rhs_tempdiv
 #endif
 #include "associate_part_def.h"
@@ -1289,7 +1289,7 @@ subroutine ice_TG_rhs_div(ice, partit, mesh)
     rhs_adiv    => ice%data(1)%values_div_rhs(:)
     rhs_mdiv    => ice%data(2)%values_div_rhs(:)
     rhs_msdiv   => ice%data(3)%values_div_rhs(:)
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
     ice_temp    => ice%data(4)%values(:)
     rhs_temp    => ice%data(4)%values_rhs(:)
     rhs_tempdiv => ice%data(4)%values_div_rhs(:)
@@ -1308,13 +1308,13 @@ subroutine ice_TG_rhs_div(ice, partit, mesh)
         rhs_m(row)=0.0_WP
         rhs_a(row)=0.0_WP
         rhs_ms(row)=0.0_WP
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
         rhs_temp(row)=0.0_WP
 #endif
         rhs_mdiv(row)=0.0_WP
         rhs_adiv(row)=0.0_WP
         rhs_msdiv(row)=0.0_WP
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
         rhs_tempdiv(row)=0.0_WP
 #endif
     end do
@@ -1369,7 +1369,7 @@ subroutine ice_TG_rhs_div(ice, partit, mesh)
             cx1=vol*ice%ice_dt*c4*(sum(m_ice(elnodes))+m_ice(elnodes(n))+sum(entries2*m_ice(elnodes)))/12.0_WP
             cx2=vol*ice%ice_dt*c4*(sum(a_ice(elnodes))+a_ice(elnodes(n))+sum(entries2*a_ice(elnodes)))/12.0_WP
             cx3=vol*ice%ice_dt*c4*(sum(m_snow(elnodes))+m_snow(elnodes(n))+sum(entries2*m_snow(elnodes)))/12.0_WP
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
             cx4=vol*ice%ice_dt*c4*(sum(ice_temp(elnodes))+ice_temp(elnodes(n))+sum(entries2*ice_temp(elnodes)))/12.0_WP
 #endif
 
@@ -1399,7 +1399,7 @@ subroutine ice_TG_rhs_div(ice, partit, mesh)
 #endif
             rhs_ms(row)=rhs_ms(row)+tmp_sum+cx3
 
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
             tmp_sum = sum(entries*ice_temp(elnodes))
 #if !defined(DISABLE_OPENACC_ATOMICS)
             !$ACC ATOMIC UPDATE
@@ -1420,7 +1420,7 @@ subroutine ice_TG_rhs_div(ice, partit, mesh)
             !$ACC ATOMIC UPDATE
 #endif
             rhs_msdiv(row)=rhs_msdiv(row)-cx3
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
 #if !defined(DISABLE_OPENACC_ATOMICS)
             !$ACC ATOMIC UPDATE
 #endif
@@ -1472,7 +1472,7 @@ subroutine ice_update_for_div(ice, partit, mesh)
     real(kind=WP), dimension(:), pointer  :: a_icel, m_icel, m_snowl
     real(kind=WP), dimension(:), pointer  :: da_ice, dm_ice, dm_snow
     real(kind=WP), dimension(:), pointer  :: mass_matrix
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
     real(kind=WP), dimension(:), pointer  :: ice_temp, m_templ, dm_temp, rhs_tempdiv
 #endif
 #include "associate_part_def.h"
@@ -1492,7 +1492,7 @@ subroutine ice_update_for_div(ice, partit, mesh)
     dm_ice       => ice%data(2)%dvalues(:)
     dm_snow      => ice%data(3)%dvalues(:)
     mass_matrix  => ice%work%fct_massmatrix(:)
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
     ice_temp     => ice%data(4)%values(:)
     m_templ      => ice%data(4)%valuesl(:)
     dm_temp      => ice%data(4)%dvalues(:)
@@ -1514,7 +1514,7 @@ subroutine ice_update_for_div(ice, partit, mesh)
         dm_ice(row) =rhs_mdiv(row) /area(1,row)
         da_ice(row) =rhs_adiv(row) /area(1,row)
         dm_snow(row)=rhs_msdiv(row)/area(1,row)
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
         dm_temp(row)=rhs_tempdiv(row)/area(1,row)
 #endif
     end do
@@ -1526,7 +1526,7 @@ subroutine ice_update_for_div(ice, partit, mesh)
     call exchange_nod(dm_ice, partit, luse_g2g = .true.)
     call exchange_nod(da_ice, partit, luse_g2g = .true.)
     call exchange_nod(dm_snow, partit, luse_g2g = .true.)
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
     call exchange_nod(dm_temp, partit, luse_g2g = .true.)
 #endif /* (__oifs) */
 #ifndef ENABLE_OPENACC
@@ -1560,7 +1560,7 @@ subroutine ice_update_for_div(ice, partit, mesh)
             a_icel(row) = da_ice(row)+rhs_new/area(1,row)
             rhs_new     = rhs_msdiv(row) - sum(mass_matrix(clo:clo2)*dm_snow(location(1:cn)))
             m_snowl(row)= dm_snow(row)+rhs_new/area(1,row)
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
             rhs_new     = rhs_tempdiv(row) - sum(mass_matrix(clo:clo2)*dm_temp(location(1:cn)))
             m_templ(row)= dm_temp(row)+rhs_new/area(1,row)
 #endif
@@ -1582,7 +1582,7 @@ subroutine ice_update_for_div(ice, partit, mesh)
             dm_ice(row)  = m_icel(row)
             da_ice(row)  = a_icel(row)
             dm_snow(row) = m_snowl(row)
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
             dm_temp(row) = m_templ(row)
 #endif
         end do
@@ -1595,7 +1595,7 @@ subroutine ice_update_for_div(ice, partit, mesh)
         call exchange_nod(dm_ice, partit, luse_g2g = .true.)
         call exchange_nod(da_ice, partit, luse_g2g = .true.)
         call exchange_nod(dm_snow, partit, luse_g2g = .true.)
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
         call exchange_nod(dm_temp, partit, luse_g2g = .true.)
 #endif /* (__oifs) */
 #ifndef ENABLE_OPENACC
@@ -1612,7 +1612,7 @@ subroutine ice_update_for_div(ice, partit, mesh)
        m_ice(row)   = m_ice (row)+dm_ice (row)
        a_ice(row)   = a_ice (row)+da_ice (row)
        m_snow(row)  = m_snow(row)+dm_snow(row)
-#if defined (__oifs) || defined (__ifsinterface)
+#if defined (__oifs) || defined (__ifsinterface) || defined (__ifs_fwd)
        ice_temp(row)= ice_temp(row)+dm_temp(row)
 #endif
     end do

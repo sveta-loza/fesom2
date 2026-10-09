@@ -311,11 +311,13 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
         ice%thermo%thdgr(1:myDim_nod2d)       = exchange(:,3)  ! ice growth rate  [m/s]
         ice%thermo%thdgrsn(1:myDim_nod2d)     = exchange(:,4)  ! snow growth rate [m/s]
         ice%data(1)%values_old(1:myDim_nod2d) = exchange(:,5)  ! a_ice before the thermodynamics
+        real_salt_flux(1:myDim_nod2d)         = exchange(:,6)  ! [m/s psu] brine salt flux from the sea ice (ice_thermo_cpl rsf); the monolithic ice step sets it in place
         call exchange_nod(evaporation, partit)
         call exchange_nod(ice_sublimation, partit)
         call exchange_nod(ice%thermo%thdgr, partit)
         call exchange_nod(ice%thermo%thdgrsn, partit)
         call exchange_nod(ice%data(1)%values_old, partit)
+        call exchange_nod(real_salt_flux, partit)
      endif
   end do
   end if
@@ -947,6 +949,7 @@ subroutine exchange_oce_ice_yac(istep, ice, tracers, dynamics, partit, mesh)
   use g_sbf, only: atmdata, i_xwind, i_ywind, i_tair, i_humi, i_qsr, i_qlw, &
                    i_prec, i_snow, i_mslp
   use g_forcing_arrays, only: runoff, evaporation, ice_sublimation
+  use g_forcing_arrays, only: real_salt_flux   ! TerraDT: brine salt flux received from the sea ice
   use ice_coupling_interface, only: ice_cpl_send, ice_cpl_recv, &
                                      ICE_NSEND, ICE_NRECV, &
                                      ice_send_collection_size, ice_recv_collection_size, &
@@ -1019,11 +1022,13 @@ subroutine exchange_oce_ice_yac(istep, ice, tracers, dynamics, partit, mesh)
         ice%thermo%thdgr(1:myDim_nod2d)       = exchange(:,3)  ! ice growth rate  [m/s]
         ice%thermo%thdgrsn(1:myDim_nod2d)     = exchange(:,4)  ! snow growth rate [m/s]
         ice%data(1)%values_old(1:myDim_nod2d) = exchange(:,5)  ! a_ice before the thermodynamics
+        real_salt_flux(1:myDim_nod2d)         = exchange(:,6)  ! [m/s psu] brine salt flux from the sea ice (ice_thermo_cpl rsf); the monolithic ice step sets it in place
         call exchange_nod(evaporation, partit)
         call exchange_nod(ice_sublimation, partit)
         call exchange_nod(ice%thermo%thdgr, partit)
         call exchange_nod(ice%thermo%thdgrsn, partit)
         call exchange_nod(ice%data(1)%values_old, partit)
+        call exchange_nod(real_salt_flux, partit)
      endif
   end do
   end if
@@ -1093,6 +1098,7 @@ subroutine exchange_oce_ice_ifs(istep, ice, tracers, dynamics, partit, mesh)
   use cpl_sync_mode, only: cpl_sync_step   ! TerraDT: FESOM_CPL_SYNC
   use g_forcing_arrays, only: shortwave, prec_rain, prec_snow, evap_no_ifrac, sublimation, &
                               runoff, evaporation, ice_sublimation
+  use g_forcing_arrays, only: real_salt_flux   ! TerraDT: brine salt flux received from the sea ice
   use ice_coupling_interface, only: ice_cpl_send, ice_cpl_recv, &
                                      ICE_NSEND, ICE_NRECV, &
                                      ice_send_collection_size, ice_recv_collection_size, &
@@ -1174,11 +1180,13 @@ subroutine exchange_oce_ice_ifs(istep, ice, tracers, dynamics, partit, mesh)
         ice%thermo%thdgr(1:myDim_nod2d)       = exchange(:,3)  ! ice growth rate  [m/s]
         ice%thermo%thdgrsn(1:myDim_nod2d)     = exchange(:,4)  ! snow growth rate [m/s]
         ice%data(1)%values_old(1:myDim_nod2d) = exchange(:,5)  ! a_ice before the thermodynamics
+        real_salt_flux(1:myDim_nod2d)         = exchange(:,6)  ! [m/s psu] brine salt flux from the sea ice (ice_thermo_cpl rsf); the monolithic ice step sets it in place
         call exchange_nod(evaporation, partit)
         call exchange_nod(ice_sublimation, partit)
         call exchange_nod(ice%thermo%thdgr, partit)
         call exchange_nod(ice%thermo%thdgrsn, partit)
         call exchange_nod(ice%data(1)%values_old, partit)
+        call exchange_nod(real_salt_flux, partit)
      endif
   end do
   end if

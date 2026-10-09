@@ -101,6 +101,7 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh, p
   use o_arrays
   use g_forcing_param
   use g_forcing_arrays
+  use g_forcing_arrays, only: real_salt_flux   ! TerraDT: brine salt flux forwarded to the ocean
   use g_clock
   use g_config
   use g_comm_auto
@@ -264,6 +265,7 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh, p
         exchange(:,3) = ice%thermo%thdgr(1:myDim_nod2d)       ! ice growth rate  [m/s]
         exchange(:,4) = ice%thermo%thdgrsn(1:myDim_nod2d)     ! snow growth rate [m/s]
         exchange(:,5) = ice%data(1)%values_old(1:myDim_nod2d) ! a_ice before the thermodynamics
+        exchange(:,6) = real_salt_flux(1:myDim_nod2d)         ! [m/s psu] salt flux ocean->ice from ice growth/melt (brine), 0 when use_virt_salt
      endif
      if (mype==0) write(*,*) 'ice2oce: field ', i, ' max val:', maxval(exchange)
      call ocn_cpl_send(i, exchange(:,1:cpl_send_collection_size(i)), action)

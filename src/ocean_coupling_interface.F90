@@ -106,9 +106,9 @@ module ocean_coupling_interface
 ! sea_ice_bundle (3 or 5 for IFS) + ice_to_ocean_stress (2: stress_iceoce_x/y)
 ! + ice_to_ocean_flux (2: net_heat_flux, fresh_wa_flux) in standalone only.
 #if defined(__ifs_fwd)
-  integer, parameter, public :: ocn_send_collection_size(OCN_NSEND) = [5, 2, 2, 5]
+  integer, parameter, public :: ocn_send_collection_size(OCN_NSEND) = [5, 2, 2, 6]
 #else
-  integer, parameter, public :: ocn_send_collection_size(OCN_NSEND) = [3, 2, 2, 5]
+  integer, parameter, public :: ocn_send_collection_size(OCN_NSEND) = [3, 2, 2, 6]
 #endif
 #if defined(__yac_atm)
   integer, parameter, public :: ocn_recv_collection_size(OCN_NRECV) = [1, 1, 2, 2, 3, 4, 2, 2, 2]

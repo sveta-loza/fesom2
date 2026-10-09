@@ -25,6 +25,8 @@ module fesom_main_storage_module
   use ice_setup_interface
   use oce_fluxes_interface
   use update_atm_forcing_interface
+  use g_forcing_param, only: use_virt_salt   ! TerraDT: set from which_ALE below (the ocean does it in oce_setup_step)
+  use g_config,        only: which_ALE
 #if defined (__yac)
   use cpl_sync_mode, only: cpl_sync_step   ! TerraDT: FESOM_CPL_SYNC
 #endif
@@ -211,6 +213,11 @@ contains
         call fesim_profiler_start("setup_model")
 #endif
         call setup_model(f%partit)  ! Read Namelists, always before clock_init
+        ! TerraDT: the ice thermodynamics computes the brine salt flux (real_salt_flux, sent to the
+        ! ocean) only if .not. use_virt_salt; the ocean derives that switch from which_ALE in
+        ! oce_setup_step, which the sea-ice component does not have -> same rule here.
+        use_virt_salt = (trim(which_ALE) == 'linfs')
+        if (f%mype==0) print *, 'TerraDT: use_virt_salt = ', use_virt_salt, ' (which_ALE = ', trim(which_ALE), ')'
 #if defined (FESIM_PROFILING)
         call fesim_profiler_end("setup_model")
 #endif

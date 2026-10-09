@@ -94,6 +94,7 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
   use g_clock
   use g_config
   use g_comm_auto
+  use cpl_sync_mode, only: cpl_sync_step   ! TerraDT: FESOM_CPL_SYNC
   use g_rotate_grid
   use net_rec_from_atm_interface
   use g_sbf, only: sbc_do
@@ -144,7 +145,8 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
   real(kind=WP), dimension(:,:), allocatable , save  :: fwd_fresh_water
   real(kind=WP), dimension(:,:), allocatable , save  :: fwd_heat_flux
   real(kind=WP), dimension(:,:), allocatable , save  :: fwd_atm_sea_ice_bundle
-  logical                                          :: action
+  logical                                          :: action, send_first
+  integer :: ipass
   logical                                          :: do_rotate_oce_wind=.false.
   logical                                          :: do_rotate_ice_wind=.false.
   INTEGER                                          :: my_global_rank, ierror
@@ -267,6 +269,11 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
      endif
   end do
 
+  ! TerraDT: FESOM_CPL_SYNC (cpl_sync_mode.F90): with the sequential exchange the send to
+  ! the sea ice precedes the receive from it (the atmosphere exchange is unchanged).
+  send_first = cpl_sync_step(istep, partit%mype)
+  do ipass = 1, 2
+  if ((ipass == 1) .neqv. send_first) then
   ! ---- recv from sea ice ---------------------------------------------------
   do i=1,ICE_NRECV
      exchange =0.0
@@ -311,7 +318,9 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
         call exchange_nod(ice%data(1)%values_old, partit)
      endif
   end do
+  end if
 
+  if (ipass == 1) then
   ! ---- send to atmosphere --------------------------------------------------
   do i=1,ATM_NSEND
      exchange  =0.
@@ -324,7 +333,9 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
      endif
      call atm_cpl_send(i, exchange(:,1:atm_send_collection_size(i)), action)
   enddo
+  end if
 
+  if ((ipass == 1) .eqv. send_first) then
   ! ---- send to sea ice -----------------------------------------------------
   ! Note: ICE_SEND_SST_FEOM is the duplicate of ATM_SEND_SST_FEOM. The ocean
   ! sends the same SST data through both interfaces so each channel owns its
@@ -357,6 +368,8 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
      endif
      call ice_cpl_send(i, exchange(:,1:ice_send_collection_size(i)), action)
   enddo
+  end if
+  end do ! ipass
 #ifdef VERBOSE
   do i=1, ATM_NSEND
      if (mype==0) write(*,*) 'atm SEND: field ', i, ' max val:', maxval(exchange), ' . ACTION? ', action
@@ -930,6 +943,7 @@ subroutine exchange_oce_ice_yac(istep, ice, tracers, dynamics, partit, mesh)
   use MOD_ICE
   use MOD_DYN
   use g_comm_auto
+  use cpl_sync_mode, only: cpl_sync_step   ! TerraDT: FESOM_CPL_SYNC
   use g_sbf, only: atmdata, i_xwind, i_ywind, i_tair, i_humi, i_qsr, i_qlw, &
                    i_prec, i_snow, i_mslp
   use g_forcing_arrays, only: runoff, evaporation, ice_sublimation
@@ -949,7 +963,8 @@ subroutine exchange_oce_ice_yac(istep, ice, tracers, dynamics, partit, mesh)
   type(t_mesh),   intent(in),    target :: mesh
   type(t_dyn)   , intent(in),    target :: dynamics
   integer :: i
-  logical :: action
+  logical :: action, send_first
+  integer :: ipass
   real(kind=WP) :: t_cpl_call
   real(kind=WP), dimension(:,:), allocatable, save :: exchange
   real(kind=WP), dimension(:), pointer :: a_ice, m_ice, m_snow
@@ -968,6 +983,10 @@ subroutine exchange_oce_ice_yac(istep, ice, tracers, dynamics, partit, mesh)
      exchange = 0
   end if
 
+  ! TerraDT: FESOM_CPL_SYNC (cpl_sync_mode.F90): send before recv = sequential exchange.
+  send_first = cpl_sync_step(istep, partit%mype)
+  do ipass = 1, 2
+  if ((ipass == 1) .neqv. send_first) then
   ! ---- recv ice state from FESIM ------------------------------------------
   do i=1,ICE_NRECV
      exchange = 0.0
@@ -1007,7 +1026,9 @@ subroutine exchange_oce_ice_yac(istep, ice, tracers, dynamics, partit, mesh)
         call exchange_nod(ice%data(1)%values_old, partit)
      endif
   end do
+  end if
 
+  if ((ipass == 1) .eqv. send_first) then
   ! ---- send native ocean state + raw atm state to FESIM -------------------
   do i=1,ICE_NSEND
      exchange = 0.
@@ -1039,6 +1060,8 @@ subroutine exchange_oce_ice_yac(istep, ice, tracers, dynamics, partit, mesh)
      endif
      call ice_cpl_send(i, exchange(:,1:ice_send_collection_size(i)), action)
   enddo
+  end if
+  end do ! ipass
   call cpl_call_toc(t_cpl_call)
 
 end subroutine exchange_oce_ice_yac

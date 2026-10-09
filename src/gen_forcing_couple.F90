@@ -292,7 +292,7 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh, p
      if (.not. action) cycle
      !Do not apply a correction at first time step!
      if (i.eq.OCN_RECV_SST_FEOM) then
-        t_oce(1:myDim_nod2d)  =  exchange(:,1) - 273.15_WP   ! sea surface temperature [°C] (double-precision literal: the ocean adds 273.15_WP; the default-real 273.15 = 273.149994 left T_oc 6e-6 K too warm)
+        t_oce(1:myDim_nod2d)  =  exchange(:,1)   ! sea surface temperature [degC], received in the ocean's native unit (no Kelvin round trip)
         call exchange_nod(t_oce, partit)
      elseif (i.eq.OCN_RECV_RUNOFF) then
         ! River runoff held by the ocean [m/s]; therm_ice adds it to the

@@ -346,7 +346,7 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
      exchange  =0.
      if (i.eq.ICE_SEND_SST_FEOM) then
         ! ocean surface state as ocean2ice prepares it for the built-in ice
-        exchange(:,1) = ice%srfoce_temp(1:myDim_nod2d) + 273.15_WP        ! SST [K]
+        exchange(:,1) = ice%srfoce_temp(1:myDim_nod2d)   ! SST [degC], the ocean's native unit (no Kelvin round trip: +/-273.15 leaves 1e-14 K round-off that flips the new-ice branch where the ocean sits at the freezing point)
      elseif (i.eq.ICE_SEND_OCEAN_TO_ICE_BUNDLE) then
         exchange(:,1) = ice%srfoce_salt(1:myDim_nod2d)     ! sea surface salinity [psu]
         exchange(:,2) = ice%srfoce_ssh(1:myDim_nod2d)             ! see surface hieght [m]
@@ -1039,7 +1039,7 @@ subroutine exchange_oce_ice_yac(istep, ice, tracers, dynamics, partit, mesh)
      exchange = 0.
      if (i.eq.ICE_SEND_SST_FEOM) then
         ! ocean surface state as ocean2ice prepares it for the built-in ice
-        exchange(:,1) = ice%srfoce_temp(1:myDim_nod2d) + 273.15_WP        ! SST [K]
+        exchange(:,1) = ice%srfoce_temp(1:myDim_nod2d)   ! SST [degC], the ocean's native unit (no Kelvin round trip: +/-273.15 leaves 1e-14 K round-off that flips the new-ice branch where the ocean sits at the freezing point)
      elseif (i.eq.ICE_SEND_OCEAN_TO_ICE_BUNDLE) then
         exchange(:,1) = ice%srfoce_salt(1:myDim_nod2d)      ! SSS [psu]
         exchange(:,2) = ice%srfoce_ssh(1:myDim_nod2d)                 ! SSH [m]
@@ -1197,7 +1197,7 @@ subroutine exchange_oce_ice_ifs(istep, ice, tracers, dynamics, partit, mesh)
      exchange = 0.
      if (i.eq.ICE_SEND_SST_FEOM) then
         ! ocean surface state as ocean2ice prepares it for the built-in ice
-        exchange(:,1) = ice%srfoce_temp(1:myDim_nod2d) + 273.15_WP        ! SST [K]
+        exchange(:,1) = ice%srfoce_temp(1:myDim_nod2d)   ! SST [degC], the ocean's native unit (no Kelvin round trip: +/-273.15 leaves 1e-14 K round-off that flips the new-ice branch where the ocean sits at the freezing point)
      elseif (i.eq.ICE_SEND_OCEAN_TO_ICE_BUNDLE) then
         exchange(:,1) = ice%srfoce_salt(1:myDim_nod2d)      ! SSS [psu]
         exchange(:,2) = ice%srfoce_ssh(1:myDim_nod2d)                 ! SSH [m]

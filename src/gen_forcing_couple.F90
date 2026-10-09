@@ -399,7 +399,6 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh, p
 !SL--------------------------------------------------
      endif
   end do
-  end if ! do_recv
 
   if ((do_rotate_oce_wind .AND. do_rotate_ice_wind) .AND. rotated_grid) then
      do n=1, myDim_nod2D+eDim_nod2D
@@ -469,7 +468,7 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh, p
      write(*,*) 'update forcing data took', t2-t1
   end if
 #endif
-
+  end if ! do_recv (the post-receive processing above belongs to the receive phase)
 end subroutine update_atm_forcing_yac
 
 #else /* if not defined  __yac */

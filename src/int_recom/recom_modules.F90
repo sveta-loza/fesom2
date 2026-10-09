@@ -483,7 +483,10 @@ module recom_config
                                                                     !   to DIC (with O2 consumption, redO2C) instead of DOC/CDOM, so it leaves
                                                                     !   the organic pool and cannot darken the water. 0 = off, bit-identical.
                                                                     !   Counted in the respp/respn/respd/respc diagnostics. No ciso terms.
-  namelist /paphytoplankton_C/ lossC, lossC_d, lossC_c, lossC_p, f_ovf, ovf_to_cdom, res_ovf
+  Real(kind=8)                 :: res_ovf_d     = -1.0d0          !sl per-PFT overflow respiration for diatoms, coccolithophores and
+  Real(kind=8)                 :: res_ovf_c     = -1.0d0          !   Phaeocystis (9 Oct 2026). -1 (default) = use res_ovf for that PFT, so
+  Real(kind=8)                 :: res_ovf_p     = -1.0d0          !   existing namelists reproduce; set them to 0 for a small-phyto-only term.
+  namelist /paphytoplankton_C/ lossC, lossC_d, lossC_c, lossC_p, f_ovf, ovf_to_cdom, res_ovf, res_ovf_d, res_ovf_c, res_ovf_p
 !!------------------------------------------------------------------------------
 !! *** Phytoplankton ChlA ***
   Real(8)                      :: deg_Chl       = 0.25d0          ! [1/day]
@@ -1760,6 +1763,7 @@ Module REcoM_declarations
   Real(kind=8)  :: ovfFlux, ovfFrac                                  ! [mmol C m-3 day-1] total overflow DOC flux; share of it going to DOC (not CDOM)
   Real(kind=8)  :: ovrRate, ovrRate_dia, ovrRate_cocco, ovrRate_phaeo  ! [1/day] carbon-overflow respiration (res_ovf), per unit PFT carbon
   Real(kind=8)  :: ovrFlux                                           ! [mmol C m-3 day-1] total overflow respiration flux (to DIC)
+  Real(kind=8)  :: res_ovf_d_eff, res_ovf_c_eff, res_ovf_p_eff       ! per-PFT res_ovf after the -1 = "use res_ovf" rule
   Real(kind=8)  :: MortRate_phaeo                    ! [1/day] Phaeocystis linear mortality to detritus (mort_phaeo, x mort_fac_fe_phaeo if DFe < k_Fe_p)
   Real(kind=8)  :: AggregationRate_det               ! [1/day] Detritus part agg_PD*(DetN+DetZ2N) of AggregationRate, scaled by agg_fac_phaeo_det for Phaeocystis
 !!------------------------------------------------------------------------------                                                                                

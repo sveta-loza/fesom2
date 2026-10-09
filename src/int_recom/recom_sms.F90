@@ -4304,12 +4304,15 @@ endif !/* RECOM_MARSHALL */
        ! carbon is respired to DIC (O2 consumed) instead of exuded as DOC. Guarded, so
        ! res_ovf = 0 is bit-identical. (8 Oct 2026)
        ovrRate = 0.0d0; ovrRate_dia = 0.0d0; ovrRate_cocco = 0.0d0; ovrRate_phaeo = 0.0d0
-       if (res_ovf > 0.0d0) then
-           ovrRate     = res_ovf * (1.0d0 - recom_limiter(NMinSlope, NCmin,   quota))     * Cphot
-           ovrRate_dia = res_ovf * (1.0d0 - recom_limiter(NMinSlope, NCmin_d, quota_dia)) * Cphot_dia
+       res_ovf_d_eff = res_ovf_d; if (res_ovf_d < 0.0d0) res_ovf_d_eff = res_ovf   ! -1 = same as small phyto
+       res_ovf_c_eff = res_ovf_c; if (res_ovf_c < 0.0d0) res_ovf_c_eff = res_ovf
+       res_ovf_p_eff = res_ovf_p; if (res_ovf_p < 0.0d0) res_ovf_p_eff = res_ovf
+       if (res_ovf > 0.0d0 .or. res_ovf_d_eff > 0.0d0 .or. res_ovf_c_eff > 0.0d0 .or. res_ovf_p_eff > 0.0d0) then
+           ovrRate     = res_ovf       * (1.0d0 - recom_limiter(NMinSlope, NCmin,   quota))     * Cphot
+           ovrRate_dia = res_ovf_d_eff * (1.0d0 - recom_limiter(NMinSlope, NCmin_d, quota_dia)) * Cphot_dia
            if (enable_coccos) then
-               ovrRate_cocco = res_ovf * (1.0d0 - recom_limiter(NMinSlope, NCmin_c, quota_cocco)) * Cphot_cocco
-               ovrRate_phaeo = res_ovf * (1.0d0 - recom_limiter(NMinSlope, NCmin_p, quota_phaeo)) * Cphot_phaeo
+               ovrRate_cocco = res_ovf_c_eff * (1.0d0 - recom_limiter(NMinSlope, NCmin_c, quota_cocco)) * Cphot_cocco
+               ovrRate_phaeo = res_ovf_p_eff * (1.0d0 - recom_limiter(NMinSlope, NCmin_p, quota_phaeo)) * Cphot_phaeo
            endif
        endif
 
@@ -6566,7 +6569,7 @@ endif !/* RECOM_CDOM */
         ! Carbon overflow respired (res_ovf > 0 only): PFT carbon -> DIC, O2 consumed at
         ! redO2C, like autotrophic respiration. Carbon-conserving. (8 Oct 2026)
         !-------------------------------------------------------------------------------
-        if (res_ovf > 0.0d0) then
+        if (res_ovf > 0.0d0 .or. res_ovf_d_eff > 0.0d0 .or. res_ovf_c_eff > 0.0d0 .or. res_ovf_p_eff > 0.0d0) then
             ovrFlux = ovrRate * PhyC + ovrRate_dia * DiaC
             sms(k,iphyc) = sms(k,iphyc) - ovrRate     * PhyC * dt_b
             sms(k,idiac) = sms(k,idiac) - ovrRate_dia * DiaC * dt_b

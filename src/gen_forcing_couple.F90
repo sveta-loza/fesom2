@@ -1095,7 +1095,7 @@ subroutine exchange_oce_ice_ifs(istep, ice, tracers, dynamics, partit, mesh)
   use MOD_ICE
   use MOD_DYN
   use g_comm_auto
-  use cpl_sync_mode, only: cpl_sync_step   ! TerraDT: FESOM_CPL_SYNC
+  use cpl_sync_mode, only: cpl_sync_step, cpl_ow_flux_split   ! TerraDT: FESOM_CPL_SYNC, FESOM_CPL_OWFLUX
   use g_forcing_arrays, only: shortwave, prec_rain, prec_snow, evap_no_ifrac, sublimation, &
                               runoff, evaporation, ice_sublimation
   use g_forcing_arrays, only: real_salt_flux   ! TerraDT: brine salt flux received from the sea ice
@@ -1116,6 +1116,8 @@ subroutine exchange_oce_ice_ifs(istep, ice, tracers, dynamics, partit, mesh)
   integer :: i, ipass
   logical :: action, send_first
   real(kind=WP), dimension(:,:), allocatable, save :: exchange
+  real(kind=WP), dimension(:),   allocatable, save :: flx_h_ice, flx_fw_ice   ! TerraDT: ice-related part of the received flux (open-water flux split)
+  integer :: n
   real(kind=WP), dimension(:), pointer :: a_ice, m_ice, m_snow, ice_temp, ice_alb
   real(kind=WP), dimension(:), pointer :: stress_atmice_x, stress_atmice_y
   real(kind=WP), dimension(:), pointer :: oce_heat_flux, ice_heat_flux, enthalpyoffuse
@@ -1172,6 +1174,14 @@ subroutine exchange_oce_ice_ifs(istep, ice, tracers, dynamics, partit, mesh)
         ice%flx_fw(1:myDim_nod2d) = exchange(:,2)  ! fresh_wa_flux [m/s]
         call exchange_nod(ice%flx_h, partit)
         call exchange_nod(ice%flx_fw, partit)
+        ! TerraDT open-water flux split: keep the received (ice-related) part apart, the
+        ! open-water part of the current step is added below (also on steps without new data).
+        if (.not. allocated(flx_h_ice)) then
+           allocate(flx_h_ice(myDim_nod2D+eDim_nod2D), flx_fw_ice(myDim_nod2D+eDim_nod2D))
+           flx_h_ice = 0.0_WP; flx_fw_ice = 0.0_WP
+        end if
+        flx_h_ice  = ice%flx_h
+        flx_fw_ice = ice%flx_fw
      elseif (i.eq.ICE_RECV_ICE_THERMO) then
         ! Terms of the ice thermodynamics that oce_fluxes integrates for the
         ! global freshwater balancing; the built-in ice sets them itself.
@@ -1227,6 +1237,33 @@ subroutine exchange_oce_ice_ifs(istep, ice, tracers, dynamics, partit, mesh)
   enddo
   end if
   end do ! ipass
+
+  ! TerraDT open-water flux split (cpl_sync_mode.F90, FESOM_CPL_OWFLUX; concurrent mode only):
+  ! the sea ice returned only the ice-related part of its heat/freshwater flux (ice_thermo_cpl
+  ! subtracts (1-A)*a2ohf and the open-water P-E + runoff, with A = its pre-thermodynamics
+  ! concentration = values_old received above). The ocean adds that open-water part here from
+  ! the atmospheric fluxes of THIS step, so ice-free water is forced without the exchange lag.
+  ! oce_fluxes then applies heat_flux = -flx_h, water_flux = -flx_fw as before.
+  if (cpl_ow_flux_split()) then
+     if (.not. allocated(flx_h_ice)) then
+        allocate(flx_h_ice(myDim_nod2D+eDim_nod2D), flx_fw_ice(myDim_nod2D+eDim_nod2D))
+        flx_h_ice = 0.0_WP; flx_fw_ice = 0.0_WP
+     end if
+     do n = 1, myDim_nod2D+eDim_nod2D
+        if (ulevels_nod2D(n) > 1) then
+           ice%flx_h(n)  = flx_h_ice(n)
+           ice%flx_fw(n) = flx_fw_ice(n)
+        else
+           ice%flx_h(n)  = flx_h_ice(n)  + (1.0_WP-ice%data(1)%values_old(n))*(oce_heat_flux(n)+shortwave(n)+enthalpyoffuse(n))
+           ice%flx_fw(n) = flx_fw_ice(n) + (evap_no_ifrac(n)+prec_rain(n)+(1.0_WP-ice%data(1)%values_old(n))*prec_snow(n)+runoff(n)) &
+                                           *ice%thermo%rhofwt/ice%thermo%rhowat
+           ! the terms oce_fluxes integrates for the global freshwater balancing, as the monolithic
+           ! thermodynamics sets them from the SAME step's atmospheric fluxes (the received copies lag)
+           evaporation(n)     = evap_no_ifrac(n) + sublimation(n)
+           ice_sublimation(n) = sublimation(n)
+        end if
+     end do
+  end if
 
 end subroutine exchange_oce_ice_ifs
 #endif

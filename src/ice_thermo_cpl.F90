@@ -199,6 +199,19 @@ subroutine thermodynamics_coupled(ice, partit, mesh)
      end if
      call ice_growth
 
+     ! Open-water flux split (FESIM forwarded by the ocean from IFS): the ocean applies the
+     ! open-water atmospheric heat flux (1-A)*a2ohf and the open-water freshwater flux
+     ! (evaporation, rain, snow on open water, runoff) itself at its current step
+     ! (exchange_oce_ice_ifs); only the ice-related remainder of ehf/fw (ice/snow growth and
+     ! melt, heat used for them) travels to the ocean with the lag-1 exchange. a_ice(inod)
+     ! still holds the concentration the thermodynamics started from (= what the ocean
+     ! receives as values_old), so both sides weight with the same A. evap/rain/snow/runo
+     ! are not changed by ice_growth when coupled to IFS.
+     if (is_coupled_to_ifs) then
+        ehf = ehf - (1._WP-a_ice(inod))*a2ohf
+        fw  = fw  - (evap + rain + (1._WP-a_ice(inod))*snow + runo)*rhofwt/rhowat
+     end if
+
      !__________________________________________________________________________
      ! save old ice variables
      m_ice_old(inod)      = m_ice(inod) 

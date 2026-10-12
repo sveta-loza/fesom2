@@ -103,7 +103,7 @@ module ice_coupling_interface
   ! under IFS; ice_to_ocean_stress: 2; ice_to_ocean_flux: 2;
   ! ice_to_ocean_thermo: 5 (evaporation, ice_sublimation, thdgr, thdgrsn,
   ! a_ice_old).
-  integer,           public, protected, save :: ice_recv_collection_size(ICE_NRECV) = [3, 2, 2, 5]
+  integer,           public, protected, save :: ice_recv_collection_size(ICE_NRECV) = [3, 2, 2, 6]
   character(len=32), parameter, public :: ice_recv_names(ICE_NRECV) = [character(len=32) :: &
        'sea_ice_bundle', &
        'ice_to_ocean_stress', &
@@ -182,7 +182,7 @@ contains
        ice_send_collection_size(5) = 9
     end if
 
-    ice_recv_collection_size = [3, 2, 2, 5]
+    ice_recv_collection_size = [3, 2, 2, 6]
     if (is_coupled_to_ifs) ice_recv_collection_size(ICE_RECV_SEA_ICE_BUNDLE) = 5
   end subroutine ice_cpl_set_layout
 

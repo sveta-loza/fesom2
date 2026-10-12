@@ -269,11 +269,13 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
         ice%thermo%thdgr(1:myDim_nod2d)       = exchange(:,3)  ! ice growth rate  [m/s]
         ice%thermo%thdgrsn(1:myDim_nod2d)     = exchange(:,4)  ! snow growth rate [m/s]
         ice%data(1)%values_old(1:myDim_nod2d) = exchange(:,5)  ! a_ice before the thermodynamics
+        real_salt_flux(1:myDim_nod2d)         = exchange(:,6)  ! [m/s psu] brine salt flux from the sea ice (ice_thermo_cpl rsf); the monolithic ice step sets it in place
         call exchange_nod(evaporation, partit)
         call exchange_nod(ice_sublimation, partit)
         call exchange_nod(ice%thermo%thdgr, partit)
         call exchange_nod(ice%thermo%thdgrsn, partit)
         call exchange_nod(ice%data(1)%values_old, partit)
+        call exchange_nod(real_salt_flux, partit)
      endif
   end do
   end if
@@ -299,7 +301,7 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
      exchange  =0.
      if (i.eq.ICE_SEND_SST_FEOM) then
         ! ocean surface state as ocean2ice prepares it for the built-in ice
-        exchange(:,1) = ice%srfoce_temp(1:myDim_nod2d) + 273.15_WP        ! SST [K]
+        exchange(:,1) = ice%srfoce_temp(1:myDim_nod2d)   ! SST [degC], the ocean's native unit (no Kelvin round trip: +/-273.15 leaves 1e-14 K round-off that flips the new-ice branch where the ocean sits at the freezing point)
      elseif (i.eq.ICE_SEND_OCEAN_TO_ICE_BUNDLE) then
         exchange(:,1) = ice%srfoce_salt(1:myDim_nod2d)     ! sea surface salinity [psu]
         exchange(:,2) = ice%srfoce_ssh(1:myDim_nod2d)             ! see surface hieght [m]
@@ -995,11 +997,13 @@ subroutine exchange_oce_ice_yac(istep, ice, tracers, dynamics, partit, mesh)
         ice%thermo%thdgr(1:myDim_nod2d)       = exchange(:,3)  ! ice growth rate  [m/s]
         ice%thermo%thdgrsn(1:myDim_nod2d)     = exchange(:,4)  ! snow growth rate [m/s]
         ice%data(1)%values_old(1:myDim_nod2d) = exchange(:,5)  ! a_ice before the thermodynamics
+        real_salt_flux(1:myDim_nod2d)         = exchange(:,6)  ! [m/s psu] brine salt flux from the sea ice (ice_thermo_cpl rsf); the monolithic ice step sets it in place
         call exchange_nod(evaporation, partit)
         call exchange_nod(ice_sublimation, partit)
         call exchange_nod(ice%thermo%thdgr, partit)
         call exchange_nod(ice%thermo%thdgrsn, partit)
         call exchange_nod(ice%data(1)%values_old, partit)
+        call exchange_nod(real_salt_flux, partit)
      endif
   end do
 
@@ -1008,7 +1012,7 @@ subroutine exchange_oce_ice_yac(istep, ice, tracers, dynamics, partit, mesh)
      exchange = 0.
      if (i.eq.ICE_SEND_SST_FEOM) then
         ! ocean surface state as ocean2ice prepares it for the built-in ice
-        exchange(:,1) = ice%srfoce_temp(1:myDim_nod2d) + 273.15_WP        ! SST [K]
+        exchange(:,1) = ice%srfoce_temp(1:myDim_nod2d)   ! SST [degC], the ocean's native unit (no Kelvin round trip: +/-273.15 leaves 1e-14 K round-off that flips the new-ice branch where the ocean sits at the freezing point)
      elseif (i.eq.ICE_SEND_OCEAN_TO_ICE_BUNDLE) then
         exchange(:,1) = ice%srfoce_salt(1:myDim_nod2d)      ! SSS [psu]
         exchange(:,2) = ice%srfoce_ssh(1:myDim_nod2d)                 ! SSH [m]
@@ -1129,11 +1133,13 @@ subroutine exchange_oce_ice_ifs(istep, ice, tracers, dynamics, partit, mesh)
         ice%thermo%thdgr(1:myDim_nod2d)       = exchange(:,3)  ! ice growth rate  [m/s]
         ice%thermo%thdgrsn(1:myDim_nod2d)     = exchange(:,4)  ! snow growth rate [m/s]
         ice%data(1)%values_old(1:myDim_nod2d) = exchange(:,5)  ! a_ice before the thermodynamics
+        real_salt_flux(1:myDim_nod2d)         = exchange(:,6)  ! [m/s psu] brine salt flux from the sea ice (ice_thermo_cpl rsf); the monolithic ice step sets it in place
         call exchange_nod(evaporation, partit)
         call exchange_nod(ice_sublimation, partit)
         call exchange_nod(ice%thermo%thdgr, partit)
         call exchange_nod(ice%thermo%thdgrsn, partit)
         call exchange_nod(ice%data(1)%values_old, partit)
+        call exchange_nod(real_salt_flux, partit)
      endif
   end do
 
@@ -1142,7 +1148,7 @@ subroutine exchange_oce_ice_ifs(istep, ice, tracers, dynamics, partit, mesh)
      exchange = 0.
      if (i.eq.ICE_SEND_SST_FEOM) then
         ! ocean surface state as ocean2ice prepares it for the built-in ice
-        exchange(:,1) = ice%srfoce_temp(1:myDim_nod2d) + 273.15_WP        ! SST [K]
+        exchange(:,1) = ice%srfoce_temp(1:myDim_nod2d)   ! SST [degC], the ocean's native unit (no Kelvin round trip: +/-273.15 leaves 1e-14 K round-off that flips the new-ice branch where the ocean sits at the freezing point)
      elseif (i.eq.ICE_SEND_OCEAN_TO_ICE_BUNDLE) then
         exchange(:,1) = ice%srfoce_salt(1:myDim_nod2d)      ! SSS [psu]
         exchange(:,2) = ice%srfoce_ssh(1:myDim_nod2d)                 ! SSH [m]

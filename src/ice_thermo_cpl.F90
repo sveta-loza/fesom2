@@ -25,6 +25,9 @@ subroutine thermodynamics(ice, partit, mesh)
   use g_forcing_arrays
   use g_comm_auto
   use g_rotate_grid
+#if defined (__ifs_fwd)
+  use cpl_sync_mode, only: cpl_ow_flux_split   ! TerraDT: FESOM_CPL_OWFLUX
+#endif
   implicit none
   type(t_ice)   , intent(inout), target :: ice
   type(t_partit), intent(inout), target :: partit
@@ -172,6 +175,20 @@ subroutine thermodynamics(ice, partit, mesh)
      ice_heat_qcon(inod) = qcon
 #endif
      call ice_growth
+
+#if defined (__ifs_fwd)
+     ! TerraDT open-water flux split (cpl_sync_mode.F90, FESOM_CPL_OWFLUX; concurrent exchange only):
+     ! the ocean applies the open-water atmospheric heat flux (1-A)*a2ohf and the open-water
+     ! freshwater flux (evaporation, rain, snow on open water, runoff) itself at its current step;
+     ! only the ice-related remainder of ehf/fw (ice/snow growth and melt, heat used for them)
+     ! travels to the ocean with the exchange lag. a_ice(inod) still holds the concentration the
+     ! thermodynamics started from (= what the ocean receives as values_old), so both sides weight
+     ! with the same A. evap/rain/snow/runo are unchanged by ice_growth in this build.
+     if (cpl_ow_flux_split()) then
+        ehf = ehf - (1._WP-a_ice(inod))*a2ohf
+        fw  = fw  - (evap + rain + (1._WP-a_ice(inod))*snow + runo)*rhofwt/rhowat
+     end if
+#endif
 
      !__________________________________________________________________________
      ! save old ice variables

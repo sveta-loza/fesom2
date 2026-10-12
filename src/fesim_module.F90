@@ -40,7 +40,7 @@ module fesom_main_storage_module
   use fesom_version_info_module
   use command_line_options_module
   use, intrinsic :: iso_fortran_env, only : real32
-  use g_forcing_param, only: use_landice_water, use_age_tracer
+  use g_forcing_param, only: use_landice_water, use_age_tracer, use_virt_salt   ! use_virt_salt: set from which_ALE below (the ocean does it in ocean_setup)
   use iceberg_params
   use iceberg_ocean_coupling
 
@@ -179,6 +179,11 @@ contains
       call fesom_profiler_start("setup_model")
 #endif
       call setup_model(f%partit)  ! Read Namelists, always before clock_init
+      ! The ice thermodynamics computes the brine salt flux (real_salt_flux, sent to the ocean)
+      ! only if .not. use_virt_salt; the ocean derives that switch from which_ALE in ocean_setup,
+      ! which the sea-ice component does not run -> same rule here.
+      use_virt_salt = (trim(which_ALE) == 'linfs')
+      if (f%mype==0) print *, 'FESIM: use_virt_salt = ', use_virt_salt, ' (which_ALE = ', trim(which_ALE), ')'
 #if defined (__cpl_yac)
       call check_cpl_config(.false., f%partit%MPI_COMM_FESOM, f%mype)
 #endif

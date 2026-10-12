@@ -175,6 +175,7 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
         exchange(:,3) = ice%thermo%thdgr(1:myDim_nod2d)       ! ice growth rate  [m/s]
         exchange(:,4) = ice%thermo%thdgrsn(1:myDim_nod2d)     ! snow growth rate [m/s]
         exchange(:,5) = ice%data(1)%values_old(1:myDim_nod2d) ! a_ice before the thermodynamics
+        exchange(:,6) = real_salt_flux(1:myDim_nod2d)         ! [m/s psu] salt flux ocean->ice from ice growth/melt (brine), 0 when use_virt_salt
      endif
      call ocn_cpl_send(i, exchange(:,1:ocn_send_collection_size(i)), action)
      if (flag_debug .and. mype==0) write(*,*) 'FESIM SEND: field ', i, ' max val:', &
@@ -189,7 +190,7 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
                                               maxval(exchange), ' . ACTION? ', action
      if (.not. action) cycle
      if (i.eq.OCN_RECV_SST_FEOM) then
-        t_oce(1:myDim_nod2d)  =  exchange(:,1) - 273.15_WP   ! sea surface temperature [degC]
+        t_oce(1:myDim_nod2d)  =  exchange(:,1)   ! sea surface temperature [degC], received in the ocean's native unit (no Kelvin round trip)
         call exchange_nod(t_oce, partit)
         ! cold start: seed the sea ice from the ocean's initial SST
         if (ice_cold_start_pending) call seed_ice_from_sst(ice, t_oce, partit, mesh)

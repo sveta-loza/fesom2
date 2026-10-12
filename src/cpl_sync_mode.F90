@@ -1,24 +1,29 @@
 ! Ocean <-> sea-ice exchange mode (identical module in the ocean and the sea-ice tree).
 !
-! Asynchronous exchange (each side sends the fields of its previous step before it
-! receives, lag 1, both components run concurrently) was found to bias the summer
-! mixed layer: the ocean applies the sea-ice-returned surface fluxes one coupling step
-! late, which deepens the mixed layer irreversibly (IFS tco79/CORE2 one-month test:
-! Southern Ocean SST -0.12 K vs the monolithic model, vanishes with the synchronous
-! exchange). Decision 2026-10-09: synchronous is the DEFAULT.
+! The split's purpose is compute performance: ocean and sea ice run CONCURRENTLY, each
+! side sends the fields of its previous step before it receives (lag 1). Decision
+! 2026-10-12: the concurrent (asynchronous) exchange is the DEFAULT.
+!
+! Known property of the lag-1 exchange with an interactive atmosphere whose fluxes are
+! piecewise constant over 3 h (IFS, config #1): the ocean applies the sea-ice-returned
+! surface fluxes one coupling step late, which deepens the summer mixed layer (IFS
+! tco79/CORE2 one-month test: Southern Ocean SST -0.11 K vs the monolithic model). It
+! vanishes with the synchronous exchange ('all'), which reproduces the monolithic
+! sequence exactly but puts the sea ice on the critical path. With prescribed forcing
+! (config #2) the concurrent mode is equivalent to the monolithic model.
 !
 ! FESOM_CPL_SYNC selects the mode (same value in both executables):
-!   'all'   - (default) sequential exchange every coupling step: ocean sends, sea ice
+!   'async' - (default) concurrent exchange, lag 1
+!   'all'   - sequential exchange every coupling step: ocean sends, sea ice
 !             receives/computes/sends, ocean receives -> the monolithic sequence
 !   'first' - sequential on the first step only (no cold-start step of zero fluxes),
-!             asynchronous afterwards
-!   'async' - the former asynchronous behaviour (lag 1, concurrent)
+!             concurrent afterwards
 module cpl_sync_mode
   implicit none
   private
   public :: cpl_sync_step, cpl_sync_mode_name
   logical, save :: initialized = .false.
-  character(len=16), save :: mode = 'all'
+  character(len=16), save :: mode = 'async'
 contains
   subroutine cpl_sync_init(mype)
     integer, intent(in) :: mype
@@ -29,13 +34,13 @@ contains
     if (istat == 0 .and. len_trim(env) > 0) then
        mode = trim(adjustl(env))
     else
-       mode = 'all'
+       mode = 'async'
     end if
     if (mode /= 'all' .and. mode /= 'first' .and. mode /= 'async') then
-       if (mype == 0) print *, 'TerraDT: FESOM_CPL_SYNC=', trim(mode), ' not understood -> using the default ''all'''
-       mode = 'all'
+       if (mype == 0) print *, 'TerraDT: FESOM_CPL_SYNC=', trim(mode), ' not understood -> using the default ''async'''
+       mode = 'async'
     end if
-    if (mype == 0) print *, 'TerraDT: ocean/sea-ice exchange mode FESOM_CPL_SYNC=''', trim(mode), ''' (all = synchronous, default)'
+    if (mype == 0) print *, 'TerraDT: ocean/sea-ice exchange mode FESOM_CPL_SYNC=''', trim(mode), ''' (async = concurrent, default)'
   end subroutine cpl_sync_init
 
   logical function cpl_sync_step(istep, mype)

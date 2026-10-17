@@ -115,8 +115,15 @@ subroutine par_ex(COMM, mype, abort)       ! finalizes MPI
     call oasis_terminate
  endif
 #elif defined (__cpl_yac)
- CALL yac_ffinalize()
- CALL MPI_Finalize(error)
+  if (present(abort)) then
+    ! an error exit must abort the whole MPMD job: a plain finalize leaves the
+    ! partner YAC components hanging in their next exchange until the job times out
+    if (mype==0) write(*,*) 'Run finished unexpectedly!'
+    call MPI_ABORT(MPI_COMM_WORLD, 1, error)
+  else
+    CALL yac_ffinalize()
+    CALL MPI_Finalize(error)
+  endif
 #else
   !For ECHAM coupled runs we use the old OASIS nameing scheme (prism / prism_proto)
   if (.not. present(abort)) then

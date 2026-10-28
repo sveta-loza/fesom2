@@ -17,6 +17,13 @@ contains
     integer rank_use_count
     integer rank
     
+    if(partit%npes == 1) then
+      ! fesom-jax reference runs: on a single rank the helper below recurses forever (rank 0 is both the only
+      ! host head and SEQUENTIAL_IO_RANK, see its todo); serial I/O on rank 0 is the only option
+      result = SEQUENTIAL_IO_RANK
+      async_netcdf_allowed = .false.
+      return
+    end if
     result = next_io_rank_helper(communicator, rank_use_count)
     if(rank_use_count > 1) then
       if(partit%mype == SEQUENTIAL_IO_RANK) print *,"rejecting additional async NetCDF for process:",result, "use count:", rank_use_count, "falling back to sequential I/O on process ",SEQUENTIAL_IO_RANK

@@ -1707,14 +1707,20 @@ end interface
   part=0
 
   npes = PRODUCT(np(1:n_levels))
-  if(npes<2) then
+  if(npes<1) then
      print *,'Total number of parallel partitions is less than one! Aborting...'
      stop
   end if
   
+  if (npes == 1) then
+     ! fesom-jax reference runs: a single-rank partition (every node on rank 0, no halo)
+     write(*,*) 'npes=1: trivial partition, METIS not called'
+     part = 0
+  else
   write(*,*) 'Calling partit for npes=', np
   call do_partit(ssh_stiff%dim, ssh_stiff%rowptr, ssh_stiff%colind, &
        nlevels_nod2D, np, part)
+  end if
 
 write(*,*) 'DONE'
 write(*,*) size(partit%part)

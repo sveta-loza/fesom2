@@ -50,6 +50,7 @@ module fesom_main_storage_module
 #if defined (__recom)
   use recom_init_interface
   use recom_interface
+  use recom_ref_dump_hooks
 !sl negative-tracer diagnostic (open item 1), reported after 'runtime recom'
   use recom_config, only: recom_neg_diag, neg_maxtr, neg_maxlv, neg_in_count, &
                           neg_out_count, neg_in_lvl, neg_in_min, neg_points
@@ -545,6 +546,9 @@ contains
             seconds_til_now=INT(dt)*(n-1)
 #endif
         call clock      
+#if defined (__recom)
+        call rdh_step_begin(mstep, yearnew, daynew, timenew, month, ndpyr, dt, f%partit, f%mesh)
+#endif
         !___compute horizontal velocity on nodes (originaly on elements)________
         if (flag_debug .and. f%mype==0)  print *, achar(27)//'[34m'//' --> call compute_vel_nodes'//achar(27)//'[0m'
         call compute_vel_nodes(f%dynamics, f%partit, f%mesh)
@@ -602,13 +606,19 @@ contains
         if (f%mype==0 .and. n==1)  print *, achar(27)//'[46'  //'_____________________________________________________________'//achar(27)//'[0m'
         if (f%mype==0 .and. n==1)  print *, achar(27)//'[46;1m'//'     --> call REcoM                                         '//achar(27)//'[0m'
         f%t0_recom = MPI_Wtime()
+        call rdh_recom_in(f%ice, f%tracers, f%partit, f%mesh, dt, kappa, rad, daynew, month, mstep, &
+                          ndpyr, yearold, timenew)
         call recom(f%ice, f%dynamics, f%tracers, f%partit, f%mesh)
+        call rdh_recom_out(f%tracers, f%partit)
         f%t1_recom = MPI_Wtime()
 #endif
         
         !___model ocean step____________________________________________________
         if (flag_debug .and. f%mype==0)  print *, achar(27)//'[34m'//' --> call oce_timestep_ale'//achar(27)//'[0m'
         call oce_timestep_ale(n, f%ice, f%dynamics, f%tracers, f%partit, f%mesh)
+#if defined (__recom)
+        call rdh_step_end(f%tracers, f%partit)
+#endif
 
         f%t3 = MPI_Wtime()
         !___compute energy diagnostics..._______________________________________

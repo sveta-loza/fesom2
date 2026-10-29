@@ -3604,6 +3604,7 @@ subroutine read_runoff_mapper(file, vari, R, partit, mesh)
    real(kind=WP), allocatable :: lon_sparse(:), lat_sparse(:), dist_min(:), dist_min_glo(:)
    real(kind=WP), allocatable :: arrival_area(:)
    integer, allocatable       :: data_sparse(:), dist_ind(:)
+   integer, allocatable       :: owner(:)         ! rank holding the nearest node of each arrival point
    integer                    :: ierror           ! return error code
 !  type(sparse_matrix)        :: RUNOFF_MAPPER
  
@@ -3724,12 +3725,23 @@ subroutine read_runoff_mapper(file, vari, R, partit, mesh)
    end do
    call MPI_AllREDUCE(MPI_IN_PLACE , dist_min_glo , number_arrival_points, MPI_WP, MPI_MIN, MPI_COMM_FESOM, MPIerr)
 
+   ! Owner of an arrival point = the rank whose nearest node realises the global minimum
+   ! distance. Two ranks can tie exactly (a Gaussian point equidistant from two nodes of a
+   ! regular, NEMO-derived mesh: 2 of 14317 points on tORCA025), which used to make the
+   ! count below come out too high and abort; the lowest rank takes the point.
+   ALLOCATE(owner(number_arrival_points))
+   owner=npes
+   do i=1, number_arrival_points
+      if ((dist_min(i)==dist_min_glo(i)) .AND. (dist_ind(i)<=myDim_nod2d)) owner(i)=mype
+   end do
+   call MPI_AllREDUCE(MPI_IN_PLACE , owner , number_arrival_points, MPI_INTEGER, MPI_MIN, MPI_COMM_FESOM, MPIerr)
+
    lon_sparse=0.0_WP
    lat_sparse=0.0_WP
    status=0
    do i=1, number_arrival_points
       n=dist_ind(i)
-      if ((dist_min(i)==dist_min_glo(i)) .AND. (n<=myDim_nod2d)) then
+      if (owner(i)==mype) then
            lon_sparse(i)=geo_coord_nod2D(1, n)
            lat_sparse(i)=geo_coord_nod2D(2, n)
            status=status+1
@@ -3747,6 +3759,7 @@ subroutine read_runoff_mapper(file, vari, R, partit, mesh)
       call par_ex(partit%MPI_COMM_FESOM, partit%mype)
       STOP
    end if
+   deallocate(owner)
    RUNOFF_MAPPER%dim=myDim_nod2d+eDim_nod2D
    ALLOCATE(RUNOFF_MAPPER%rowptr(RUNOFF_MAPPER%dim+1))
    
@@ -3833,6 +3846,9 @@ real(kind=WP) function distance_on_sphere(lon1, lat1, lon2, lat2)
    if (delta_lon > cyclic_length/2.0_WP) delta_lon=delta_lon-cyclic_length
    delta_lat=(lat1-lat2)
    r = sin(delta_lat/2.0)**2 + cos(lat1) * cos(lat2) * sin(delta_lon/2.0)**2
+   ! rounding can push r a few ulp outside [0,1] for coincident or antipodal points
+   ! (exact on regular lat-lon derived meshes, e.g. tORCA025) -> sqrt(1-r) would be NaN
+   r = min(max(r, 0.0_WP), 1.0_WP)
    distance_on_sphere=2.0 * atan2(sqrt(r), sqrt(1.0 - r))*r_earth
 end function distance_on_sphere
 END MODULE g_sbf

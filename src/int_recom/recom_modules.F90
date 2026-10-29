@@ -464,7 +464,19 @@ module recom_config
   ! No temperature dependence. 0 = off, and then the code path is unchanged.
   Real(kind=8)                 :: mort_phaeo        = 0.0d0
   Real(kind=8)                 :: mort_fac_fe_phaeo = 1.3d0
-  namelist /paphytoplankton_N/ lossN, lossN_d, lossN_c, lossN_p, mort_phaeo, mort_fac_fe_phaeo
+  ! [1/day] Linear mortality/lysis of all four PFTs to detritus (N, C, diatom Si, calcite; Chl is lost).
+  ! mort_phy is the small-phyto rate; mort_d/_c/_p default -1 = "use mort_phy" (the res_ovf_d rule).
+  ! mort_p is added to mort_phaeo. With mort_light = .true. each rate is scaled by the light
+  ! limitation of photosynthesis, 1 - Cphot/pMax (1 in the dark, ~0 when light-saturated, incl.
+  ! nutrient-limited cells), so it acts on dark/deeply mixed stocks. All 0 = off, code path
+  ! unchanged. (S1 winter-loss test, NEXT_STEPS 23k, 30 Oct 2026)
+  Real(kind=8)                 :: mort_phy   = 0.0d0
+  Real(kind=8)                 :: mort_d     = -1.0d0
+  Real(kind=8)                 :: mort_c     = -1.0d0
+  Real(kind=8)                 :: mort_p     = -1.0d0
+  Logical                      :: mort_light = .false.
+  namelist /paphytoplankton_N/ lossN, lossN_d, lossN_c, lossN_p, mort_phaeo, mort_fac_fe_phaeo, &
+                               mort_phy, mort_d, mort_c, mort_p, mort_light
 !!------------------------------------------------------------------------------
 !! *** Phytoplankton C ***
   Real(kind=8)                 :: lossC         = 0.10d0          ! [1/day] Phytoplankton loss of carbon 
@@ -1772,6 +1784,9 @@ Module REcoM_declarations
   Real(kind=8)  :: ovrFlux                                           ! [mmol C m-3 day-1] total overflow respiration flux (to DIC)
   Real(kind=8)  :: res_ovf_d_eff, res_ovf_c_eff, res_ovf_p_eff       ! per-PFT res_ovf after the -1 = "use res_ovf" rule
   Real(kind=8)  :: MortRate_phaeo                    ! [1/day] Phaeocystis linear mortality to detritus (mort_phaeo, x mort_fac_fe_phaeo if DFe < k_Fe_p)
+  Real(kind=8)  :: MortRate, MortRate_dia, MortRate_cocco  ! [1/day] linear mortality to detritus (mort_phy/_d/_c, x light limitation if mort_light)
+  Real(kind=8)  :: mort_d_eff, mort_c_eff, mort_p_eff     ! per-PFT mortality after the -1 = "use mort_phy" rule
+  Real(kind=8)  :: mort_lf                               ! light-limitation factor 1 - Cphot/pMax used with mort_light
   Real(kind=8)  :: AggregationRate_det               ! [1/day] Detritus part agg_PD*(DetN+DetZ2N) of AggregationRate, scaled by agg_fac_phaeo_det for Phaeocystis
 !!------------------------------------------------------------------------------                                                                                
 !! *** Calcification  ***

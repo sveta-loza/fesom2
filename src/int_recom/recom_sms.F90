@@ -4287,6 +4287,31 @@ endif !/* RECOM_MARSHALL */
            if (Fe < k_Fe_p) mortRate_phaeo = mort_fac_fe_phaeo * mort_phaeo
        endif
 
+       ! Linear mortality/lysis of all PFTs to detritus (mort_phy, mort_d/_c/_p; S1, 30 Oct 2026).
+       ! With mort_light the rate is scaled by 1 - Cphot/pMax (light limitation), so it acts on
+       ! dark or deeply mixed stocks and spares light-saturated cells. mort_p adds to mort_phaeo.
+       ! Applied below as separate guarded statements, so all-zero rates are bit-identical.
+       mortRate = 0.0d0; mortRate_dia = 0.0d0; mortRate_cocco = 0.0d0
+       mort_d_eff = mort_d; if (mort_d < 0.0d0) mort_d_eff = mort_phy   ! -1 = same as small phyto
+       mort_c_eff = mort_c; if (mort_c < 0.0d0) mort_c_eff = mort_phy
+       mort_p_eff = mort_p; if (mort_p < 0.0d0) mort_p_eff = mort_phy
+       if (mort_phy > 0.0d0 .or. mort_d_eff > 0.0d0 .or. mort_c_eff > 0.0d0 .or. mort_p_eff > 0.0d0) then
+           mort_lf = 1.0d0
+           if (mort_light .and. pMax >= tiny) mort_lf = 1.0d0 - min(1.0d0, Cphot/pMax)
+           mortRate = mort_phy * mort_lf
+           mort_lf = 1.0d0
+           if (mort_light .and. pMax_dia >= tiny) mort_lf = 1.0d0 - min(1.0d0, Cphot_dia/pMax_dia)
+           mortRate_dia = mort_d_eff * mort_lf
+           if (enable_coccos) then
+               mort_lf = 1.0d0
+               if (mort_light .and. pMax_cocco >= tiny) mort_lf = 1.0d0 - min(1.0d0, Cphot_cocco/pMax_cocco)
+               mortRate_cocco = mort_c_eff * mort_lf
+               mort_lf = 1.0d0
+               if (mort_light .and. pMax_phaeo >= tiny) mort_lf = 1.0d0 - min(1.0d0, Cphot_phaeo/pMax_phaeo)
+               mortRate_phaeo = mortRate_phaeo + mort_p_eff * mort_lf
+           endif
+       endif
+
        ! Carbon overflow (f_ovf): photosynthate fixed beyond what the N quota supports is exuded
        ! as DOC. Uses the N-only quota limiter (no Fe/Si), so it acts in N-starved cells and
        ! vanishes as the quota approaches replete. Applied below as separate guarded statements,
@@ -6209,7 +6234,7 @@ endif
             ! receive Phaeocystis aggregation in all four detritus configurations),
             ! chlorophyll is lost. Mass-conserving by construction.
             !-----------------------------------------------------------------------
-            if (mort_phaeo > 0.0d0) then
+            if (mort_phaeo > 0.0d0 .or. mort_p_eff > 0.0d0) then
                 sms(k,iphan)   = sms(k,iphan)   - mortRate_phaeo * PhaeoN   * dt_b
                 sms(k,iphac)   = sms(k,iphac)   - mortRate_phaeo * PhaeoC   * dt_b
                 sms(k,iphachl) = sms(k,iphachl) - mortRate_phaeo * PhaeoChl * dt_b
@@ -6576,6 +6601,38 @@ endif !/* RECOM_CDOM */
             endif
             sms(k,idic) = sms(k,idic) + ovrFlux * dt_b
             sms(k,ioxy) = sms(k,ioxy) - ovrFlux * redO2C * dt_b
+        endif
+
+        !-------------------------------------------------------------------------------
+        ! Linear mortality/lysis (mort_phy, mort_d, mort_c > 0 only; Phaeocystis is done with
+        ! mort_phaeo above): N and C to DetN/DetC (the pools that receive phytoplankton
+        ! aggregation), diatom Si to DetSi, calcite to DetCalc; chlorophyll is lost.
+        ! Mass-conserving. No carbon-isotope terms. (30 Oct 2026)
+        !-------------------------------------------------------------------------------
+        if (mort_phy > 0.0d0 .or. mort_d_eff > 0.0d0 .or. mort_c_eff > 0.0d0) then
+            sms(k,iphyn)  = sms(k,iphyn)  - mortRate     * PhyN   * dt_b
+            sms(k,iphyc)  = sms(k,iphyc)  - mortRate     * PhyC   * dt_b
+            sms(k,ipchl)  = sms(k,ipchl)  - mortRate     * PhyChl * dt_b
+            sms(k,idian)  = sms(k,idian)  - mortRate_dia * DiaN   * dt_b
+            sms(k,idiac)  = sms(k,idiac)  - mortRate_dia * DiaC   * dt_b
+            sms(k,idchl)  = sms(k,idchl)  - mortRate_dia * DiaChl * dt_b
+            sms(k,idiasi) = sms(k,idiasi) - mortRate_dia * DiaSi  * dt_b
+            sms(k,idetn)  = sms(k,idetn)  + (mortRate * PhyN + mortRate_dia * DiaN) * dt_b
+            sms(k,idetc)  = sms(k,idetc)  + (mortRate * PhyC + mortRate_dia * DiaC) * dt_b
+            sms(k,idetsi) = sms(k,idetsi) + mortRate_dia * DiaSi * dt_b
+            if (enable_coccos) then
+                sms(k,icocn)  = sms(k,icocn)  - mortRate_cocco * CoccoN   * dt_b
+                sms(k,icocc)  = sms(k,icocc)  - mortRate_cocco * CoccoC   * dt_b
+                sms(k,icchl)  = sms(k,icchl)  - mortRate_cocco * CoccoChl * dt_b
+                sms(k,idetn)  = sms(k,idetn)  + mortRate_cocco * CoccoN   * dt_b
+                sms(k,idetc)  = sms(k,idetc)  + mortRate_cocco * CoccoC   * dt_b
+                ! calcite belongs to coccolithophores when they exist, else to small phyto
+                sms(k,iphycal) = sms(k,iphycal) - mortRate_cocco * PhyCalc * dt_b
+                sms(k,idetcal) = sms(k,idetcal) + mortRate_cocco * PhyCalc * dt_b
+            else
+                sms(k,iphycal) = sms(k,iphycal) - mortRate * PhyCalc * dt_b
+                sms(k,idetcal) = sms(k,idetcal) + mortRate * PhyCalc * dt_b
+            endif
         endif
 
         !===============================================================================

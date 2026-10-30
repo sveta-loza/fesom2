@@ -54,7 +54,8 @@ subroutine thermodynamics(ice, partit, mesh)
   !---- geographical coordinates
   real(kind=WP)  :: geolon, geolat
   !---- minimum and maximum of the lead closing parameter
-  real(kind=WP)  :: h0min = 0.5, h0max = 1.5
+  !---- (taken from namelist.ice: h0 and h0_max; the former hard-coded values were 0.5 and 1.5)
+  real(kind=WP)  :: h0min, h0max
 
   real(kind=WP), parameter :: Aimin = 0.001, himin = 0.005
 
@@ -120,6 +121,8 @@ subroutine thermodynamics(ice, partit, mesh)
   cpice         => ice%thermo%cpice
   consn         => ice%thermo%consn
   con           => ice%thermo%con
+  h0min         =  ice%thermo%h0
+  h0max         =  ice%thermo%h0max
   rhoice        => ice%thermo%rhoice
   ! melt pond pointer assignments
   apnd          => ice%thermo%apnd(:)

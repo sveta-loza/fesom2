@@ -74,6 +74,8 @@ TYPE T_ICE_THERMO
     real(kind=WP) :: Sice = 4.0        ! Ice salinity 3.2--5.0 ppt.
     real(kind=WP) :: h0=0.5	           ! Lead closing parameter [m] for Nothern Hemisphere! 0.5
     real(kind=WP) :: h0_s=0.5	           ! Lead closing parameter [m] for Southern Hemisphere! 0.5
+    real(kind=WP) :: h0max=1.5         ! Upper bound [m] of the thickness-dependent lead closing parameter
+                                       ! in the coupled thermodynamics (ice_thermo_cpl.F90); h0 is its lower bound
     real(kind=WP) :: emiss_ice=0.97    ! Emissivity of Snow/Ice,
     real(kind=WP) :: emiss_wat=0.97    ! Emissivity of open water
     real(kind=WP) :: albsn = 0.81      ! Albedo: frozen snow
@@ -576,9 +578,9 @@ subroutine ice_init(ice, partit, mesh)
                        alpha_evp, beta_evp, c_aevp
     logical        :: snowdist, new_iclasses, use_meltponds
     integer        :: open_water_albedo, iclasses
-    real(kind=WP)  :: Sice, h0, h0_s, emiss_ice, emiss_wat, albsn, albsnm, albi, &
+    real(kind=WP)  :: Sice, h0, h0_s, h0_max, emiss_ice, emiss_wat, albsn, albsnm, albi, &
                       albim, albw, con, consn, hmin, armin, c_melt, h_cutoff
-    namelist /ice_therm/ Sice, iclasses, h0, h0_s, hmin, armin,  emiss_ice, emiss_wat, albsn, albsnm, albi, &
+    namelist /ice_therm/ Sice, iclasses, h0, h0_s, h0_max, hmin, armin,  emiss_ice, emiss_wat, albsn, albsnm, albi, &
                          albim, albw, con, consn,  snowdist, new_iclasses, open_water_albedo, use_meltponds, c_melt, h_cutoff
     !___________________________________________________________________________
     ! pointer on necessary derived types
@@ -598,6 +600,7 @@ subroutine ice_init(ice, partit, mesh)
         stop
     end if
     read(nm_unit, nml=ice_dyn  , iostat=iost)
+    h0_max = ice%thermo%h0max   ! default (1.5 m) unless set in namelist.ice
     read(nm_unit, nml=ice_therm, iostat=iost)
     close(nm_unit)
 
@@ -625,6 +628,7 @@ subroutine ice_init(ice, partit, mesh)
     ice%thermo%iclasses = iclasses
     ice%thermo%h0       = h0
     ice%thermo%h0_s     = h0_s
+    ice%thermo%h0max    = h0_max
     ice%thermo%hmin     = hmin
     ice%thermo%armin    = armin
     ice%thermo%emiss_ice= emiss_ice

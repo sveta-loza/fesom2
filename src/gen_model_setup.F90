@@ -237,6 +237,8 @@ subroutine setup_model(partit)
 
   read (fileunit, NML=pasinking, iostat=istat)
   if (istat /= 0) call check_namelist_read(fileunit, 'pasinking', nmlfile, partit)
+  read (fileunit, NML=painitialization_N, iostat=istat)   ! the fork's group (fesom2.6_recom_tra_diags_spectral)
+  if (istat /= 0) call check_namelist_read(fileunit, 'painitialization_N', nmlfile, partit)
 
   read (fileunit, NML=paArrhenius, iostat=istat)
   if (istat /= 0) call check_namelist_read(fileunit, 'paArrhenius', nmlfile, partit)
@@ -324,6 +326,10 @@ subroutine setup_model(partit)
 
   read (fileunit, NML=paciso, iostat=istat)
   if (istat /= 0) call check_namelist_read(fileunit, 'paciso', nmlfile, partit)
+#if defined (__RECOM_WAVEBANDS)
+  read (fileunit, NML=spectral, iostat=istat)              ! the fork's spectral light group
+  if (istat /= 0) call check_namelist_read(fileunit, 'spectral', nmlfile, partit)
+#endif
 
   close (fileunit)
 #endif

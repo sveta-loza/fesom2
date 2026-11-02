@@ -399,7 +399,9 @@ if(OPENMP_REPRODUCIBLE)
 endif()
 
 if(${RECOM_COUPLED})
-   target_compile_definitions(${PROJECT_NAME} PRIVATE __recom USE_PRECISION=2 __usetp) #__3Zoo2Det __coccos)
+   # no __usetp: the in-tree spectral REcoM has no tracer-parallel (multi FESOM group) mode, so the host takes
+   # its single-group path, as in fesom2.6_recom_tra_diags_spectral
+   target_compile_definitions(${PROJECT_NAME} PRIVATE __recom USE_PRECISION=2) #__3Zoo2Det __coccos)
    if(${RECOM_WAVEBANDS})
       target_compile_definitions(${PROJECT_NAME} PRIVATE __RECOM_WAVEBANDS)
    endif()

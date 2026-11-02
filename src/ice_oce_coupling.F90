@@ -205,11 +205,6 @@ end subroutine ocean2ice
 subroutine oce_fluxes(ice, dynamics, tracers, partit, mesh)
     !---fwf-code
     !---fwf-code-end
-#if defined (__recom)
-    use recom_config, only: use_virt_tracers
-    use recom_glovar, only: virtual_din, virtual_dic, virtual_alk, virtual_dsi, virtual_dfe, &
-                            virtual_oxy
-#endif
 
     implicit none
     type(t_ice)   , intent(inout), target :: ice
@@ -440,22 +435,6 @@ subroutine oce_fluxes(ice, dynamics, tracers, partit, mesh)
         end do
 !$OMP END PARALLEL DO
     end if
-
-#if defined (__recom)
-    !___________________________________________________________________________
-    ! virtual freshwater fluxes of REcoM tracers (linfs only, as in FESOM 1.4): with a
-    ! fixed upper-layer volume, dilution by the freshwater flux is applied as a virtual
-    ! flux C(top wet layer)*water_flux, balanced like virtual_salt so that the tracer
-    ! inventories are not changed --> added to the surface BC in bc_surface
-    if (use_virt_salt .and. use_virt_tracers) then
-        call virtual_tracer_flux(1001, virtual_din)
-        call virtual_tracer_flux(1002, virtual_dic)
-        call virtual_tracer_flux(1003, virtual_alk)
-        call virtual_tracer_flux(1018, virtual_dsi)
-        call virtual_tracer_flux(1019, virtual_dfe)
-        call virtual_tracer_flux(1022, virtual_oxy)
-    end if
-#endif
 
     !___________________________________________________________________________
     ! balance SSS restoring to climatology
@@ -801,36 +780,6 @@ subroutine oce_fluxes(ice, dynamics, tracers, partit, mesh)
     !___________________________________________________________________________
     deallocate(flux)
 
-#if defined (__recom)
-contains
-
-    ! virtual freshwater flux of the tracer with ID id at every node, balanced as
-    ! virtual_salt: the net over all nodes (cavities included) is removed over the
-    ! open ocean only
-    subroutine virtual_tracer_flux(id, vflx)
-        integer,       intent(in)    :: id
-        real(kind=WP), intent(inout) :: vflx(:)
-        integer                      :: i, itr, node
-        real(kind=WP)                :: vnet
-
-        itr = 0
-        do i = 1, tracers%num_tracers
-            if (tracers%data(i)%ID == id) itr = i
-        end do
-        vflx = 0.0_WP
-        if (itr == 0) return
-
-        do node = 1, partit%myDim_nod2D+partit%eDim_nod2D
-            vflx(node) = tracers%data(itr)%values(mesh%ulevels_nod2d(node), node)*water_flux(node)
-        end do
-        call integrate_nod(vflx, vnet, partit, mesh)
-        vnet = vnet/mesh%ocean_area
-        do node = 1, partit%myDim_nod2D+partit%eDim_nod2D
-            if (mesh%ulevels_nod2d(node) > 1) cycle ! --> is cavity node
-            vflx(node) = vflx(node)-vnet
-        end do
-    end subroutine virtual_tracer_flux
-#endif
 
 end subroutine oce_fluxes
 !

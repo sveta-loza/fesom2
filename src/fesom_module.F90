@@ -176,9 +176,6 @@ contains
       integer              :: tr_num, n
       real(kind=WP)        :: salt_max_loc, salt_max_glob   ! use_salt_anomaly restart detect
 
-#if defined (__recom)
-      type(tracers_info_type)               :: tracers_info
-#endif
 
 #if defined(__usetp)
 ! multi FESOM group loop parallelization
@@ -543,41 +540,12 @@ contains
 
         ! recom setup
 #if defined (__recom)
-#if defined (__usetp)
-        if(f%my_fesom_group==0) then
-#endif 
         if (flag_debug .and. f%mype==0)  print *, achar(27)//'[34m'//' --> call recom_init'//achar(27)//'[0m'
-#if defined (__usetp)
-        end if
-#endif
-
-        allocate(tracers_info%ids(f%tracers%num_tracers))
-        allocate(tracers_info%data_pointers(f%tracers%num_tracers))
-
-        do n = 1, f%tracers%num_tracers
-          tracers_info%ids(n) = f%tracers%data(n)%id
-          tracers_info%data_pointers(n)%tracer_data => f%tracers%data(n)%values
-        end do
-
+        ! the in-tree spectral REcoM (fesom2.6_recom_tra_diags_spectral interface)
         f%t_recom_s=MPI_Wtime()
-        call recom_init(f%mesh%nl, f%mesh%ulevels_nod2d, f%mesh%nlevels_nod2D, &
-                        f%mesh%geo_coord_nod2D, f%mesh%z_3d_n, f%partit%myDim_nod2d,      &
-                        f%partit%eDim_nod2D, f%partit%mype, f%partit%MPI_COMM_FESOM,      &
-                        f%partit%myDim_elem2D, f%partit%eDim_elem2D, tracers_info,        &
-                        f%tracers%num_tracers, rad, use_age_tracer, use_transit, l_sf6, l_f11, &
-                        l_f12, l_r14c, l_r39ar, f%mesh%ocean_area) ! adjust values for recom tracers (derived type "t_tracer")
+        call recom_init(f%tracers, f%partit, f%mesh) ! adjust values for recom tracers (derived type "t_tracer")
         f%t_recom_e=MPI_Wtime()
-
-        deallocate(tracers_info%ids)
-        deallocate(tracers_info%data_pointers)
-        
-#if defined (__usetp)
-        if(f%my_fesom_group==0) then
-#endif
         if (f%mype==0) write(*,*) 'RECOM recom_init... complete'
-#if defined (__usetp)
-        end if
-#endif
 #endif
 
         if (f%mype==0) then
@@ -925,9 +893,6 @@ contains
     logical :: do_cmor_0d_reset
     real(kind=WP_full) :: t_check
 
-#if defined (__recom)
-    type(tracers_info_type)               :: tracers_info
-#endif
 
     !=====================
     ! Time stepping
@@ -1189,39 +1154,10 @@ contains
 #if defined(__usetp)
         end if
 #endif 
-
-        allocate(tracers_info%ids(f%tracers%num_tracers))
-        allocate(tracers_info%ltra_diag(f%tracers%num_tracers))
-        allocate(tracers_info%data_pointers(f%tracers%num_tracers))
-
-        do tracer_index = 1, f%tracers%num_tracers
-          tracers_info%ids(tracer_index) = f%tracers%data(tracer_index)%id
-          tracers_info%ltra_diag(tracer_index) = f%tracers%data(tracer_index)%ltra_diag
-          tracers_info%data_pointers(tracer_index)%tracer_data => f%tracers%data(tracer_index)%values
-        end do
-
+        ! the in-tree spectral REcoM (fesom2.6_recom_tra_diags_spectral interface)
         f%t_recom_s = MPI_Wtime()
-        call recom(f%ice%data(1)%values, f%mesh%nl, &
-                   f%mesh%ulevels_nod2d, f%mesh%nlevels_nod2D, f%mesh%hnode,     &
-                   f%mesh%z_3d_n, f%mesh%zbar_3d_n, f%mesh%geo_coord_nod2d,      &
-                   f%mesh%ocean_area, f%mesh%areasvol, f%partit%myDim_nod2d,     &
-                   f%partit%eDim_nod2D, f%partit%mype, f%partit%MPI_COMM_FESOM,  &
-                   tracers_info, f%tracers%num_tracers, f%tracers%work%tra_recom_sms, &
-                   f%partit%npes, f%partit%com_nod2D%sPEnum,   &
-                   f%partit%com_nod2D%rPEnum,  &
-                   f%partit%s_mpitype_nod2D, f%partit%r_mpitype_nod2D,              &
-                   f%partit%s_mpitype_nod3D, f%partit%r_mpitype_nod3D,              &
-                   f%partit%com_nod2D%sPE, f%partit%com_nod2D%rPE,                  &
-                   f%partit%com_nod2D%req, f%partit%com_nod2D%nreq,                 &
-                   dt, daynew, month, mstep, ndpyr, yearold, timenew, rad, kappa,            &
-                   press_air, u_wind, v_wind, shortwave, use_age_tracer, use_transit, l_sf6, &
-                   l_f11, l_f12, l_r14c, l_r39ar)
+        call recom(f%ice, f%dynamics, f%tracers, f%partit, f%mesh)
         f%t_recom_e = MPI_Wtime()
-
-        deallocate(tracers_info%ids)
-        deallocate(tracers_info%ltra_diag)
-        deallocate(tracers_info%data_pointers)
-
 #endif
         
         !___model ocean step____________________________________________________

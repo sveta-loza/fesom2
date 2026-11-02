@@ -31,13 +31,10 @@ module oce_ale_tracer_module
 #if defined(__recom)
     use recom_glovar
     use recom_config
-    use recom_ciso
     use o_arrays
-#endif
-#if defined(__recom)
-    use recom_sinking
-    use recom_glovar
-    use recom_config
+    use ver_sinking_recom_interface
+    use diff_ver_recom_expl_interface
+    use ver_sinking_recom_benthos_interface
     use g_comm_auto
     use g_support
 #endif
@@ -289,15 +286,6 @@ subroutine solve_tracers_ale(ice, dynamics, tracers, partit, mesh)
     request_count = 0
 #endif
 
-#if defined(__recom)
-    ! CMIP7 sinking diagnostics (REcoM ExpFlux, BotFlux) are rates of this time step,
-    ! summed over the tracers in ver_sinking_recom and ver_sinking_recom_benthos below
-    if (Diags) then
-        ExpFlux = 0.0_WP
-        BotFlux = 0.0_WP
-    end if
-#endif
-
 #if defined(__recom) && defined(__usetp)
     do tr_num = tr_num_start, tr_num_end
 #else
@@ -478,6 +466,19 @@ subroutine solve_tracers_ale(ice, dynamics, tracers, partit, mesh)
         end if ! (num_fesom_groups > 1) then
 #endif
     end do ! EITHER: tr_num = tr_num_start, tr_num_end OR 1, tracers%num_tracers, depending on __usetp
+
+#if defined(__recom) && !defined(__usetp)
+    ! as in fesom2.6_recom_tra_diags_spectral: the sinking fluxes and velocities of the tracer loop,
+    ! buffered per tracer in ver_sinking_recom, summed over the tracers
+    do tr_num = 1, tracers%num_tracers
+        if (use_MEDUSA) then
+            SinkFlx = SinkFlx + SinkFlx_tr(:, :, tr_num)
+        endif
+!        Benthos = Benthos + Benthos_tr(:, :, tr_num)
+        Sinkingvel1(:,:) = Sinkingvel1(:,:) + Sinkvel1_tr(:, :, tr_num)
+        Sinkingvel2(:,:) = Sinkingvel2(:,:) + Sinkvel2_tr(:, :, tr_num)
+    end do
+#endif
     
 #if defined(__recom) && defined(__usetp)
 ! if tracer in group was added to compensate for fragmentation its broadcast of the last index is handled here
@@ -648,9 +649,6 @@ subroutine diff_tracers_ale(tr_num, dynamics, tracers, ice, partit, mesh)
     integer                               :: n, nzmax, nzmin
     real(kind=WP)                         :: ttf_rhs_bak (mesh%nl-1, partit%myDim_nod2D+partit%eDim_nod2D)
     integer                               :: nz, nu1, nl1
-#if defined(__recom)
-    type(tracers_info_type)               :: tracers_info
-#endif
     !___________________________________________________________________________
     ! pointer on necessary derived types
     real(kind=WP_full), pointer                :: del_ttf(:,:)
@@ -752,20 +750,11 @@ subroutine diff_tracers_ale(tr_num, dynamics, tracers, ice, partit, mesh)
 if (any(recom_remin_tracer_id == tracers%data(tr_num)%ID)) then
 
 ! call bottom boundary
-      call diff_ver_recom_expl(mesh%nl, &  !--- vert_sink ---
-                               mesh%ulevels_nod2D, mesh%nlevels_nod2D, &
-                               mesh%nod_in_elem2D_num, &
-                               mesh%nod_in_elem2D, mesh%nlevels, mesh%elem_area, &
-                               mesh%area, mesh%areasvol, mesh%hnode_new, &
-                               tracers%data(tr_num)%ID,  &
-                               partit%myDim_nod2D, partit%eDim_nod2D, &
-                               partit%mype, partit%MPI_COMM_FESOM, dtr_bf, dt)  !--- str_bf ---
+        call diff_ver_recom_expl(tr_num, tracers, partit, mesh)
 ! update tracer fields
         do n=1, partit%myDim_nod2D
             nzmax=mesh%nlevels_nod2D(n)-1
             nzmin=mesh%ulevels_nod2D(n)
-!            tr_arr(nzmin:nzmax,n,tr_num)=tr_arr(nzmin:nzmax,n,tr_num)+ &
-!                                                dtr_bf(nzmin:nzmax,n)
         tracers%data(tr_num)%values(nzmin:nzmax,n)=tracers%data(tr_num)%values(nzmin:nzmax,n)+ &
                                                 dtr_bf(nzmin:nzmax,n)
         end do
@@ -781,69 +770,28 @@ if (any(recom_sinking_tracer_id == tracers%data(tr_num)%ID)) then
 
          if (use_ballasting) then
 !< get seawater viscosity, seawater_visc_3D
-              call get_seawater_viscosity(tr_num, partit%myDim_nod2D, &
-                                          mesh%ulevels_nod2D, mesh%nlevels_nod2D, &
-                                          tracers%data(1)%values, tracers%data(2)%values) ! seawater_visc_3D
-
-              allocate(tracers_info%ids(tracers%num_tracers))
-              allocate(tracers_info%data_pointers(tracers%num_tracers))
-
-              do n = 1, tracers%num_tracers
-                tracers_info%ids(n) = tracers%data(n)%id
-                tracers_info%data_pointers(n)%tracer_data => tracers%data(n)%values
-              end do
+              call get_seawater_viscosity(tr_num, tracers, partit, mesh) ! seawater_visc_3D
 
 !< get particle density of class 1 and 2 !rho_particle1 and rho_particle2
-              call get_particle_density(tracers%num_tracers, partit%myDim_nod2D, partit%eDim_nod2D, &
-                                        mesh%nl, mesh%ulevels_nod2D, mesh%nlevels_nod2D, &
-                                        tracers_info) ! rho_particle = density of particle class 1 and 2
-
-              deallocate(tracers_info%ids)
-              deallocate(tracers_info%data_pointers)
+              call get_particle_density(tracers, partit, mesh) ! rho_particle = density of particle class 1 and 2
 
 !< calculate scaling factors
 !< scaling_visc_3D
 !< scaling_density1_3D, scaling_density2_3D
-              call ballast(partit%myDim_nod2D, mesh%ulevels_nod2D, &
-                           mesh%nlevels_nod2D, mesh%geo_coord_nod2D, mesh%z_3d_n,                 &
-                           tracers%data(1)%values, tracers%data(2)%values, rad)
+              call ballast(tr_num, tracers, partit, mesh)
         end if
 
 ! sinking
-        call ver_sinking_recom(tr_num, mesh%nl, &  !--- vert_sink ---
-                               mesh%ulevels_nod2D, mesh%nlevels_nod2D, &
-                               mesh%zbar_3d_n, mesh%z_3d_n, mesh%nod_in_elem2D_num, &
-                               mesh%nod_in_elem2D, mesh%nlevels,       &
-                               mesh%area, mesh%areasvol, mesh%hnode, mesh%hnode_new, &
-                               tracers%data(tr_num)%ID,  &
-                               tracers%data(tr_num)%values(:,:),       &
-                               partit%myDim_nod2D, vert_sink, dt)  !--- str_bf ---
+        call ver_sinking_recom(tr_num, tracers, partit, mesh)  !--- vert_sink ---
 ! update tracer fields
 ! sinking into the benthos
-        call ver_sinking_recom_benthos(tr_num, mesh%nl, &
-                                       mesh%ulevels_nod2D, mesh%nlevels_nod2D, &
-                                       mesh%zbar_3d_n, mesh%nod_in_elem2D_num, &
-                                       mesh%nod_in_elem2D, mesh%nlevels, mesh%elem_area, &
-                                       mesh%area, mesh%areasvol, tracers%data(tr_num)%ID, &
-                                       tracers%data(tr_num)%values(:,:),       &
-                                       partit%myDim_nod2D, str_bf,             &
-                                       partit%mype, partit%MPI_COMM_FESOM,   &
-                                       partit%npes, partit%com_nod2D%sPEnum,   &
-                                       partit%com_nod2D%rPEnum,  &
-                                       partit%s_mpitype_nod2D, partit%r_mpitype_nod2D,              &
-                                       partit%s_mpitype_nod3D, partit%r_mpitype_nod3D,              &
-                                       partit%com_nod2D%sPE, partit%com_nod2D%rPE,                  &
-                                       partit%com_nod2D%req, partit%com_nod2D%nreq, dt)  !--- str_bf ---
+        call ver_sinking_recom_benthos(tr_num, tracers, partit, mesh)  !--- str_bf ---
 
 ! update tracer fields
 
         do n=1, partit%myDim_nod2D
             nzmax=mesh%nlevels_nod2D(n)-1
             nzmin=mesh%ulevels_nod2D(n)
-!            tr_arr(nzmin:nzmax,n,tr_num)=tr_arr(nzmin:nzmax,n,tr_num)+ &
-!                                                vert_sink(nzmin:nzmax,n)
-!            tr_arr(nzmin:nzmax,n,tr_num)=tr_arr(nzmin:nzmax,n,tr_num)+ &
-!                                                str_bf(nzmin:nzmax,n)
         tracers%data(tr_num)%values(nzmin:nzmax,n)=tracers%data(tr_num)%values(nzmin:nzmax,n)+ &
                                                 vert_sink(nzmin:nzmax,n)
         tracers%data(tr_num)%values(nzmin:nzmax,n)=tracers%data(tr_num)%values(nzmin:nzmax,n)+ &
@@ -2060,6 +2008,11 @@ end subroutine diff_part_bh
 ! ID = 0 and 1 are reserved for temperature and salinity
 ! MB: mesh, sst, sss, and aice are only needed for transient tracers
 FUNCTION bc_surface(n, id, sval, nzmin, partit, mesh, sst, sss, aice)
+#if defined (__recom)
+   use recoM_declarations
+   use recom_glovar
+   use recom_config
+#endif
   implicit none
 
   integer,       intent(in)            :: n, id, nzmin
@@ -2203,21 +2156,21 @@ FUNCTION bc_surface(n, id, sval, nzmin, partit, mesh, sst, sss, aice)
 #if defined(__recom)
     CASE (1001) ! DIN
         if (use_MEDUSA .and. add_loopback) then  ! OG: add is_MEDUSA_loopback flag is_MEDUSA_loopback flag * lb_flux(n,1)
-            bc_surface= dt*(AtmNInput(n) + virtual_din(n) + RiverDIN2D(n)   * is_riverinput &
+            bc_surface= dt*(AtmNInput(n) + RiverDIN2D(n)   * is_riverinput                &
                                          + ErosionTON2D(n) * is_erosioninput + lb_flux(n,1))
         else
-            bc_surface= dt*(AtmNInput(n) + virtual_din(n) + RiverDIN2D(n)   * is_riverinput &
+            bc_surface= dt*(AtmNInput(n) + RiverDIN2D(n)   * is_riverinput                &
                                          + ErosionTON2D(n) * is_erosioninput)
         end if
 
     CASE (1002) ! DIC
         if (use_MEDUSA .and. add_loopback) then
-            bc_surface= dt*(GloCO2flux_seaicemask(n) + virtual_dic(n) &
+            bc_surface= dt*(GloCO2flux_seaicemask(n)                &
                                 + RiverDIC2D(n)   * is_riverinput   &
                                 + ErosionTOC2D(n) * is_erosioninput &
                                 + lb_flux(n,2) + lb_flux(n,5))
         else
-            bc_surface= dt*(GloCO2flux_seaicemask(n) + virtual_dic(n) &
+            bc_surface= dt*(GloCO2flux_seaicemask(n)                &
                                 + RiverDIC2D(n)   * is_riverinput   &
                                 + ErosionTOC2D(n) * is_erosioninput)
        end if
@@ -2241,27 +2194,32 @@ FUNCTION bc_surface(n, id, sval, nzmin, partit, mesh, sst, sss, aice)
         bc_surface=0.0_WP
     CASE (1018) ! DSi
         if (use_MEDUSA .and. add_loopback) then
-           bc_surface=dt*(virtual_dsi(n) + RiverDSi2D(n)   * is_riverinput &
+           bc_surface=dt*(RiverDSi2D(n)   * is_riverinput        &
                         + ErosionTSi2D(n) * is_erosioninput      &
                         + lb_flux(n,4))
         else
-            bc_surface=dt*(virtual_dsi(n) + RiverDSi2D(n) * is_riverinput + ErosionTSi2D(n) * is_erosioninput)
+            bc_surface=dt*(RiverDSi2D(n) * is_riverinput + ErosionTSi2D(n) * is_erosioninput)
         end if
 
     CASE (1019) ! Fe
         if (useRivFe) then
-            bc_surface= dt*(AtmFeInput(n) + virtual_dfe(n) + RiverFe(n))
+            bc_surface= dt*(AtmFeInput(n) + RiverFe(n))
         else
-           bc_surface= dt*(AtmFeInput(n) + virtual_dfe(n))
+           bc_surface= dt*AtmFeInput(n)
         end if
     CASE (1020:1021) ! Cal
         bc_surface=0.0_WP
     CASE (1022) ! OXY
-        bc_surface= dt*(GloO2flux_seaicemask(n) + virtual_oxy(n))
+        bc_surface= dt*GloO2flux_seaicemask(n)
 !        bc_surface=0.0_WP
-    CASE (1023:1037)
+!sl Upper bound raised from 1036 to 1041, for the same reason as the CASE range in
+!sl oce_setup_step.F90: with enable_coccos .and. enable_3zoo2det, CDOM is 1037 and
+!sl the RECOM_MARSHALL D1 tracers are 1038-1041. 1037 is free -- what used to be
+!sl DIC_13 at 1037 was renumbered to 1302 (see the CASE below).
+    CASE (1023:1041)
         bc_surface=0.0_WP  ! OG added bc for recom fields
     CASE (1302) ! Before (1037) ! DIC_13
+
 #if defined (__ciso)
          if (ciso) then
             if (use_MEDUSA .and. add_loopback) then

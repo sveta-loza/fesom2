@@ -1,0 +1,4566 @@
+!>
+!! @par Copyright
+!! This code is subject to the FESOM-REcoM - License - Agreement in it's most recent form.
+!! Please see URL xxx
+!! 
+!! @brief Module for defining variables used in REcoM, ex constant sinking velocity and 
+!! local time step dt
+!!
+!! @remarks This module contains namelist for recom
+!! @author xxx, FESOM-REcoM, Bremerhaven (2019)
+!!
+!! $ID: n/a$
+!!
+!! @par Origin
+!!   2014: original implementation (V. Schourup-Kristensen)
+!
+module recom_config
+  implicit none
+  save
+
+!! *** General constants ***
+
+! *******************
+! CASE 2phy 1zoo 1det
+! *******************
+  Integer :: idin  =  1, idic   =  2, ialk    =  3, iphyn   =  4, iphyc = 5, &
+             ipchl =  6, idetn  =  7, idetc   =  8, ihetn   =  9,            &
+             ihetc = 10, idon   = 11, idoc    = 12, idian   = 13,            &
+             idiac = 14, idchl  = 15, idiasi  = 16, idetsi  = 17,            &
+             isi   = 18, ife    = 19, iphycal = 20, idetcal = 21,            &
+             ioxy  = 22
+
+  Integer :: izoo2n  = 23, izoo2c   = 24, idetz2n    = 25, &
+             idetz2c = 26, idetz2si = 27, idetz2calc = 28
+
+  ! Microzooplankton (third zooplankton group)
+  integer :: imiczoon = 0   ! Microzooplankton Nitrogen (set below)
+  integer :: imiczooc = 0   ! Microzooplankton Carbon (set below)
+
+  ! ---------------------------------------------------------------------------
+  ! PHYTOPLANKTON GROUPS (coccos configuration)
+  ! ---------------------------------------------------------------------------
+  ! Coccolithophores and Phaeocystis when enable_coccos = .true.
+
+  integer :: icocn = 0      ! Coccolithophore Nitrogen (set below)
+  integer :: icocc = 0      ! Coccolithophore Carbon (set below)
+  integer :: icchl = 0      ! Coccolithophore Chlorophyll (set below)
+
+  integer :: iphan   = 0    ! Phaeocystis Nitrogen (set below)
+  integer :: iphac   = 0    ! Phaeocystis Carbon (set below)
+  integer :: iphachl = 0    ! Phaeocystis Chlorophyll (set below)
+
+!=============================================================================
+
+  Integer :: ivphy = 1, ivdia = 2, ivdet = 3, ivdetsc = 4, ivcoc = 5, ivpha = 6
+
+!=============================================================================
+
+  integer, dimension(8)  :: recom_remin_tracer_id   = (/1001, 1002, 1003, 1018, 1019, 1022, 1302, 1402/)
+
+! OG
+! Todo:  Make recom_sinking_tracer_id case sensitive
+  integer, dimension(32) :: recom_sinking_tracer_id = (/1007, 1008, 1017, 1021, 1004, 1005, 1020, 1006, &
+                                                        1013, 1014, 1016, 1015, 1025, 1026, 1027, 1028, &
+                                                        1029, 1030, 1031, &
+                                                        1032, 1033, 1034, &
+                                                        1308, 1321, 1305, 1320, & 
+                                                        1314, 1408, 1421, 1405, 1420, 1414/)
+  integer, dimension(8)  :: recom_det_tracer_id     = (/1007, 1008, 1017, 1021, 1308, 1321, 1408, 1421/)
+  integer, dimension(8)  :: recom_phy_tracer_id     = (/1004, 1005, 1020, 1305, 1320, 1405, 1420, 1006/)
+  integer, dimension(6)  :: recom_dia_tracer_id     = (/1013, 1014, 1314, 1414, 1016, 1015/)
+
+  ! Configuration-dependent tracer arrays (allocated during initialization)
+! Set by initialize_tracer_indices only in the configurations that own these
+! tracers, so they are explicitly zeroed here: an unset entry must never alias a
+! real tracer ID in the io_meandata dispatch, and -init=zero is a compiler flag,
+! not a guarantee.
+  integer, dimension(3)  :: recom_cocco_tracer_id = 0
+  integer, dimension(3)  :: recom_phaeo_tracer_id = 0
+  integer, dimension(4)  :: recom_det2_tracer_id  = 0
+
+!=============================================================================
+
+  Real(kind=8)                 :: zero           = 0.d0
+  Integer                      :: one            = 1
+  Real(kind=8)                 :: tiny           = 2.23D-16
+  Real(kind=8)                 :: tiny_chl       = 0.00001 
+  Real(kind=8)                 :: SecondsPerDay  = 86400.d0     ! [s/day]
+  Real(kind=8)                 :: Pa2atm         = 101325.d0    ! [Pa/atm] 
+  Real(kind=8)                 :: redO2C         = 1.453        ! O2:C ratio Anderson and Sarmiento, 1994
+
+!! *** REcoM setup ***
+  Logical                :: enable_3zoo2det = .false.   ! Control extended zooplankton variables
+  Logical                :: enable_coccos = .false.      ! Control coccolithophore variables
+! ---------------------------------------------------------------------------
+! Negative-tracer diagnostic (open item 1), off unless recom_neg_diag is set.
+! REcoM_Forcing clamps every tracer to >= tiny before returning, and recom_main
+! writes that clamped state straight back, so REcoM cannot leave a negative
+! behind. Counting negatives ON ENTRY and ON EXIT separately therefore says
+! which side produced them: entry-only negatives were made by transport since
+! the previous call, exit negatives would mean the clamp does not hold.
+  Logical                :: recom_neg_diag = .false.
+  integer, parameter     :: neg_maxtr = 64      ! >= any bgc_num used here
+  integer, parameter     :: neg_maxlv = 100     ! >= nl-1
+  integer(kind=8)        :: neg_in_count(neg_maxtr)  = 0_8  ! points < 0 on entry, per tracer
+  integer(kind=8)        :: neg_out_count(neg_maxtr) = 0_8  ! points < 0 on exit,  per tracer
+  integer(kind=8)        :: neg_in_lvl(neg_maxlv)    = 0_8  ! points < 0 on entry, per level
+  real(kind=8)           :: neg_in_min(neg_maxtr)    = 0.d0 ! most negative value seen on entry
+  integer(kind=8)        :: neg_points               = 0_8  ! (node,level,tracer) triples scanned
+
+  namelist /parecomsetup/ enable_3zoo2det, enable_coccos, recom_neg_diag
+!sl
+  Logical                :: FeLimit = .false.      ! ?? SL
+
+!! *** General configuration ***
+
+  Logical                :: use_REcoM            = .true.
+  Logical                :: REcoM_restart        = .false.
+
+  Integer                :: bgc_num               = 31      ! NEW increased the number from 28 to 34 (added coccos and respiration) ! NEW 3Zoo changed from 31 to 33 ! added phaeocystis: changed from 33 to 36
+!SL consider to increase bgc_num -> 41  
+  integer                :: bgc_base_num          = 22      ! standard tracers
+  Integer                :: diags3d_num           = 31      ! Number of diagnostic 3d tracers to be saved
+  Real(kind=8)           :: VDet                  = 20.d0   ! Sinking velocity, constant through the water column and positive downwards
+  Real(kind=8)           :: VDet_zoo2             = 200.d0  ! Sinking velocity, constant through the water column 
+  Real(kind=8)           :: VPhy                  = 0.d0    !!! If the number of sinking velocities are different from 3, code needs to be changed !!!
+  Real(kind=8)           :: VDia                  = 0.d0 
+  Real(kind=8)           :: VCocco                = 0.d0    ! NEW 
+  Real(kind=8)           :: VPhaeo                = 0.d0    ! Phaeocystis
+  Logical                :: allow_var_sinking     = .true.   
+  Integer                :: biostep               = 1          ! Number of times biology should be stepped forward for each time step		 
+  Logical                :: REcoM_Geider_limiter  = .false.              ! Decides what routine should be used to calculate limiters in sms
+  Logical                :: REcoM_Grazing_Variable_Preference = .true.  ! Decides if grazing should have preference for phyN or DiaN
+  Logical                :: Grazing_detritus      = .false.    ! Decides grazing on detritus                            
+  Logical                :: het_resp_noredfield   = .true.     ! Decides respiratation of copepods              
+  Logical                :: diatom_mucus          = .true.           ! Effect of nutrient limitation on the aggregation
+  Logical                :: O2dep_remin           = .true.     ! NEW O2remin Add option for O2 dependency of organic matter remineralization
+  Logical                :: use_ballasting        = .true.     ! NEW BALL
+  Logical                :: use_density_scaling   = .true.     ! NEW BALL
+  Logical                :: use_viscosity_scaling = .true.     ! NEW BALL
+  Logical                :: OmegaC_diss           = .true.     ! NEW DISS Use mocsy calcite omega to compute calcite dissolution
+  Logical                :: CO2lim                = .true.     ! NEW Use CO2 dependence of growth and calcification
+  !Logical                :: inter_CT_CL           = .true.    ! NEW inter use interaction between CO2 and both, temperature and light
+  Logical                :: Diags                 = .true.    !!!!!!!!!!!!!!!!!!!!!!Change in recom.F90 Diagnostics -> Diags
+  Logical                :: constant_CO2          = .true.
+  Logical                :: UseFeDust             = .true.     ! Turns dust input of iron off when set to.false.
+  Logical                :: UseDustClim           = .true.
+  Logical                :: UseDustClimAlbani     = .true.    ! Use Albani dustclim field (If it is false Mahowald will be used)
+  Logical                :: use_photodamage       = .false.    ! use Alvarez et al (2018) for chlorophyll degradation
+  logical                :: HetRespFlux_plus      = .true.     !MB More stable computation of zooplankton respiration fluxes adding a small number to HetN
+  character(100)         :: REcoMDataPath         = '/albedo/work/projects/MarESys/ogurses/input/mesh_CORE2_finaltopo_mean/'
+  logical                :: restore_alkalinity    = .true.
+  logical                :: useRivers             = .false.
+  logical                :: useRivFe              = .false.    ! river input of Fe
+  logical                :: useErosion            = .false.
+  logical                :: NitrogenSS            = .false.    ! This one only activates rivers! And in principle denitrification, but denitrification is commented out. When set to true, external sources and sinks of nitrogen are activated (Riverine, aeolian and denitrification)
+  logical                :: useAeolianN           = .false.    ! When set to true, aeolian nitrogen deposition is activated
+  integer                :: firstyearoffesomcycle = 1958       ! The first year of the actual physical forcing (e.g. JRA-55) used
+  integer                :: lastyearoffesomcycle  = 2023       ! Last year of the actual physical forcing used
+  integer                :: numofCO2cycles        = 1          ! Number of cycles of the forcing planned 
+  integer                :: currentCO2cycle       = 1          ! Which CO2 cycle we are currently running
+  Logical                :: DIC_PI                = .true.
+  integer                :: Nmocsy                = 1          ! Length of the vector that is passed to mocsy (always one for recom)
+  logical                :: recom_debug           = .false.
+  logical                :: ciso                  = .false.    !MB main switch to enable/disable carbon isotopes (13|14C)
+  integer                :: benthos_num           = 4          !MB number of sediment tracers = 8 if ciso = .true.
+  Logical                :: use_MEDUSA            = .false.    ! main switch for sediment model
+  integer                :: sedflx_num            = 0         ! number of sedimentary fluxs from MEDUSA, = 7 if ciso
+  Logical                :: add_loopback          = .false.
+  real(kind=8)           :: lb_tscale             = 1.d0      ! time scale to balance the burial loss
+  integer                :: bottflx_num           = 4         ! number of stored sinking fluxes from the bottom layer, = 6 if C13 and = 8 if C14
+  Logical                :: use_atbox             = .false.   ! switch for atmospheric box model for CO2
+
+  Logical                :: fe_2ligands           = .false.    ! consider Fe-ligand binding with two ligands
+  Logical                :: fe_compl_nica         = .false.    ! use Fe-ligand parameterisation dependent on DOC and pH (Ye2020)
+
+  namelist /pavariables/ use_REcoM,                       REcoM_restart,                                  &
+                       bgc_num,                           diags3d_num,           bgc_base_num,            &
+                       VDet,                              VDet_zoo2,                                      &
+                       VPhy,                              VDia,                  VCocco,                  &
+                                                                                 VPhaeo,                  &
+                       allow_var_sinking,                 biostep,               REcoM_Geider_limiter,    &
+                       REcoM_Grazing_Variable_Preference,                                                 &
+                       Grazing_detritus,        &
+                                                                                 het_resp_noredfield,     &
+                       diatom_mucus,                                                                      &
+                       O2dep_remin,                       use_ballasting,        use_density_scaling,     & ! O2remin, NEW BALL
+                       use_viscosity_scaling,             OmegaC_diss,           CO2lim,                  & ! BALL, DISS added OmegaC_diss, added CO2lim
+                       Diags      ,                       constant_CO2,                                   &
+                       UseFeDust,                         UseDustClim,           UseDustClimAlbani,       &
+                       use_photodamage,                   HetRespFlux_plus,      REcoMDataPath,           &
+                       restore_alkalinity,                useRivers,             useRivFe,                &
+                       useErosion,                        NitrogenSS,            useAeolianN,             &
+                       firstyearoffesomcycle,             lastyearoffesomcycle,  numofCO2cycles,          &
+                       currentCO2cycle,                   DIC_PI,                Nmocsy,                  &
+                       recom_debug,                       ciso,                  benthos_num,             &
+                       use_MEDUSA,                        sedflx_num,            bottflx_num,             &
+                       add_loopback,                      lb_tscale,             use_atbox,               &
+                       fe_2ligands,                       fe_compl_nica
+
+!!------------------------------------------------------------------------------
+!! *** Sinking ***
+  Real(kind=8)                 :: Vdet_a         = 0.0288       ! [1/day]
+  Real(kind=8)                 :: Vcalc          = 0.0216       ! [1/day] depth dependence of calc_diss               
+                                                                                                                           
+  namelist /pasinking/ Vdet_a, Vcalc
+!!------------------------------------------------------------------------------
+!! *** Initialization ***
+  Real(kind=8)                 :: cPhyN          = 0.2d0
+  Real(kind=8)                 :: cHetN          = 0.2d0
+  Real(kind=8)                 :: cZoo2N         = 0.2d0
+
+  namelist /painitialization_N/ cPhyN, cHetN, cZoo2N
+!!------------------------------------------------------------------------------
+!! *** Temperature and Arrhenius functions ***
+  Real(kind=8)                 :: recom_Tref     = 288.15d0       ! [K]
+  Real(kind=8)                 :: C2K            = 273.15d0       !     Conversion from degrees C to K
+  Real(kind=8)                 :: Ae             = 4500.d0        ! [K] Slope of the linear part of the Arrhenius function
+
+!! *** Temperature variables for Blanchard function ***
+  Real(kind=8)                 :: Tmax_phaeo     = 16d0           ! [degC] For Blanchard temp fxn: maximum temperature
+  Real(kind=8)                 :: Topt_phaeo     = 7.5272d0       ! [degC] For Blanchard temp fxn: optimum temperature
+  Real(kind=8)                 :: uopt_phaeo     = 0.7328d0       ! [1/day] For Blanchard function: optimum growth date
+  Real(kind=8)                 :: beta_phaeo     = 0.7829d0       ! [unitless] For Blanchard function
+
+! NEW MODIFIED parameters
+  Real(kind=8)                 :: ord_d          = -0.2216d0 ! parameters for diatom temperature function
+  Real(kind=8)                 :: expon_d        = 0.0406d0 ! diatom exponent
+  Real(kind=8)                 :: ord_phy        = -1.2154d0 ! small phyto ordonnee
+  Real(kind=8)                 :: expon_phy      = 0.0599d0 ! small phyto exponent
+  Real(kind=8)                 :: ord_cocco      = -0.2310d0 ! coccolith ordonnee
+  Real(kind=8)                 :: expon_cocco    = 0.0327d0 ! small phyto ordonnee
+! UNUSED. Phaeocystis does NOT use an exponential temperature response: the
+! Blanchard curve in recom_sms.F90 (~line 1267) is used instead, governed by
+! uopt_phaeo / Topt_phaeo / Tmax_phaeo / beta_phaeo. These two are referenced
+! nowhere in the source, so setting them in &paArrhenius has no effect at all.
+! They are kept only so that namelists which already set them still read --
+! config/bin_4p3z2d/namelist.recom is one. Delete them together with those
+! namelist entries if the exponential form is never going to be offered here.
+  Real(kind=8)                 :: ord_phaeo      = -0.2310d0 ! UNUSED, see above
+  Real(kind=8)                 :: expon_phaeo    = 0.0327d0  ! UNUSED, see above
+
+  Real(kind=8)                 :: reminSi        = 0.02d0
+  Real(kind=8)                 :: k_o2_remin     = 15.d0          ! NEW O2remin mmol m-3; Table 1 in Cram 2018 cites DeVries & Weber 2017 for a range of 0-30 mmol m-3
+! NB: ord_phaeo and expon_phaeo are accepted here but have NO EFFECT -- see the
+! declaration above. Phaeocystis growth is set by uopt_phaeo / Topt_phaeo /
+! Tmax_phaeo / beta_phaeo (Blanchard), and uopt_phaeo is the binding one.
+  namelist /paArrhenius/ recom_Tref, C2K, Ae, Tmax_phaeo, Topt_phaeo, uopt_phaeo, beta_phaeo, ord_d, expon_d, ord_phy, expon_phy, ord_cocco, expon_cocco, ord_phaeo, expon_phaeo, reminSi, k_o2_remin
+
+!!------------------------------------------------------------------------------
+!! *** For limiter function ***
+  Real(kind=8)                 :: NMinSlope      = 50.d0 
+  Real(kind=8)                 :: SiMinSlope     = 1000.d0
+  Real(kind=8)                 :: NCmin          = 0.04d0
+  Real(kind=8)                 :: NCmin_d        = 0.04d0
+  Real(kind=8)                 :: NCmin_c        = 0.04d0         ! NEW
+  Real(kind=8)                 :: NCmin_p        = 0.04d0         ! Phaeocystis
+  Real(kind=8)                 :: SiCmin         = 0.04d0
+  Real(kind=8)                 :: k_Fe           = 0.04d0
+  Real(kind=8)                 :: k_Fe_d         = 0.12d0
+  Real(kind=8)                 :: k_Fe_c         = 0.04           ! NEW
+  Real(kind=8)                 :: k_Fe_p         = 0.09           ! Phaeocystis (to be tuned)
+  Real(kind=8)                 :: k_si           = 4.d0
+  Real(kind=8)                 :: P_cm           = 3.0d0          ! [1/day]   the rate of C-specific photosynthesis
+  Real(kind=8)                 :: P_cm_d         = 3.5d0
+  Real(kind=8)                 :: P_cm_c         = 3.3d0          ! NEW
+  Real(kind=8)                 :: P_cm_p         = 3.4d0          ! NEW for Phaeocystis ( to be tuned)
+  namelist /palimiter_function/ NMinSlope, SiMinSlope, NCmin, NCmin_d, NCmin_c, NCmin_p, SiCmin, k_Fe, k_Fe_d, k_Fe_c, k_Fe_p, k_si, P_cm, P_cm_d, P_cm_c, P_cm_p
+
+!!------------------------------------------------------------------------------
+!! *** For light calculations ***
+  Real(kind=8)                 :: k_w            = 0.04d0         ! [1/m]              Light attenuation coefficient
+  Real(kind=8)                 :: a_chl          = 0.03d0         ! [1/m * 1/(mg Chl)] Chlorophyll specific attenuation coefficients
+  !sl par_layer_mean (7 Oct 2026): broadband (RECOM_WAVEBANDS=OFF) PAR convention.
+  !sl .true.  (DEFAULT since 7 Oct 2026, Svetlana's decision; REcoM-MITgcm / Alvarez et al. 2022 form):
+  !sl         PAR(k) is the exact mean of the exponential profile over layer k,
+  !sl         (I_top - I_bot)/(kappastar*thick(k)), attenuated with the layer's own chlorophyll. This is the
+  !sl         same convention as the spectral build, where PAR is the geometric mean of the top and bottom
+  !sl         irradiance (the mid-layer value). Costs ~7% NPPn / ~5% NPPd against the old form (nowb12m vs nowb12t).
+  !sl .false. (FESOM-REcoM as published, every broadband run before 7 Oct 2026): PAR(k) is the light at the
+  !sl         TOP interface of layer k (PAR(1) = SurfSR, no attenuation inside the layer). Set it explicitly
+  !sl         to reproduce those runs. No effect in a spectral build.
+  Logical                      :: par_layer_mean = .true.
+  namelist /palight_calculations/ k_w, a_chl, par_layer_mean
+!!------------------------------------------------------------------------------
+!! *** Photosynthesis ***
+  Real(kind=8)                 :: alfa           = 0.14d0         ! [(mmol C*m2)/(mg Chl*W*day)]
+  Real(kind=8)                 :: alfa_d         = 0.19d0         ! An initial slope of the P-I curve
+  Real(kind=8)                 :: alfa_c         = 0.10d0         ! NEW
+  Real(kind=8)                 :: alfa_p         = 0.10d0         ! Phaeocystis (to be tuned)
+  Real(kind=8)                 :: parFrac        = 0.43d0
+!sl Platt et al. (1980) photoinhibition coefficients beta^Chl, same units as alfa [(mmol C*m2)/(mg Chl*W*day)].
+!sl Applied to Cphot in both builds as exp(-beta*Chl:C*PAR/pMax). Default 0 = no photoinhibition (bit-identical).
+!sl Motivation: E. huxleyi shows no photoinhibition to >= 1000 uE m-2 s-1 (Nanninga & Tyrrell 1996, MEPS 136:195),
+!sl so a test sets beta_inh_c = 0 and beta > 0 for the others. 2 Oct 2026.
+  Real(kind=8)                 :: beta_inh       = 0.d0           ! small phytoplankton
+  Real(kind=8)                 :: beta_inh_d     = 0.d0           ! diatoms
+  Real(kind=8)                 :: beta_inh_c     = 0.d0           ! coccolithophores
+  Real(kind=8)                 :: beta_inh_p     = 0.d0           ! Phaeocystis (NB beta_phaeo is the Blanchard temperature parameter)
+  namelist /paphotosynthesis/ alfa, alfa_d, alfa_c, alfa_p, parFrac, &
+                              beta_inh, beta_inh_d, beta_inh_c, beta_inh_p
+!!------------------------------------------------------------------------------
+!! *** Assimilation ***
+  Real(kind=8)                 :: V_cm_fact      = 0.7d0          ! scaling factor for temperature dependent maximum of C-specific N-uptake
+  Real(kind=8)                 :: V_cm_fact_d    = 0.7d0  
+  Real(kind=8)                 :: V_cm_fact_c    = 0.7d0          ! NEW
+  Real(kind=8)                 :: V_cm_fact_p    = 0.7d0          ! Phaeocystis
+  Real(kind=8)                 :: NMaxSlope      = 1000.d0        ! Max slope for limiting function
+  Real(kind=8)                 :: SiMaxSlope     = 1000.d0
+  Real(kind=8)                 :: NCmax          = 0.2d0          ! [mmol N/mmol C] Maximum cell quota of nitrogen (N:C)
+  Real(kind=8)                 :: NCmax_d        = 0.2d0
+  Real(kind=8)                 :: NCmax_c        = 0.15d0         ! NEW
+  Real(kind=8)                 :: NCmax_p        = 0.2d0          ! Phaeocystis: = NCmax_d; REcoM has no colonial/solitary split (was 0.1)
+  Real(kind=8)                 :: SiCmax         = 0.8d0
+  Real(kind=8)                 :: NCuptakeRatio  = 0.2d0          ! [mmol N/mmol C] Maximum uptake ratio of N:C
+  Real(kind=8)                 :: NCUptakeRatio_d = 0.2d0
+  Real(kind=8)                 :: NCUptakeRatio_c = 0.2d0         ! NEW
+  Real(kind=8)                 :: NCUptakeRatio_p = 0.2d0         ! Phaeocystis
+  Real(kind=8)                 :: SiCUptakeRatio = 0.2d0
+  Real(kind=8)                 :: k_din          = 0.55d0         ! [mmol N/m3] Half-saturation constant for nitrate uptake
+  Real(kind=8)                 :: k_din_d        = 1.0d0
+  Real(kind=8)                 :: k_din_c        = 0.55d0         ! NEW
+  Real(kind=8)                 :: k_din_p        = 0.55d0         ! Phaeocystis (to be tuned)
+  Real(kind=8)                 :: Chl2N_max      = 3.15d0         ! [mg CHL/mmol N] Maximum CHL a : N ratio = 0.3 gCHL gN^-1
+  Real(kind=8)                 :: Chl2N_max_d    = 4.2d0
+  Real(kind=8)                 :: Chl2N_max_c    = 3.5d0          ! NEW
+  Real(kind=8)                 :: Chl2N_max_p    = 3.5d0          ! Phaeocystis (to be tuned (?))
+  Real(kind=8)                 :: res_phy        = 0.01d0         ! [1/day] Maintenance respiration rate constant
+  Real(kind=8)                 :: res_phy_d      = 0.01d0
+  Real(kind=8)                 :: res_phy_c      = 0.0075d0       ! NEW
+  Real(kind=8)                 :: res_phy_p      = 0.008d0        ! Phaeocystis (to be tuned (?))
+  !sl res_phy_const (7 Oct 2026, NEXT_STEPS 21c.3): .true. = maintenance respiration res_phy_X is NOT scaled by the
+  !sl NCmax limiter limitFacN_X (it stays on in the dark when the quota is full), for all four PFTs. The biosynthesis
+  !sl term biosynth*N_assim and the DOC/DON excretion (lossC/lossN * limitFacN) are unchanged. Default .false. is the
+  !sl published form R = res_phy*limitFacN + biosynth*N_assim (bit-identical).
+  Logical                      :: res_phy_const  = .false.
+  Real(kind=8)                 :: biosynth       = 2.33d0         ! [mmol C/mmol N] Cost of biosynthesis
+  Real(kind=8)                 :: biosynthSi     = 0.d0
+!sl Pseudo N2 fixation by small phytoplankton (diagnostic, default off): floor under DIN/(DIN+k_din)
+!sl in water warmer than nfix_Tmin, the shortfall supplied from N2 (see recom_sms). 3 Oct 2026.
+  Real(kind=8)                 :: nfix_floor     = 0.d0           ! [-] 0 = off; 1 = N uptake as if DIN-replete
+  Real(kind=8)                 :: nfix_Tmin      = 20.d0          ! [degC] fixation only above this temperature
+  Real(kind=8)                 :: nfix_max       = 0.d0           ! [mmol N/(m2 day)] cap on column-integrated fixation; 0 = no cap
+  namelist /paassimilation/ V_cm_fact, V_cm_fact_d, V_cm_fact_c, V_cm_fact_p, NMaxSlope, SiMaxSlope, NCmax, NCmax_d, NCmax_c, NCmax_p, SiCmax, &
+                       NCuptakeRatio, NCUptakeRatio_d, NCUptakeRatio_c, NCUptakeRatio_p, SiCUptakeRatio, k_din, k_din_d, k_din_c, k_din_p, &
+                       Chl2N_max, Chl2N_max_d, Chl2N_max_c, Chl2N_max_p, res_phy, res_phy_d, res_phy_c, res_phy_p, res_phy_const, biosynth, biosynthSi, &
+                       nfix_floor, nfix_Tmin, nfix_max
+!!------------------------------------------------------------------------------
+!! *** Iron chemistry ***
+  Real(kind=8)                 :: totalligand     = 1.d0        ! [mumol/m3] order 1. Total free ligand
+  Real(kind=8)                 :: ligandStabConst = 100.d0      ! [m3/mumol] order 100. Ligand-free iron stability constant
+  namelist /pairon_chem/ totalligand, ligandStabConst
+!!------------------------------------------------------------------------------
+!! *** Zooplankton ***
+  Real(kind=8)                 :: graz_max      = 2.4d0           ! [mmol N/(m3 * day)] Maximum grazing loss parameter 
+  Real(kind=8)                 :: epsilonr      = 0.35d0          ! [(mmol N)2 /m6] Half saturation constant for grazing loss 
+  Real(kind=8)                 :: res_het       = 0.01d0          ! [1/day] Respiration by heterotrophs and mortality (loss to detritus)
+  Real(kind=8)                 :: Redfield      = 6.625           ! [mmol C/mmol N] Redfield ratio of C:N = 106:16
+  Real(kind=8)                 :: loss_het      = 0.05d0          ! [1/day] Temperature dependent N degradation of extracellular organic N (EON)
+  Real(kind=8)                 :: pzDia         = 0.5d0           ! Maximum diatom preference
+  Real(kind=8)                 :: sDiaNsq       = 0.d0
+  Real(kind=8)                 :: pzPhy         = 1.0d0           ! Maximum nano-phytoplankton preference 
+  Real(kind=8)                 :: sPhyNsq       = 0.d0
+  Real(kind=8)                 :: pzCocco       = 0.5d0           ! NEW (value is just a guess)
+  Real(kind=8)                 :: sCoccoNsq     = 0.d0            ! NEW
+  Real(kind=8)                 :: pzPhaeo       = 1.0d0           ! Phaeocystis (to be tuned)
+  Real(kind=8)                 :: sPhaeoNsq     = 0.d0            ! Phaeocystis 
+  Real(kind=8)                 :: pzMicZoo      = 1.0d0           ! NEW 3Zoo Maximum nano-phytoplankton preference
+  Real(kind=8)                 :: sMicZooNsq    = 0.d0            ! NEW 3Zoo
+  real(kind=8)                 :: tiny_het      = 1.d-5           ! for more stable computation of HetRespFlux (_plus). Value can be > tiny because HetRespFlux ~ hetC**2.
+  namelist /pazooplankton/ graz_max, epsilonr, res_het, Redfield, loss_het, pzDia, sDiaNsq, pzPhy, sPhyNsq, pzCocco, sCoccoNsq, pzPhaeo, sPhaeoNsq, pzMicZoo, sMicZooNsq, tiny_het
+!!-------------------------------------------------------------------------------                                                                                                                                                     
+!! *** SecondZooplankton (Macrozooplankton) ***
+  Real(kind=8)                 :: graz_max2      = 0.1d0          ! [mmol N/(m3 * day)] Maximum grazing loss parameter
+  Real(kind=8)                 :: epsilon2       = 0.0144d0       ! [(mmol N)2 /m6] Half saturation constant for grazing loss
+  Real(kind=8)                 :: res_zoo2       = 0.0107d0       ! [1/day] Respiration by heterotrophs and mortality (loss to detritus)                                                            
+  Real(kind=8)                 :: loss_zoo2      = 0.003d0        ! [1/day] Temperature dependent N degradation of extracellular organic N
+  Real(kind=8)                 :: fecal_rate_n   = 0.13d0
+  Real(kind=8)                 :: fecal_rate_c   = 0.295d0
+  Real(kind=8)                 :: fecal_rate_n_mes = 0.25d0       ! NEW 3Zoo
+  Real(kind=8)                 :: fecal_rate_c_mes = 0.32d0       ! NEW 3Zoo
+  Real(kind=8)                 :: pzDia2         = 1.d0           ! Maximum diatom preference
+  Real(kind=8)                 :: sDiaNsq2       = 0.d0
+  Real(kind=8)                 :: pzPhy2         = 0.5d0          ! Maximum diatom preference
+  Real(kind=8)                 :: sPhyNsq2       = 0.d0
+  Real(kind=8)                 :: pzCocco2       = 0.2d0          ! NEW (value is just a guess)
+  Real(kind=8)                 :: sCoccoNsq2     = 0.d0           ! NEW
+  Real(kind=8)                 :: pzPhaeo2       = 0.5d0          ! Phaeocystis (to be tuned)
+  Real(kind=8)                 :: sPhaeoNsq2     = 0.d0           ! Phaeocystis
+  Real(kind=8)                 :: pzHet          = 0.8d0          ! Maximum diatom preference
+  Real(kind=8)                 :: sHetNsq        = 0.d0
+  Real(kind=8)                 :: pzMicZoo2      = 0.8d0          ! NEW Zoo3 Maximum microzooplankton preference
+  Real(kind=8)                 :: sMicZooNsq2    = 0.d0           ! NEW Zoo3
+  Real(kind=8)                 :: t1_zoo2        = 28145.d0       ! Krill temp. function constant1                                                                                                       
+  Real(kind=8)                 :: t2_zoo2        = 272.5d0        ! Krill temp. function constant2
+  Real(kind=8)                 :: t3_zoo2        = 105234.d0      ! Krill temp. function constant3                                                                                                      
+  Real(kind=8)                 :: t4_zoo2        = 274.15d0       ! Krill temp. function constant3                                                                                              
+  namelist /pasecondzooplankton/ graz_max2, epsilon2, res_zoo2, & 
+                                 loss_zoo2, fecal_rate_n, fecal_rate_c, fecal_rate_n_mes, fecal_rate_c_mes,     &    ! NEW 3Zoo
+                                 pzDia2, sDiaNsq2, pzPhy2, sPhyNsq2, pzCocco2, sCoccoNsq2, pzPhaeo2, sPhaeoNsq2, pzHet, sHetNsq,      &
+                                 pzMicZoo2, sMicZooNsq2, &
+                                 t1_zoo2, t2_zoo2, t3_zoo2, t4_zoo2
+!-------------------------------------------------------------------------------
+!! *** Third Zooplankton (Microzooplankton) ***
+  Real(kind=8)                 :: graz_max3     = 0.46d0          ! NEW 3Zoo [mmol N/(m3 * day)] Maximum grazing loss parameter
+  Real(kind=8)                 :: epsilon3      = 0.64d0          ! NEW 3Zoo [(mmol N)2 /m6] Half saturation constant for grazing loss
+  Real(kind=8)                 :: loss_miczoo   = 0.01d0          ! NEW 3Zoo [1/day] Temperature dependent N degradation of extracellular organic N (EON)
+  Real(kind=8)                 :: res_miczoo    = 0.01d0          ! NEW 3Zoo [1/day] Respiration by heterotrophs and mortality (loss to detritus)
+  Real(kind=8)                 :: pzDia3        = 0.5d0           ! NEW 3Zoo Maximum diatom preference
+  Real(kind=8)                 :: sDiaNsq3      = 0.d0            ! NEW 3Zoo
+  Real(kind=8)                 :: pzPhy3        = 1.0d0           ! NEW 3Zoo Maximum nano-phytoplankton preference
+  Real(kind=8)                 :: sPhyNsq3      = 0.d0            ! NEW 3Zoo
+  Real(kind=8)                 :: pzCocco3      = 0.d0            ! NEW 3Zoo Maximum coccolithophore preference ! ATTENTION: This value needs to be tuned; I start with zero preference!
+  Real(kind=8)                 :: sCoccoNsq3    = 0.d0            ! NEW 3Zoo
+  Real(kind=8)                 :: pzPhaeo3      = 1.0d0           ! Phaeocystis 3Zoo Maximum phaeocystis preference (to be tuned (?))
+  Real(kind=8)                 :: sPhaeoNsq3    = 0.d0            ! Phaeocystis 3Zoo
+  namelist /pathirdzooplankton/ graz_max3, epsilon3, loss_miczoo, res_miczoo, pzDia3, sDiaNsq3, pzPhy3, sPhyNsq3, pzCocco3, sCoccoNsq3, pzPhaeo3, sPhaeoNsq3
+
+!-------------------------------------------------------------------------------                                                                                                                          
+!! *** Detritus Grazing Params ***                                                                                                                                                                        
+  Real(kind=8)                 :: pzDet         = 1.d0           ! Maximum small detritus prefence by first zooplankton 
+  Real(kind=8)                 :: sDetNsq       = 0.d0  
+  Real(kind=8)                 :: pzDetZ2       = 1.d0           ! Maximum large detritus preference by first zooplankton
+  Real(kind=8)                 :: sDetZ2Nsq     = 0.d0
+  Real(kind=8)                 :: pzDet2        = 1.d0           ! Maximum small detritus prefence by second zooplankton
+  Real(kind=8)                 :: sDetNsq2      = 0.d0  
+  Real(kind=8)                 :: pzDetZ22      = 1.d0           ! Maximum large detritus preference by second zooplankton
+  Real(kind=8)                 :: sDetZ2Nsq2    = 0.d0
+  namelist /pagrazingdetritus/ pzDet, sDetNsq, pzDetZ2, sDetZ2Nsq, &
+                                 pzDet2, sDetNsq2, pzDetZ22, sDetZ2Nsq2
+!!------------------------------------------------------------------------------
+!! *** Aggregation ***
+  Real(kind=8)                 :: agg_PD        = 0.165d0         ! [m3/(mmol N * day)] Maximum aggregation loss parameter for DetN
+  Real(kind=8)                 :: agg_PP        = 0.015d0         ! [m3/(mmol N * day)] Maximum aggregation loss parameter for PhyN and DiaN (plankton)
+  ! [-] Phaeocystis-specific scaling of the shared aggregation rate. 1.0 = as all other PFTs.
+  ! TUNED: 0.85 makes Oct-Feb Phaeocystis carbon unbiased against MAREDAT south of 30S at no
+  ! measurable cost to diatoms or coccolithophores. Below ~0.70 the coupled system tips into a
+  ! much higher Phaeocystis state (less Phaeo aggregation -> fewer diatoms -> less DetN -> a
+  ! lower kernel for every class), which overshoots the observations threefold. Default left at
+  ! 1.0 so existing runs reproduce; set 0.85d0 in the namelist to use the tuned value.
+  Real(kind=8)                 :: agg_fac_phaeo = 1.0d0
+  ! [-] Scales, for Phaeocystis only, just the detritus part agg_PD*(DetN+DetZ2N) of the kernel it
+  ! sees (applied before agg_fac_phaeo). 1.0 = as all other PFTs. On the Ross shelf in Dec-Jan that
+  ! part is ~90% of the kernel, so there it acts like agg_fac_phaeo = 1 - 0.9*(1 - agg_fac_phaeo_det);
+  ! it differs in winter, when the detritus share falls to 0.1-0.6.
+  Real(kind=8)                 :: agg_fac_phaeo_det = 1.0d0
+  namelist /paaggregation/ agg_PD, agg_PP, agg_fac_phaeo, agg_fac_phaeo_det
+!!------------------------------------------------------------------------------
+!! *** DIN ***
+  Real(kind=8)                 :: rho_N         = 0.11d0          ! [1/day] Temperature dependent N degradation of extracellular organic N (EON) (Remineralization of DON)
+  namelist /padin_rho_N/ rho_N
+!!------------------------------------------------------------------------------
+!! *** DIC ***
+  Real(kind=8)                 :: rho_C1        = 0.1d0           ! [1/day] Temperature dependent C degradation of extracellular organic C (EOC)
+  namelist /padic_rho_C1/ rho_C1
+!!------------------------------------------------------------------------------
+!! *** Phytoplankton N ***
+  Real(kind=8)                 :: lossN         = 0.05d0          ! [1/day] Phytoplankton loss of organic N compounds
+  Real(kind=8)                 :: lossN_d       = 0.05d0
+  Real(kind=8)                 :: lossN_c       = 0.05d0
+  Real(kind=8)                 :: lossN_p       = 0.05d0          ! Phaeocystis
+  ! [1/day] Phaeocystis linear mortality/lysis to detritus (N and C; Chl is lost), PhySyn/Darwin form:
+  ! mort_phaeo, multiplied by mort_fac_fe_phaeo where DFe < k_Fe_p (solitary cells, Bender et al. 2018).
+  ! No temperature dependence. 0 = off, and then the code path is unchanged.
+  Real(kind=8)                 :: mort_phaeo        = 0.0d0
+  Real(kind=8)                 :: mort_fac_fe_phaeo = 1.3d0
+  ! [1/day] Linear mortality/lysis of all four PFTs to detritus (N, C, diatom Si, calcite; Chl is lost).
+  ! mort_phy is the small-phyto rate; mort_d/_c/_p default -1 = "use mort_phy" (the res_ovf_d rule).
+  ! mort_p is added to mort_phaeo. With mort_light = .true. each rate is scaled by the light
+  ! limitation of photosynthesis, 1 - Cphot/pMax (1 in the dark, ~0 when light-saturated, incl.
+  ! nutrient-limited cells), so it acts on dark/deeply mixed stocks. All 0 = off, code path
+  ! unchanged. (S1 winter-loss test, NEXT_STEPS 23k, 30 Oct 2026)
+  Real(kind=8)                 :: mort_phy   = 0.0d0
+  Real(kind=8)                 :: mort_d     = -1.0d0
+  Real(kind=8)                 :: mort_c     = -1.0d0
+  Real(kind=8)                 :: mort_p     = -1.0d0
+  Logical                      :: mort_light = .false.
+  namelist /paphytoplankton_N/ lossN, lossN_d, lossN_c, lossN_p, mort_phaeo, mort_fac_fe_phaeo, &
+                               mort_phy, mort_d, mort_c, mort_p, mort_light
+!!------------------------------------------------------------------------------
+!! *** Phytoplankton C ***
+  Real(kind=8)                 :: lossC         = 0.10d0          ! [1/day] Phytoplankton loss of carbon 
+  Real(kind=8)                 :: lossC_d       = 0.10d0
+  Real(kind=8)                 :: lossC_c       = 0.10d0
+  Real(kind=8)                 :: lossC_p       = 0.10d0          ! Phaeocystis
+  Real(kind=8)                 :: f_ovf         = 0.0d0           !sl [-] Carbon overflow: extra DOC exudation f_ovf*(1-qN)*Cphot, all PFTs,
+                                                                    !   qN = N-quota limiter recom_limiter(NMinSlope,NCmin_X,quota_X), i.e.
+                                                                    !   photosynthate fixed beyond what the cell's N supports leaves as DOC
+                                                                    !   (carbon overconsumption, Schartau et al. 2007). 0 = off, bit-identical.
+  Logical                      :: ovf_to_cdom   = .true.          !sl if RECOM_CDOM: .true. = overflow DOC is split with CDOM by fcdom
+                                                                    !   like the regular excretion; .false. = all of it to DOC (overflow
+                                                                    !   exudates are mostly carbohydrate/TEP precursors, not chromophoric)
+  Real(kind=8)                 :: res_ovf       = 0.0d0           !sl [-] Carbon overflow RESPIRED (8 Oct 2026, NEXT_STEPS 21i option 2):
+                                                                    !   res_ovf*(1-qN)*Cphot, same qN as f_ovf, all PFTs, but the carbon goes
+                                                                    !   to DIC (with O2 consumption, redO2C) instead of DOC/CDOM, so it leaves
+                                                                    !   the organic pool and cannot darken the water. 0 = off, bit-identical.
+                                                                    !   Counted in the respp/respn/respd/respc diagnostics. No ciso terms.
+  Real(kind=8)                 :: res_ovf_d     = -1.0d0          !sl per-PFT overflow respiration for diatoms, coccolithophores and
+  Real(kind=8)                 :: res_ovf_c     = -1.0d0          !   Phaeocystis (9 Oct 2026). -1 (default) = use res_ovf for that PFT, so
+  Real(kind=8)                 :: res_ovf_p     = -1.0d0          !   existing namelists reproduce; set them to 0 for a small-phyto-only term.
+  namelist /paphytoplankton_C/ lossC, lossC_d, lossC_c, lossC_p, f_ovf, ovf_to_cdom, res_ovf, res_ovf_d, res_ovf_c, res_ovf_p
+!!------------------------------------------------------------------------------
+!! *** Phytoplankton ChlA ***
+  Real(8)                      :: deg_Chl       = 0.25d0          ! [1/day]
+  Real(kind=8)                 :: deg_Chl_d     = 0.25d0
+  Real(kind=8)                 :: deg_Chl_c     = 0.20d0          ! (value is just a guess)
+  Real(kind=8)                 :: deg_Chl_p     = 0.25d0          ! Phaeocystis
+  namelist /paphytoplankton_ChlA/ deg_Chl, deg_Chl_d, deg_Chl_c, deg_Chl_p
+!!------------------------------------------------------------------------------
+!! *** Detritus N ***
+  Real(kind=8)                 :: gfin          = 0.3d0         ! 3Zoo [] Grazing efficiency (fraction of grazing flux into zooplankton pool) 
+  Real(kind=8)                 :: grazEff2      = 0.8d0         ! 3Zoo [] Grazing efficiency (fraction of grazing flux into second zooplankton pool) 
+  Real(kind=8)                 :: grazEff3      = 0.8d0         ! 3Zoo [] Grazing efficiency (fraction of grazing flux into microzooplankton pool)
+  Real(kind=8)                 :: reminN        = 0.165d0       ! 3Zoo [1/day] Temperature dependent remineralisation rate of detritus 
+  namelist /padetritus_N/ gfin, grazEff2, grazEff3, reminN      
+!!------------------------------------------------------------------------------
+!! *** Detritus C ***
+  Real(kind=8)                 :: reminC        = 0.15d0        ! [1/day] Temperature dependent remineralisation rate of detritus
+  Real(kind=8)                 :: rho_c2        = 0.1d0         ! [1/day] Temperature dependent C degradation of TEP-C
+  namelist /padetritus_C/ reminC, rho_c2
+!!------------------------------------------------------------------------------
+!! *** Heterotrophs ***
+  Real(kind=8)                 :: lossN_z       = 0.15d0
+  Real(kind=8)                 :: lossC_z       = 0.15d0
+  namelist /paheterotrophs/ lossN_z, lossC_z
+!!------------------------------------------------------------------------------
+!! *** Second Zooplankton ***             
+  Real(kind=8)                 :: lossN_z2       = 0.02d0
+  Real(kind=8)                 :: lossC_z2       = 0.02d0
+  namelist /paseczooloss/ lossN_z2, lossC_z2
+!!-----------------------------------------------------------------------------
+!! *** Third Zooplankton ***
+  Real(kind=8)                 :: lossN_z3      = 0.05d0         ! 3Zoo
+  Real(kind=8)                 :: lossC_z3      = 0.05d0         ! 3Zoo
+  namelist /pathirdzooloss/ lossN_z3, lossC_z3
+!!------------------------------------------------------------------------------                                                                                                                                                                                               
+!! *** Parameters for CO2 limitation ***                         
+
+  Real(kind=8)                 :: Cunits         = 976.5625      ! Conversion factor between [mol/m3] (model) and [umol/kg] (function): (1000 * 1000) / 1024
+  Real(kind=8)                 :: a_co2_phy      = 1.162e+00     ! [unitless]
+  Real(kind=8)                 :: a_co2_dia      = 1.040e+00     ! [unitless]
+  Real(kind=8)                 :: a_co2_cocco    = 1.109e+00     ! [unitless]
+  Real(kind=8)                 :: a_co2_phaeo    = 1.162e+00     ! [unitless]
+  Real(kind=8)                 :: a_co2_calc     = 1.102e+00     ! [unitless]
+  Real(kind=8)                 :: b_co2_phy      = 4.888e+01     ! [mol/kg]
+  Real(kind=8)                 :: b_co2_dia      = 2.890e+01     ! [mol/kg]
+  Real(kind=8)                 :: b_co2_cocco    = 3.767e+01     ! [mol/kg]
+  Real(kind=8)                 :: b_co2_phaeo    = 4.888e+01     ! [mol/kg]
+  Real(kind=8)                 :: b_co2_calc     = 4.238e+01     ! [mol/kg]
+  Real(kind=8)                 :: c_co2_phy      = 2.255e-01     ! [kg/mol]
+  Real(kind=8)                 :: c_co2_dia      = 8.778e-01     ! [kg/mol]
+  Real(kind=8)                 :: c_co2_cocco    = 3.912e-01     ! [kg/mol]
+  Real(kind=8)                 :: c_co2_phaeo    = 2.255e-01     ! [kg/mol]
+  Real(kind=8)                 :: c_co2_calc     = 7.079e-01     ! [kg/mol]
+  Real(kind=8)                 :: d_co2_phy      = 1.023e+07     ! [kg/mol]
+  Real(kind=8)                 :: d_co2_dia      = 2.640e+06     ! [kg/mol]
+  Real(kind=8)                 :: d_co2_cocco    = 9.450e+06     ! [kg/mol]
+  Real(kind=8)                 :: d_co2_phaeo    = 1.023e+07     ! [kg/mol]
+  Real(kind=8)                 :: d_co2_calc     = 1.343e+07     ! [kg/mol]
+  namelist /paco2lim/ Cunits, a_co2_phy, a_co2_dia, a_co2_cocco, a_co2_phaeo, a_co2_calc, &
+                      b_co2_phy, b_co2_dia, b_co2_cocco, b_co2_phaeo, b_co2_calc, &
+                      c_co2_phy, c_co2_dia, c_co2_cocco, c_co2_phaeo, c_co2_calc, &
+                      d_co2_phy, d_co2_dia, d_co2_cocco, d_co2_phaeo, d_co2_calc
+!!------------------------------------------------------------------------------
+!! *** Iron ***
+  Real(kind=8)                 :: Fe2N           = 0.033d0       ! Fe2C * 6.625 (Fe2C = 0.005d0)
+  Real(kind=8)                 :: Fe2N_benthos   = 0.15d0        ! default was 0.14 Fe2C_benthos (=0.02125=0.68d0/32.d0) * 6.625 - will have to be tuned. [umol/m2/day]
+  Real(kind=8)                 :: kScavFe        = 0.07d0
+  Real(kind=8)                 :: dust_sol       = 0.02d0        !Dissolution of Dust for bioavaliable
+  Real(kind=8)                 :: RiverFeConc   = 100d0        ! mean DFe concentration in rivers
+  namelist /pairon/ Fe2N, Fe2N_benthos, kScavFe, dust_sol, RiverFeConc
+!!------------------------------------------------------------------------------
+!! *** Calcification ***
+  Real(kind=8)                 :: calc_prod_ratio = 0.02d0
+  Real(kind=8)                 :: calc_diss_guts  = 0.0d0
+  Real(kind=8)                 :: calc_diss_rate  = 0.005714d0    !20.d0/3500.d0
+  Real(kind=8)                 :: calc_diss_rate2 = 0.005714d0
+  Real(kind=8)                 :: calc_diss_omegac = 0.197d0      ! NEW DISS value from Aumont et al. 2015, will be used with OmegaC_diss flag
+  Real(kind=8)                 :: calc_diss_exp   = 1.d0          ! NEW DISS exponent in the dissolution rate of calcite, will be used with OmegaC_diss flag
+  Real(kind=8)                 :: k_din_calc      = -1.d0         !sl [mmol N/m3] DIN half-saturation in the coccolithophore PIC:POC
+                                                                   !   nitrogen term (PICPOCN). < 0 (default) = use k_din_c, the uptake value,
+                                                                   !   as before; set >= 0 to change uptake (k_din_c) without moving calcification.
+  namelist /pacalc/ calc_prod_ratio, calc_diss_guts, calc_diss_rate, calc_diss_rate2, calc_diss_omegac, calc_diss_exp, &  ! NEW DISS added calc_diss_omegac, calc_diss_exp
+                    k_din_calc
+!!------------------------------------------------------------------------------
+!! *** Benthos ***
+  Real(kind=8)                 :: decayRateBenN   = 0.005d0
+  Real(kind=8)                 :: decayRateBenC   = 0.005d0
+  Real(kind=8)                 :: decayRateBenSi  = 0.005d0
+  Real(kind=8)                 :: q_NC_Denit      = 0.86d0         ! N:C quota of the denitrification process
+  namelist /pabenthos_decay_rate/ decayRateBenN, decayRateBenC, decayRateBenSi, q_NC_Denit
+!!------------------------------------------------------------------------------
+!! *** CO2-flux ***
+  Real(kind=8)                 :: permil          = 0.000000976    ! 1.e-3/1024.5d0 ! Converting DIC from [mmol/m3] to [mol/kg]
+  Real(kind=8)                 :: permeg          = 1.e-6          ! [atm/uatm] Changes units from uatm to atm
+  Real(kind=8)                 :: Xacc            = 1.e-12         ! Accuracy for ph-iteration (phacc)
+!  Real(kind=8)                :: pCO2a           = 380.d0         ! [uatm] Atmospheric partial pressure of CO2
+  Real(kind=8)                 :: CO2_for_spinup  = 278.d0         !  
+  namelist /paco2_flux_param/ permil, permeg, Xacc, CO2_for_spinup
+!!------------------------------------------------------------------------------
+!! *** Alkalinity restoring ***
+  Real(kind=8)                 :: surf_relax_Alk = 3.2e-07 !10.d0/31536000.d0
+  namelist /paalkalinity_restoring/ surf_relax_Alk
+!!-----------------------------------------------------------------------------
+!! *** Ballasting ***                                              ! NEW BALL
+  Real(kind=8)                 :: rho_POC              = 1033.d0   ! kg m-3; density of POC (see Table 1 in Cram et al., 2018)
+  Real(kind=8)                 :: rho_PON              = 1033.d0   ! kg m-3; density of PON (see Table 1 in Cram et al., 2018)
+  Real(kind=8)                 :: rho_CaCO3            = 2830.d0   ! kg m-3; density of CaCO3 (see Table 1 in Cram et al., 2018) 
+  Real(kind=8)                 :: rho_opal             = 2090.d0   ! kg m-3; density of Opal (see Table 1 in Cram et al., 2018)
+  Real(kind=8)                 :: rho_ref_part         = 1230.d0   ! kg m-3; reference particle density (see Cram et al., 2018)
+  Real(kind=8)                 :: rho_ref_water        = 1027.d0   ! kg m-3; reference seawater density (see Cram et al., 2018)
+  Real(kind=8)                 :: visc_ref_water       = 0.d00158  ! kg m-1 s-1; reference seawater viscosity, at Temp=4 degC (see Cram et al., 2018)
+  Real(kind=8)                 :: w_ref1               = 10.d0     ! m s-1; reference sinking velocity of small detritus
+  Real(kind=8)                 :: w_ref2               = 200.d0    ! m s-1; reference sinking velocity of large detritus
+  Real(kind=8)                 :: depth_scaling1       = 0.d015    ! s-1; factor to increase sinking speed of det1 with depth, set to 0 if not wanted
+  Real(kind=8)                 :: depth_scaling2       = 0.d0      ! s-1; factor to increase sinking speed of det2 with depth, set to 0 if not wanted
+  Real(kind=8)                 :: max_sinking_velocity = 250.d0    ! d-1; for numerical stability, set a maximum possible sinking velocity here (applies to both detritus classes)
+  namelist /paballasting/ rho_POC, rho_PON, rho_CaCO3, rho_opal, rho_ref_part, &
+                          rho_ref_water, visc_ref_water, w_ref1, w_ref2, depth_scaling1,   &
+                          depth_scaling2, max_sinking_velocity
+  !------------------------if RECOM_WAVEBANDS--------------------------
+#if defined(__RECOM_WAVEBANDS)  
+!! *** General configuration ***
+
+  Logical                :: RECOM_CDOM            = .true.
+  Logical                :: RECOM_MARSHALL        = .false.
+  Logical                :: RECOM_RADTRANS        = .true.
+  Logical                :: OASIM                 = .false.
+  Logical                :: RECOM_CALC_ACDOM      = .false.
+  Logical                :: RECOM_CALC_APART      = .false.
+  Logical                :: RECOM_CALC_APHYT      = .false.
+  Logical                :: RECOM_CALC_REFLEC     = .false.
+  Logical                :: RECOM_BMASS           = .false.
+!sl RECOM_CO2LIM_SPECTRAL: multiply the spectral Cphot of each PFT by its CO2 factor (PhyCO2, DiaCO2,
+!sl CoccoCO2, PhaeoCO2, &paco2lim). Until Nov 2026 the factor was applied only on the broadband (#else) branch
+!sl of recom_sms, so spectral growth was never CO2-limited and CO2lim acted only on calcification there.
+!sl Separate from CO2lim on purpose (CO2lim also governs broadband growth and calcification).
+!sl Default .false. = unchanged, bit-identical (2 Nov 2026).
+  Logical                :: RECOM_CO2LIM_SPECTRAL = .false.
+! Maximum quantum yield of photosynthesis [mmol C (J)^{-1}], per PFT. In a
+! spectral build these set the initial slope of the P-I curve through
+! alphachl_nl_X = mQY_X * aphy_chl_ps_X (wavebands_init_vari), and they are the
+! only namelist handle on it: alfa/alfa_d/alfa_c/alfa_p are used exclusively on
+! the non-spectral branch of recom_sms and have NO EFFECT when __RECOM_WAVEBANDS
+! is defined. All four default to the same 4.8e-4, so with the default optics the
+! PFTs differ in light harvesting only through their ap_ps spectra.
+  Real(kind=8)           :: QYmax                 = 4.8e-4
+  Real(kind=8)           :: QYmax_d               = 4.8e-4
+  Real(kind=8)           :: QYmax_cocco           = 4.8e-4
+  Real(kind=8)           :: QYmax_phaeo           = 4.8e-4
+!sl Slope and intercept of the linear PPC -> spectral-slope relation used by
+!sl RECOM_APHYTO to make aphy_chl variable with photoprotective pigment content
+!sl (Eisner et al. 2003 L&O 48, linear model on NOMAD data). The defaults are the
+!sl published per-PFT values: recom_aphyto_phy.F and recom_aphyto_dia.F of
+!sl Alvarez et al. (2022), ealvarez-s/code_recom_radtrans.
+!sl These act ONLY under RECOM_CALC_APHYT .and. RECOM_MARSHALL.
+  Real(kind=8)           :: aphyt_slope_phy       = -1.930d-3
+  Real(kind=8)           :: aphyt_icept_phy       = -1.011d-4
+  Real(kind=8)           :: aphyt_slope_dia       = -1.418d-3
+  Real(kind=8)           :: aphyt_icept_dia       = -5.800d-5
+!sl No published counterpart: Alvarez et al. is two-group (RECOM_2GROUPS), so the
+!sl coccolithophore and Phaeocystis values below have no literature source to take.
+!sl They were PLACEHOLDERS copied from small phyto and diatoms until Sep 2026; they
+!sl are now ESTIMATES supplied by S. Losa (provenance to be recorded here).
+!sl Relative to the published pair, they order the PPC response as
+!sl   cocco  flattest  (slope 0.29x phy, intercept 3.3x phy)
+!sl   phaeo  steepest  (slope 2.06x phy, 2.80x dia)
+!sl i.e. at PPC = 1 the 475 nm increment is +0.045 (cocco), +0.102 (phy, published),
+!sl +0.074 (dia, published) and +0.212 (phaeo) m2 (mg Chl)-1.
+!sl Still not derived from diadinoxanthin/diatoxanthin (and 19'-hex for coccos)
+!sl pigment-vs-D1 data, so treat any 4-PFT variable-aPH* result as untuned.
+  Real(kind=8)           :: aphyt_slope_cocco     = -5.600d-4
+  Real(kind=8)           :: aphyt_icept_cocco     = -3.300d-4
+  Real(kind=8)           :: aphyt_slope_phaeo     = -3.972d-3
+  Real(kind=8)           :: aphyt_icept_phaeo     = -2.660d-4
+
+!sl D1 damage/repair constants for the coccolithophore and Phaeocystis classes,
+!sl moved here from module REcoM_spectral on 21 Sep 2026 so they can be set in
+!sl &spectral without a rebuild (the QYmax precedent, efd353d7). Defaults are
+!sl UNCHANGED (8.0e-7 / 20. / 0.5), so every existing run reproduces.
+!sl They are live ONLY under RECOM_MARSHALL, and they feed
+!sl   damage = PAR*k_deg*D1*(1-NPQ)*86400,  repair = r_max*(1-D1)/(k_rep+1-D1)*qLim*arr
+!sl whose steady state sets D1 and hence PPC = 1 - min(D1/Drel,1)**2, the only
+!sl quantity D1 feeds. NOTE these are NOT the published Alvarez values: 571ba53d
+!sl moved phy/dia to those and left this separate, unattributed set behind.
+!sl Literature status (obs_data/marshall/README.txt, 21 Sep 2026): for
+!sl P. antarctica the DIRECTION is supported -- it incurs more photoinhibition
+!sl than Southern Ocean diatoms, carries a much smaller xanthophyll pool and
+!sl relies heavily on D1 repair (Kropuenske 2010) -- so high k_deg with high
+!sl r_max is right in kind, but no measured value exists for either class. The
+!sl PSII photoinactivation cross-section is reportedly near-conserved across taxa
+!sl while repair capacity varies widely, which argues for bracketing r_max rather
+!sl than k_deg. Unverified: that source is paywalled from Albedo.
+  Real(kind=8)           :: k_deg_cocco = 8.0e-7    ! photoinhibition target size [m2 J-1]
+  Real(kind=8)           :: r_max_cocco = 20.0d0    ! maximum D1 repair rate [d-1]
+  Real(kind=8)           :: k_rep_cocco = 0.5d0     ! half-saturation for repair [same units as 1-D1]
+  Real(kind=8)           :: k_deg_phaeo = 8.0e-7    ! photoinhibition target size [m2 J-1]
+  Real(kind=8)           :: r_max_phaeo = 20.0d0    ! maximum D1 repair rate [d-1]
+  Real(kind=8)           :: k_rep_phaeo = 0.5d0     ! half-saturation for repair [same units as 1-D1]
+  character(80)           :: darwin_waterabsorbFile = 'abw25par.dat'
+  character(80)           :: darwin_surfacespecFile = 'surfspec_13amt6.dat'
+  character(80)           :: darwin_phytoabsorbFile = 'optics_phyto_recom_carbon_12.dat'
+  character(80)           :: darwin_acdomFile       = 'aCDOM13amtVK2006.dat'
+  character(80)           :: darwin_particleabsorbFile = 'optics_detritus_3bb.dat'
+! Assigned by initialize_tracer_indices only in the configurations that carry
+! these tracers. Zero means "not present in this configuration": it is not a
+! usable index, so validate_recom_tracers turns switching the corresponding
+! feature on in such a configuration into a fatal error rather than an
+! out-of-bounds state()/sms() subscript.
+  integer :: icdom = 0
+!slif (RECOM_MARSHALL) then
+  integer :: id1 = 0, id1d = 0, id1c = 0, id1p = 0
+!slendif
+  integer                :: recom_cdom_tracer_id = 1037
+!sl  integer, parameter     :: tlam = 13
+  integer, dimension(4)  :: recom_spctrl_tracer_id    = (/1025, 1026, 1027, 1028/)
+  integer, dimension(4)  :: recom_d1_tracer_id = (/1038, 1039, 1040, 1041/)
+! Phytoplankton backscattering: how bbphy_chl_X is obtained from the optics file.
+!   .false. (default) -- read the file's bb column (the last) directly as an absolute
+!                        chlorophyll-specific backscattering coefficient.
+!   .true.            -- read only as far as the b column (the one before) and form
+!                        bbphy_chl_X = bp(X,:) * darwin_bbphy(X), i.e. a prescribed
+!                        backward/forward scattering ratio per PFT. This is how
+!                        Dutkiewicz et al. (2015, Biogeosciences 12, 4447) DERIVED
+!                        their bbphy spectra (ratios from Stramski et al. 2001),
+!                        although their model then applies them as absolute spectra.
+!sl Both were compile-time-only and darwin_bbphy defaulted to 0.0, so switching
+!sl the flag on silently zeroed the backscatter of every PFT. Moved here so they
+!sl can go in &spectral, and given per-PFT defaults that are usable as they stand.
+!sl Order is Others, Diatom, Coccolithophore, Phaeocystis.
+!sl   Others 0.0020  file's own implied ratio (Darwin SmEuk/Syn 0.0029-0.0032)
+!sl   Diatom 0.0105  Whitmire et al. 2010 Opt.Express 18:15073, 8-diatom median
+!sl   Cocco  0.0200  REFINED v4 header, cell+PIC
+!sl   Phaeo  0.0020  file's own implied ratio
+  Integer, parameter     :: tnabp = 4   ! number of phyto spectra blocks the code knows
+  Logical                :: DAR_NONSPECTRAL_BACKSCATTERING_RATIO = .false.
+  Real(kind=8)           :: darwin_bbphy(tnabp) = (/ 0.0020d0, 0.0105d0, 0.0200d0, 0.0020d0 /)
+!sl Specific CDOM absorption at darwin_lambda_aCDOM (450 nm) [m2 per unit CDOM tracer], used only under
+!sl RECOM_CALC_ACDOM with RECOM_CDOM: a_cdom(lambda) = cdomcoeff * CDOM * exp(-darwin_Sdom*(lambda-450)).
+!sl Moved here from REcoM_spectral (18 Sep 2026) so it can be set in &spectral. Default 0.18 is the original value.
+!sl Against OC-CCI a_dg(443) 2003-2012 the tracer gives the right pattern but ~1.3x too much absorption
+!sl (~1.9x S of 45S), which suggests ~0.10-0.13; see obs_data/cchl/adg_compare.txt.
+  Real(kind=8)           :: cdomcoeff = 0.18d0
+!sl 9 Oct 2026, clear-water backscatter (NEXT_STEPS 21k): bb_to_b was a compile-time constant in module REcoM_spectral
+!sl (the detritus backscatter ratio used with RECOM_CALC_APART; 0.05 is ~9x the ratio the detritus optics file implies).
+!sl bb_bg443 [1/m] adds a non-algal background backscatter bb_bg443*(443/lambda)**bb_bg_slope to the total bb at every
+!sl level (the submicron particle pool REcoM does not carry; Stramski et al. 2004). 0 = off, bit-identical.
+  Real(kind=8)           :: bb_to_b     = 0.05d0
+  Real(kind=8)           :: bb_bg443    = 0.0d0
+  Real(kind=8)           :: bb_bg_slope = 1.0d0
+
+  namelist /spectral/ RECOM_CDOM, RECOM_MARSHALL, RECOM_RADTRANS, OASIM, RECOM_BMASS, &
+                      RECOM_CO2LIM_SPECTRAL, &
+                      RECOM_CALC_ACDOM,  RECOM_CALC_APART, RECOM_CALC_APHYT,         &
+                      RECOM_CALC_REFLEC, &
+                      DAR_NONSPECTRAL_BACKSCATTERING_RATIO, darwin_bbphy, &
+                      QYmax, QYmax_d, QYmax_cocco, QYmax_phaeo, &
+                      cdomcoeff, bb_to_b, bb_bg443, bb_bg_slope, &
+                      aphyt_slope_phy, aphyt_icept_phy, &
+                      aphyt_slope_dia, aphyt_icept_dia, &
+                      aphyt_slope_cocco, aphyt_icept_cocco, &
+                      aphyt_slope_phaeo, aphyt_icept_phaeo, &
+                      k_deg_cocco, r_max_cocco, k_rep_cocco, &
+                      k_deg_phaeo, r_max_phaeo, k_rep_phaeo, &
+                      darwin_waterabsorbFile, &
+                      darwin_surfacespecFile, &
+                      darwin_phytoabsorbFile, &
+                      darwin_acdomFile, &
+                      darwin_particleabsorbFile  
+#endif /* __RECOM_WAVEBANDS */
+contains
+
+  ! ---------------------------------------------------------------------------
+  ! SUBROUTINE: initialize_tracer_indices
+  ! ---------------------------------------------------------------------------
+  ! Purpose: Set up tracer indices based on model configuration
+  ! ---------------------------------------------------------------------------
+  subroutine initialize_tracer_indices()
+    implicit none    
+
+    if (enable_3zoo2det .and. enable_coccos) then
+        ! =======================================================================
+        ! CASE: 4 phytoplankton + 3 zooplankton + 2 detritus
+        ! =======================================================================
+        ! Phytoplankton: small phyto, diatoms, coccolithophores, phaeocystis
+        ! Zooplankton: mesozoo, macrozoo, microzoo
+        ! Detritus: det1, det2
+
+        icocn    = 29
+        icocc    = 30
+        icchl    = 31
+        iphan    = 32
+        iphac    = 33
+        iphachl  = 34
+        imiczoon = 35
+        imiczooc = 36
+
+!        allocate(recom_cocco_tracer_id(3))
+        recom_cocco_tracer_id = (/1029, 1030, 1031/)
+
+!        allocate(recom_phaeo_tracer_id(3))
+        recom_phaeo_tracer_id = (/1032, 1033, 1034/)
+
+!        allocate(recom_det2_tracer_id(4))
+        recom_det2_tracer_id = (/1025, 1026, 1027, 1028/)        
+#if defined(__RECOM_WAVEBANDS)         
+!SL to be further extend for if cases
+        if (RECOM_CDOM) then
+           icdom = 37 
+           recom_cdom_tracer_id = 1037
+        endif
+        if (RECOM_RADTRANS) then
+           if (RECOM_MARSHALL) then
+! MARSHALL related
+              id1 = 38
+              id1d = 39       
+!sl              if (enable_coccos) then
+                 id1c = 40
+                 id1p = 41
+                 recom_d1_tracer_id = (/1038, 1039, 1040, 1041/)
+!sl              else
+!sl                 recom_d1_tracer_id = (/1038, 1039, 0, 0/)     
+!sl              end if
+           endif
+        endif
+#endif /* __RECOM_WAVEBANDS */
+    else if (enable_coccos .and. .not. enable_3zoo2det) then
+        ! =======================================================================
+        ! CASE: 4 phytoplankton + 1 zooplankton + 1 detritus
+        ! =======================================================================
+        ! Phytoplankton: small phyto, diatoms, coccolithophores, phaeocystis
+        ! Zooplankton: mesozoo only
+        ! Detritus: det1 only
+
+        icocn   = 23
+        icocc   = 24
+        icchl   = 25
+        iphan   = 26
+        iphac   = 27
+        iphachl = 28
+
+!        allocate(recom_cocco_tracer_id(3))
+        recom_cocco_tracer_id = (/1023, 1024, 1025/)
+
+!        allocate(recom_phaeo_tracer_id(3))
+        recom_phaeo_tracer_id = (/1026, 1027, 1028/)
+#if defined(__RECOM_WAVEBANDS)
+! CDOM sits on top of the 28 tracers of this configuration.
+        if (RECOM_CDOM) then
+           icdom = 29
+           recom_cdom_tracer_id = 1029
+        endif
+! RECOM_MARSHALL is deliberately not given indices here: that path is dormant
+! and incomplete (see the D1 note in CLAUDE.md), so rather than invent an
+! untested layout, validate_recom_tracers rejects it in this configuration.
+#endif /* __RECOM_WAVEBANDS */
+
+    else if (enable_3zoo2det .and. .not. enable_coccos) then
+        ! =======================================================================
+        ! CASE: 2 phytoplankton + 3 zooplankton + 2 detritus
+        ! =======================================================================
+        ! Phytoplankton: small phyto, diatoms only
+        ! Zooplankton: mesozoo, macrozoo, microzoo
+        ! Detritus: det1, det2
+
+        imiczoon = 29
+        imiczooc = 30
+
+!        allocate(recom_det2_tracer_id(4))
+        recom_det2_tracer_id = (/1025, 1026, 1027, 1028/)
+#if defined(__RECOM_WAVEBANDS)         
+!CV to be further extend for if cases
+        if (RECOM_CDOM) then
+           icdom = 31 
+           recom_cdom_tracer_id = 1031
+        endif
+        if (RECOM_RADTRANS) then
+           if (RECOM_MARSHALL) then
+! MARSHALL related
+              id1 = 32
+              id1d = 33       
+              recom_d1_tracer_id = (/1032, 1033, 0, 0/)     
+           endif
+        endif
+#endif
+    else
+        ! =======================================================================
+        ! CASE: 2 phytoplankton + 1 zooplankton + 1 detritus (BASE CONFIGURATION)
+        ! =======================================================================
+        ! Phytoplankton: small phyto, diatoms only
+        ! Zooplankton: mesozoo only
+        ! Detritus: det1 only
+        ! (All indices already set to default values)
+#if defined(__RECOM_WAVEBANDS)
+! CDOM sits on top of the 22 base tracers.
+        if (RECOM_CDOM) then
+           icdom = 23
+           recom_cdom_tracer_id = 1023
+        endif
+! RECOM_MARSHALL: see the note in the coccos-only branch above.
+#endif /* __RECOM_WAVEBANDS */
+    endif
+  end subroutine initialize_tracer_indices
+
+! ==============================================================================
+! SUBROUTINE: validate_recom_tracers
+! ==============================================================================
+! Purpose: Validate consistency between namelist tracer configuration and
+!          biogeochemical model setup (enable_3zoo2det, enable_coccos)
+! ==============================================================================
+subroutine validate_recom_tracers(num_tracers, mype)
+  implicit none
+
+  ! Arguments
+  integer, intent(in) :: num_tracers  ! Total number of tracers from namelist
+  integer, intent(in) :: mype         ! MPI rank
+
+  ! Local variables
+  integer :: expected_bgc_num
+  integer :: actual_bgc_num
+  integer :: expected_total_tracers
+  integer :: num_physical_tracers
+  logical :: config_error
+  character(len=200) :: error_msg
+
+  ! For tracer ID validation
+  integer :: i, tracer_id
+  integer, dimension(:), allocatable :: expected_tracer_ids
+  logical, dimension(:), allocatable :: tracer_found
+  integer :: num_expected_tracers
+  logical :: id_error
+
+  ! Physical tracers (temperature, salinity, etc.) - typically first 2
+  num_physical_tracers = 2
+
+  ! Calculate actual BGC tracer count from namelist
+  actual_bgc_num = num_tracers - num_physical_tracers
+
+  ! ===========================================================================
+  ! Determine expected BGC tracer count based on configuration
+  ! ===========================================================================
+  config_error = .false.
+
+  if (enable_3zoo2det .and. enable_coccos) then
+    ! ---------------------------------------------------------------------------
+    ! Configuration 4: Full model (4 phyto + 3 zoo + 2 detritus)
+    ! ---------------------------------------------------------------------------
+    ! Base: 22 tracers (1001-1022)
+    ! Additional 3zoo2det: 4 tracers for det2 (1025-1028)
+    ! Additional coccos: 6 tracers for coccos (1029-1031)
+    ! Additional phaeocystis: 3 tracers (1032-1034)
+    ! Additional microzoo: 2 tracers (1035-1036)
+    ! Total: 22 + 4 + 6 + 3 + 2 = 36 (actually 22 + 14 = 36)
+    expected_bgc_num = 36
+#if defined(__RECOM_WAVEBANDS)    
+    if (RECOM_CDOM) then
+       ! + 1 for CDOM 
+       expected_bgc_num = 37 
+    endif
+    if (RECOM_RADTRANS) then
+       if (RECOM_MARSHALL) then
+          ! + 2(4) MARSHALL related
+          expected_bgc_num = 41
+       endif
+    endif
+#endif
+
+  else if (enable_coccos .and. .not. enable_3zoo2det) then
+    ! ---------------------------------------------------------------------------
+    ! Configuration 3: Coccos only (4 phyto + 1 zoo + 1 detritus)
+    ! ---------------------------------------------------------------------------
+    ! Base: 22 tracers (1001-1022)
+    ! Additional coccos: 3 tracers (1023-1025)
+    ! Additional phaeocystis: 3 tracers (1026-1028)
+    ! Total: 22 + 6 = 28
+    expected_bgc_num = 28
+#if defined(__RECOM_WAVEBANDS)
+    if (RECOM_CDOM) then
+       ! + 1 for CDOM (1029)
+       expected_bgc_num = 29
+    endif
+#endif
+
+  else if (enable_3zoo2det .and. .not. enable_coccos) then
+    ! ---------------------------------------------------------------------------
+    ! Configuration 2: 3Zoo2Det only (2 phyto + 3 zoo + 2 detritus)
+    ! ---------------------------------------------------------------------------
+    ! Base: 22 tracers (1001-1022)
+    ! Additional zoo2: 2 tracers (1023-1024)
+    ! Additional det2: 4 tracers (1025-1028)
+    ! Additional microzoo: 2 tracers (1029-1030)
+    ! Total: 22 + 8 = 30
+    expected_bgc_num = 30
+#if defined(__RECOM_WAVEBANDS)    
+    if (RECOM_CDOM) then
+       ! + 1 for CDOM 
+       expected_bgc_num = 31 
+    endif
+    if (RECOM_RADTRANS) then
+       if (RECOM_MARSHALL) then
+          ! + 2(4) MARSHALL related
+          expected_bgc_num = 33 
+       endif
+    endif
+#endif
+
+  else
+    ! ---------------------------------------------------------------------------
+    ! Configuration 1: Base model (2 phyto + 1 zoo + 1 detritus)
+    ! ---------------------------------------------------------------------------
+    ! Base: 22 tracers (1001-1022)
+    expected_bgc_num = 22
+#if defined(__RECOM_WAVEBANDS)
+    if (RECOM_CDOM) then
+       ! + 1 for CDOM (1023)
+       expected_bgc_num = 23
+    endif
+#endif
+
+  end if
+
+  expected_total_tracers = num_physical_tracers + expected_bgc_num
+
+  ! ===========================================================================
+  ! Build expected tracer ID list for current configuration
+  ! ===========================================================================
+
+  ! Determine total expected tracers
+  num_expected_tracers = expected_total_tracers
+  allocate(expected_tracer_ids(num_expected_tracers))
+  allocate(tracer_found(num_expected_tracers))
+  tracer_found = .false.
+
+  ! Physical tracers (always present)
+  expected_tracer_ids(1) = 1    ! Temperature
+  expected_tracer_ids(2) = 2    ! Salinity
+
+  ! Base BGC tracers (always present for all configurations)
+  do i = 1, 22
+    expected_tracer_ids(num_physical_tracers + i) = 1000 + i
+  end do
+
+  ! Configuration-specific tracers
+  if (enable_3zoo2det .and. enable_coccos) then
+    ! Full model: 1001-1022 (base) + 1023-1024 (zoo2) + 1025-1028 (det2) + 1029-1036 (coccos+phaeo+zoo3)
+    expected_tracer_ids(25) = 1023  ! Zoo2N
+    expected_tracer_ids(26) = 1024  ! Zoo2C
+    expected_tracer_ids(27) = 1025  ! DetZ2N
+    expected_tracer_ids(28) = 1026  ! DetZ2C
+    expected_tracer_ids(29) = 1027  ! DetZ2Si
+    expected_tracer_ids(30) = 1028  ! DetZ2Calc
+    expected_tracer_ids(31) = 1029  ! CoccoN
+    expected_tracer_ids(32) = 1030  ! CoccoC
+    expected_tracer_ids(33) = 1031  ! CoccoChl
+    expected_tracer_ids(34) = 1032  ! PhaeoN
+    expected_tracer_ids(35) = 1033  ! PhaeoC
+    expected_tracer_ids(36) = 1034  ! PhaeoChl
+    expected_tracer_ids(37) = 1035  ! Zoo3N
+    expected_tracer_ids(38) = 1036  ! Zoo3C
+#if defined(__RECOM_WAVEBANDS)    
+    if (RECOM_CDOM) then
+       expected_tracer_ids(39) = 1037  ! CDOM
+    endif
+    if (RECOM_RADTRANS) then
+       if (RECOM_MARSHALL)then
+          ! + 2(4) MARSHALL related
+          expected_tracer_ids(40) = 1038  ! d1
+          expected_tracer_ids(41) = 1039  ! d1d
+          expected_tracer_ids(42) = 1040  ! d1c
+          expected_tracer_ids(43) = 1041  ! d1p
+       endif
+    endif
+#endif
+    
+  else if (enable_coccos .and. .not. enable_3zoo2det) then
+    ! Coccos only: 1001-1022 (base) + 1023-1028 (coccos+phaeo)
+    expected_tracer_ids(25) = 1023  ! CoccoN
+    expected_tracer_ids(26) = 1024  ! CoccoC
+    expected_tracer_ids(27) = 1025  ! CoccoChl
+    expected_tracer_ids(28) = 1026  ! PhaeoN
+    expected_tracer_ids(29) = 1027  ! PhaeoC
+    expected_tracer_ids(30) = 1028  ! PhaeoChl
+#if defined(__RECOM_WAVEBANDS)
+    if (RECOM_CDOM) then
+       expected_tracer_ids(31) = 1029  ! CDOM
+    endif
+#endif
+
+  else if (enable_3zoo2det .and. .not. enable_coccos) then
+    ! 3Zoo2Det only: 1001-1022 (base) + 1023-1030 (zoo2+det2+zoo3)
+    expected_tracer_ids(25) = 1023  ! Zoo2N
+    expected_tracer_ids(26) = 1024  ! Zoo2C
+    expected_tracer_ids(27) = 1025  ! DetZ2N
+    expected_tracer_ids(28) = 1026  ! DetZ2C
+    expected_tracer_ids(29) = 1027  ! DetZ2Si
+    expected_tracer_ids(30) = 1028  ! DetZ2Calc
+    expected_tracer_ids(31) = 1029  ! Zoo3N
+    expected_tracer_ids(32) = 1030  ! Zoo3C
+#if defined(__RECOM_WAVEBANDS)    
+    if (RECOM_CDOM) then
+       expected_tracer_ids(33) = 1031  ! CDOM
+    endif
+    if (RECOM_RADTRANS) then
+       if (RECOM_MARSHALL)then
+          ! + 2(4) MARSHALL related
+          expected_tracer_ids(34) = 1032  ! d1
+          expected_tracer_ids(35) = 1033  ! d1d
+       endif
+    endif
+#endif
+
+  else
+    ! Base configuration: 1001-1022, plus CDOM on top when RECOM_CDOM.
+#if defined(__RECOM_WAVEBANDS)
+    if (RECOM_CDOM) then
+       expected_tracer_ids(25) = 1023  ! CDOM
+    endif
+#endif
+  end if
+
+  ! ===========================================================================
+  ! Spectral tracer indices must exist in this configuration
+  ! ===========================================================================
+  ! icdom / id1 / id1d are used in recom_forcing and recom_sms guarded only by
+  ! their namelist switch, never by the configuration that assigns them. An
+  ! unassigned index is 0, which is not a valid state()/sms() subscript, so
+  ! enabling one of these features in a configuration that does not define it
+  ! used to corrupt memory silently. Catch it here instead.
+#if defined(__RECOM_WAVEBANDS)
+  if (RECOM_CDOM .and. icdom <= 0) then
+    config_error = .true.
+    if (mype == 0) then
+      write(*,*) '=========================================================================='
+      write(*,*) 'ERROR: RECOM_CDOM IS SET BUT CDOM HAS NO TRACER INDEX'
+      write(*,*) '=========================================================================='
+      write(*,*) 'initialize_tracer_indices assigns no CDOM index for this'
+      write(*,*) 'combination of enable_3zoo2det / enable_coccos.'
+      write(*,*) 'Set RECOM_CDOM = .false. in &spectral, or add the index.'
+      write(*,*) ''
+    end if
+  end if
+
+  if (RECOM_RADTRANS .and. RECOM_MARSHALL .and. (id1 <= 0 .or. id1d <= 0)) then
+    config_error = .true.
+    if (mype == 0) then
+      write(*,*) '=========================================================================='
+      write(*,*) 'ERROR: RECOM_MARSHALL IS SET BUT D1 HAS NO TRACER INDEX'
+      write(*,*) '=========================================================================='
+      write(*,*) 'The MARSHALL tracers are only defined for the enable_3zoo2det'
+      write(*,*) 'configurations. Set RECOM_MARSHALL = .false. in &spectral.'
+      write(*,*) ''
+    end if
+  end if
+
+!sl RECOM_CALC_APHYT has exactly two write paths for aphy_chl_k: the constant
+!sl fill under .not. RECOM_CALC_APHYT, and RECOM_APHYTO under
+!sl RECOM_CALC_APHYT .and. RECOM_MARSHALL. With APHYT on and MARSHALL off NEITHER
+!sl runs, so the phytoplankton absorption arrays stay at 0.0 (-init=zero) and the
+!sl model silently runs with no phytoplankton absorption at all.
+  if (RECOM_CALC_APHYT .and. .not. RECOM_MARSHALL) then
+    config_error = .true.
+    if (mype == 0) then
+      write(*,*) '=========================================================================='
+      write(*,*) 'ERROR: RECOM_CALC_APHYT REQUIRES RECOM_MARSHALL'
+      write(*,*) '=========================================================================='
+      write(*,*) 'The variable phytoplankton absorption spectrum is driven by the D1'
+      write(*,*) 'protein pool, which only exists under RECOM_MARSHALL. With APHYT on'
+      write(*,*) 'and MARSHALL off, aphy_chl_k is never assigned and phytoplankton'
+      write(*,*) 'absorption would be exactly zero everywhere.'
+      write(*,*) 'Set RECOM_MARSHALL = .true. (and bgc_num/namelist.tra to match),'
+      write(*,*) 'or RECOM_CALC_APHYT = .false., in &spectral.'
+      write(*,*) ''
+    end if
+  end if
+
+!sl RECOM_MARSHALL with enable_coccos was a fatal error until the cocco/phaeo D1
+!sl source terms were added (id1c/id1p had indices but nothing to evolve them).
+!sl It is now supported, with the caveat recorded at aphyt_slope_cocco: the
+!sl cocco/phaeo PPC->slope coefficients and D1 damage/repair constants have no
+!sl published counterpart. The PPC->slope pairs are now estimates rather than
+!sl copies of the phy/dia values. The D1 damage/repair constants are a separate
+!sl unattributed set (8.0e-7 / 20. / 0.5, shared by cocco and phaeo) -- NOT copies
+!sl of phy/dia, which 571ba53d moved to the published Alvarez values.
+#endif /* __RECOM_WAVEBANDS */
+
+  ! ===========================================================================
+  ! Perform validation checks
+  ! ===========================================================================
+
+  if (mype == 0) then
+    write(*,*) ''
+    write(*,*) '=========================================================================='
+    write(*,*) 'REcoM TRACER CONFIGURATION VALIDATION'
+    write(*,*) '=========================================================================='
+    write(*,*) 'Model configuration:'
+    write(*,*) '  enable_3zoo2det = ', enable_3zoo2det
+    write(*,*) '  enable_coccos   = ', enable_coccos
+    write(*,*) ''
+    write(*,*) 'Tracer counts:'
+    write(*,*) '  Physical tracers (T, S, ...)      = ', num_physical_tracers
+    write(*,*) '  Expected BGC tracers              = ', expected_bgc_num
+    write(*,*) '  Expected TOTAL tracers            = ', expected_total_tracers
+    write(*,*) '  Actual tracers from namelist      = ', num_tracers
+    write(*,*) '  Actual BGC tracers from namelist  = ', actual_bgc_num
+    write(*,*) ''
+  end if
+
+  ! Check for inconsistencies
+  if (actual_bgc_num /= expected_bgc_num) then
+    config_error = .true.
+    if (mype == 0) then
+      write(*,*) '=========================================================================='
+      write(*,*) 'ERROR: TRACER COUNT MISMATCH!'
+      write(*,*) '=========================================================================='
+      write(*,*) 'The number of BGC tracers in the namelist does not match'
+      write(*,*) 'the expected count for the current configuration.'
+      write(*,*) ''
+      write(*,*) '  Expected BGC tracers: ', expected_bgc_num
+      write(*,*) '  Actual BGC tracers:   ', actual_bgc_num
+      write(*,*) '  Difference:           ', actual_bgc_num - expected_bgc_num
+      write(*,*) ''
+      write(*,*) 'Required tracer IDs for current configuration:'
+      write(*,*) '  Base tracers (always):  1001-1022 (22 tracers)'
+
+      if (enable_3zoo2det .and. .not. enable_coccos) then
+        write(*,*) '  3Zoo2Det extension:     1023-1030 (8 tracers)'
+        write(*,*) '    - Zoo2N, Zoo2C:       1023-1024'
+        write(*,*) '    - DetZ2 pool:         1025-1028'
+        write(*,*) '    - MicZooN, MicZooC:   1029-1030'
+#if defined(__RECOM_WAVEBANDS)    
+        if (RECOM_CDOM) then
+           write(*,*) '    - CDOM:               1031'       
+        endif
+        if (RECOM_RADTRANS) then
+           if (RECOM_MARSHALL)then
+              write(*,*) '    - D1Phy, D1Dia:       1032-1033'       
+           endif
+        endif
+#endif
+     else if (enable_coccos .and. .not. enable_3zoo2det) then
+        write(*,*) '  Coccos extension:       1023-1028 (6 tracers)'
+        write(*,*) '    - CoccoN, C, Chl:     1023-1025'
+        write(*,*) '    - PhaeoN, C, Chl:     1026-1028'
+     else if (enable_3zoo2det .and. enable_coccos) then
+        write(*,*) '    - Zoo2N, Zoo2C:       1023-1024'
+        write(*,*) '  3Zoo2Det extension:     1025-1028 (4 tracers for det2)'
+        write(*,*) '  Coccos extension:       1029-1034 (6 tracers)'
+        write(*,*) '    - CoccoN, C, Chl:     1029-1031'
+        write(*,*) '    - PhaeoN, C, Chl:     1032-1034'
+        write(*,*) '  MicroZoo extension:     1035-1036 (2 tracers)'
+#if defined(__RECOM_WAVEBANDS)    
+        if (RECOM_CDOM) then
+           write(*,*) '    - CDOM:               1037'
+        endif
+        if (RECOM_RADTRANS) then
+           if (RECOM_MARSHALL)then
+              write(*,*) '    - D1 for 4 phyto:    1038-1041'
+           endif
+        endif
+#endif        
+      end if
+
+      write(*,*) ''
+      write(*,*) 'ACTION REQUIRED:'
+      write(*,*) '  1. Check your namelist.config tracer_list section'
+      write(*,*) '  2. Ensure enable_3zoo2det and enable_coccos match your setup'
+      write(*,*) '  3. Add/remove tracers to match the expected configuration'
+      write(*,*) '=========================================================================='
+      write(*,*) ''
+    end if
+  else
+    ! Validation passed
+    if (mype == 0) then
+      write(*,*) '=========================================================================='
+      write(*,*) 'VALIDATION PASSED: Tracer configuration is consistent!'
+      write(*,*) '=========================================================================='
+      write(*,*) ''
+    end if
+  end if
+
+  ! ===========================================================================
+  ! Additional sanity check: verify bgc_num variable matches
+  ! ===========================================================================
+  if (bgc_num /= expected_bgc_num) then
+    if (mype == 0) then
+      write(*,*) '=========================================================================='
+      write(*,*) 'WARNING: bgc_num variable inconsistency!'
+      write(*,*) '=========================================================================='
+      write(*,*) 'The bgc_num parameter does not match the expected value.'
+      write(*,*) '  Current bgc_num value: ', bgc_num
+      write(*,*) '  Expected value:        ', expected_bgc_num
+      write(*,*) ''
+      write(*,*) 'This may indicate that bgc_num was not updated after changing'
+      write(*,*) 'enable_3zoo2det or enable_coccos flags.'
+      write(*,*) '=========================================================================='
+      write(*,*) ''
+    end if
+    config_error = .true.
+  end if
+
+  ! ===========================================================================
+  ! Validate tracer IDs: Check for correct IDs and detect clashes
+  ! ===========================================================================
+  id_error = .false.
+
+  ! This check requires access to the actual tracer IDs from the namelist
+  ! We'll validate against the expected list
+  if (mype == 0) then
+    write(*,*) '=========================================================================='
+    write(*,*) 'VALIDATING TRACER IDs'
+    write(*,*) '=========================================================================='
+    write(*,*) 'Expected tracer ID sequence:'
+    write(*,*) ''
+
+    ! Display expected IDs in a readable format
+    write(*,*) 'Physical tracers:'
+    write(*,*) '  ', expected_tracer_ids(1:num_physical_tracers)
+    write(*,*) ''
+    write(*,*) 'Base BGC tracers (1001-1022):'
+    write(*,*) '  ', expected_tracer_ids(3:24)
+    write(*,*) ''
+
+    if (expected_bgc_num > 22) then
+      write(*,*) 'Extended configuration tracers:'
+      write(*,*) '  ', expected_tracer_ids(25:num_expected_tracers)
+      write(*,*) ''
+    end if
+
+    write(*,*) 'CRITICAL: The tracer IDs in your namelist MUST match this sequence'
+    write(*,*) '          exactly, in the same order!'
+    write(*,*) ''
+    write(*,*) 'Common errors to avoid:'
+    write(*,*) '  - Using wrong tracer ID numbers (e.g., 1023 instead of 1025)'
+    write(*,*) '  - Tracer ID clashes between configurations'
+    write(*,*) '  - Incorrect order of tracer IDs in namelist'
+    write(*,*) '  - Missing or duplicate tracer IDs'
+    write(*,*) ''
+
+    ! Configuration-specific warnings
+    if (enable_3zoo2det .and. enable_coccos) then
+      write(*,*) 'IMPORTANT for FULL MODEL (3zoo2det + coccos):'
+    !  write(*,*) '  - Tracers 1023-1024 are NOT used (reserved for other configs)'
+      write(*,*) '  - Zoo2 uses:         1023-1024'
+      write(*,*) '  - Det2 pool uses:    1025-1028'
+      write(*,*) '  - Coccos uses:       1029-1031'
+      write(*,*) '  - Phaeocystis uses:  1032-1034'
+      write(*,*) '  - Microzooplankton:  1035-1036'
+      write(*,*) ''
+    else if (enable_coccos .and. .not. enable_3zoo2det) then
+      write(*,*) 'IMPORTANT for COCCOS-ONLY configuration:'
+      write(*,*) '  - Coccos uses:       1023-1025 (NOT 1029-1031)'
+      write(*,*) '  - Phaeocystis uses:  1026-1028 (NOT 1032-1034)'
+      write(*,*) '  - Tracers 1029+ are NOT used in this configuration'
+      write(*,*) ''
+    else if (enable_3zoo2det .and. .not. enable_coccos) then
+      write(*,*) 'IMPORTANT for 3ZOO2DET-ONLY configuration:'
+      write(*,*) '  - Zoo2 uses:         1023-1024'
+      write(*,*) '  - Det2 pool uses:    1025-1028'
+      write(*,*) '  - Microzoo uses:     1029-1030 (NOT 1035-1036)'
+      write(*,*) '  - Tracers 1031+ are NOT used in this configuration'
+      write(*,*) ''
+    else
+      write(*,*) 'IMPORTANT for BASE configuration:'
+      write(*,*) '  - Only tracers 1-2, 1001-1022 should be present'
+      write(*,*) '  - Tracers 1023+ are NOT used in base configuration'
+      write(*,*) ''
+    end if
+
+    write(*,*) '=========================================================================='
+    write(*,*) ''
+  end if
+
+  ! ===========================================================================
+  ! Check for tracer ID clashes based on configuration
+  ! ===========================================================================
+  if (mype == 0) then
+    write(*,*) '=========================================================================='
+    write(*,*) 'CHECKING FOR TRACER ID CONFLICTS'
+    write(*,*) '=========================================================================='
+
+    ! Warn about potential clashes between configurations
+    if (enable_3zoo2det .and. enable_coccos) then
+      write(*,*) 'Full model configuration active.'
+    !  write(*,*) 'Ensure you are NOT using tracer IDs 1023-1024 in your namelist!'
+    !  write(*,*) 'These are reserved for configurations WITHOUT full model.'
+    else if (enable_coccos) then
+      write(*,*) 'Coccos-only configuration active.'
+      write(*,*) 'Coccos MUST use IDs 1023-1025 (NOT 1029-1031).'
+      write(*,*) 'Phaeocystis MUST use IDs 1026-1028 (NOT 1032-1034).'
+    else if (enable_3zoo2det) then
+      write(*,*) '3Zoo2Det-only configuration active.'
+      write(*,*) 'Microzoo MUST use IDs 1029-1030 (NOT 1035-1036).'
+    end if
+
+    write(*,*) ''
+   ! write(*,*) 'No automated clash detection available without tracer array access.'
+    write(*,*) 'Please manually verify your namelist tracer_list against the'
+    write(*,*) 'expected sequence shown above.'
+    write(*,*) '=========================================================================='
+    write(*,*) ''
+  end if
+
+  ! ===========================================================================
+  ! Stop execution if configuration error detected
+  ! ===========================================================================
+  if (config_error) then
+    if (mype == 0) then
+      write(*,*) ''
+      write(*,*) '******************************************************************'
+      write(*,*) '***  FATAL ERROR: MODEL CONFIGURATION INCONSISTENCY DETECTED   ***'
+      write(*,*) '***  MODEL EXECUTION STOPPED                                   ***'
+      write(*,*) '******************************************************************'
+      write(*,*) ''
+    end if
+    deallocate(expected_tracer_ids, tracer_found)
+!sl par_ex takes (COMM, mype, abort) with the first two required; the old call
+!sl par_ex(0) left mype unassociated and segfaulted, losing the message above.
+!sl recom_config has no access to partit, so just stop: every rank reaches this
+!sl same configuration error, so there is nothing to synchronise.
+    stop
+  end if
+
+  ! Clean up
+  deallocate(expected_tracer_ids, tracer_found)
+
+end subroutine validate_recom_tracers
+
+! ==============================================================================
+! SUBROUTINE: validate_tracer_id_sequence
+! ==============================================================================
+! Purpose: Validate that actual tracer IDs from namelist match expected sequence
+!          Call this after reading the tracer namelist
+! ==============================================================================
+subroutine validate_tracer_id_sequence(tracer_ids, num_tracers, mype)
+  implicit none
+
+  ! Arguments
+  integer, dimension(:), intent(in) :: tracer_ids   ! Actual IDs from namelist
+  integer, intent(in) :: num_tracers                ! Number of tracers
+  integer, intent(in) :: mype                        ! MPI rank
+
+  ! Local variables
+  integer :: i, j
+  integer, dimension(:), allocatable :: expected_ids
+  integer :: num_expected
+  logical :: error_found
+  logical :: duplicate_found
+  integer :: num_physical_tracers
+
+  error_found = .false.
+  duplicate_found = .false.
+  num_physical_tracers = 2
+
+  ! Allocate expected IDs array
+  allocate(expected_ids(num_tracers))
+
+  ! Build expected ID sequence
+  expected_ids(1) = 1
+  expected_ids(2) = 2
+
+  do i = 1, 22
+    expected_ids(num_physical_tracers + i) = 1000 + i
+  end do
+
+  if (enable_3zoo2det .and. enable_coccos) then
+    ! Full model configuration
+    expected_ids(25:30) = (/1023, 1024, 1025, 1026, 1027, 1028/)
+    expected_ids(31:36) = (/1029, 1030, 1031, 1032, 1033, 1034/)
+    expected_ids(37:38) = (/1035, 1036/)
+#if defined(__RECOM_WAVEBANDS)    
+!SL indexing should be better organised    
+! CDOM is added by initialize_tracer_indices whenever RECOM_CDOM is set,
+! independently of RECOM_RADTRANS, so expect it on the same condition here.
+if (RECOM_CDOM) then
+    expected_ids(39:39) = (/1037/)
+endif
+if (RECOM_RADTRANS) then
+if (RECOM_MARSHALL) then
+    expected_ids(40:41) = (/1038, 1039/)
+    expected_ids(42:43) = (/1040, 1041/)
+endif
+endif
+#endif    
+  else if (enable_coccos .and. .not. enable_3zoo2det) then
+    expected_ids(25:30) = (/1023, 1024, 1025, 1026, 1027, 1028/)
+#if defined(__RECOM_WAVEBANDS)
+if (RECOM_CDOM) then
+    expected_ids(31:31) = (/1029/)
+endif
+#endif
+
+  else if (enable_3zoo2det .and. .not. enable_coccos) then
+    expected_ids(25:32) = (/1023, 1024, 1025, 1026, 1027, 1028, 1029, 1030/)
+#if defined(__RECOM_WAVEBANDS)    
+!SL indexing should be better organised    
+! CDOM is added by initialize_tracer_indices whenever RECOM_CDOM is set,
+! independently of RECOM_RADTRANS, so expect it on the same condition here.
+if (RECOM_CDOM) then
+    expected_ids(33:33) = (/1031/)
+endif
+if (RECOM_RADTRANS) then
+if (RECOM_MARSHALL) then
+    expected_ids(34:35) = (/1032, 1033/)
+endif
+endif
+#endif    
+
+  else
+! Base configuration: CDOM sits directly on top of the 22 base tracers.
+#if defined(__RECOM_WAVEBANDS)
+if (RECOM_CDOM) then
+    expected_ids(25:25) = (/1023/)
+endif
+#endif
+  end if
+
+  ! ===========================================================================
+  ! Check 1: Compare actual vs expected tracer IDs
+  ! ===========================================================================
+  if (mype == 0) then
+    write(*,*) ''
+    write(*,*) '=========================================================================='
+    write(*,*) 'VALIDATING TRACER ID SEQUENCE FROM NAMELIST'
+    write(*,*) '=========================================================================='
+  end if
+
+  do i = 1, num_tracers
+    if (tracer_ids(i) /= expected_ids(i)) then
+      error_found = .true.
+      if (mype == 0) then
+        write(*,*) 'ERROR at position ', i, ':'
+        write(*,*) '  Expected tracer ID: ', expected_ids(i)
+        write(*,*) '  Found tracer ID:    ', tracer_ids(i)
+        write(*,*) ''
+      end if
+    end if
+  end do
+
+  ! ===========================================================================
+  ! Check 2: Detect duplicate tracer IDs
+  ! ===========================================================================
+  do i = 1, num_tracers - 1
+    do j = i + 1, num_tracers
+      if (tracer_ids(i) == tracer_ids(j)) then
+        duplicate_found = .true.
+        if (mype == 0) then
+          write(*,*) 'ERROR: Duplicate tracer ID detected!'
+          write(*,*) '  Tracer ID ', tracer_ids(i), ' appears at positions ', i, ' and ', j
+          write(*,*) ''
+        end if
+      end if
+    end do
+  end do
+
+  ! ===========================================================================
+  ! Check 3: Detect forbidden tracer IDs for current configuration
+  ! ===========================================================================
+  !if (enable_3zoo2det .and. enable_coccos) then
+    ! Check for forbidden IDs 1023-1024 in full model
+    !do i = 1, num_tracers
+      !if (tracer_ids(i) == 1023 .or. tracer_ids(i) == 1024) then
+        !error_found = .true.
+        !if (mype == 0) then
+          !write(*,*) 'ERROR: Forbidden tracer ID in full model configuration!'
+          !write(*,*) '  Tracer ID ', tracer_ids(i), ' at position ', i
+          !write(*,*) '  IDs 1023-1024 are NOT used when both flags are enabled'
+          !write(*,*) ''
+        !end if
+      !end if
+    !end do
+  !end if
+
+  ! ===========================================================================
+  ! Report results
+  ! ===========================================================================
+  if (error_found .or. duplicate_found) then
+    if (mype == 0) then
+      write(*,*) '=========================================================================='
+      write(*,*) 'TRACER ID VALIDATION FAILED!'
+      write(*,*) '=========================================================================='
+      write(*,*) ''
+      write(*,*) 'Expected tracer ID sequence for current configuration:'
+      write(*,*) expected_ids
+      write(*,*) ''
+      write(*,*) 'Actual tracer ID sequence from namelist:'
+      write(*,*) tracer_ids
+      write(*,*) ''
+      write(*,*) 'ACTION REQUIRED:'
+      write(*,*) '  Correct the tracer IDs in your namelist.config file'
+      write(*,*) '  Ensure the sequence matches exactly as expected'
+      write(*,*) '=========================================================================='
+      write(*,*) ''
+      write(*,*) '******************************************************************'
+      write(*,*) '***  FATAL ERROR: INVALID TRACER ID SEQUENCE                   ***'
+      write(*,*) '***  MODEL EXECUTION STOPPED                                   ***'
+      write(*,*) '******************************************************************'
+      write(*,*) ''
+    end if
+    deallocate(expected_ids)
+!sl see the note above: par_ex(0) is a malformed call and segfaults.
+    stop
+  else
+    if (mype == 0) then
+      write(*,*) '=========================================================================='
+      write(*,*) 'TRACER ID VALIDATION PASSED!'
+      write(*,*) 'All tracer IDs match expected sequence - no clashes detected.'
+      write(*,*) '=========================================================================='
+      write(*,*) ''
+    end if
+  end if
+
+  deallocate(expected_ids)
+
+end subroutine validate_tracer_id_sequence
+
+
+
+end module recom_config
+!
+!===============================================================================
+!
+Module REcoM_declarations
+  implicit none
+  save
+
+  Integer       :: save_count_recom
+  Real(kind=8)  :: tiny_N                 ! Min PhyN
+  Real(kind=8)  :: tiny_N_d               ! Min DiaN
+  Real(kind=8)  :: tiny_N_c               ! Min CocN                 ! NEW
+  Real(kind=8)  :: tiny_N_p               ! Min PhaN                 ! Phaeocystis
+  Real(kind=8)  :: tiny_C                 ! Min PhyC
+  Real(kind=8)  :: tiny_C_d               ! Min DiaC
+  Real(kind=8)  :: tiny_C_c               ! Min CocC                 ! NEW
+  Real(kind=8)  :: tiny_C_p               ! Min PhaC                 ! Phaeocystis
+  Real(kind=8)  :: tiny_Si                ! Min DiaSi
+!!------------------------------------------------------------------------------
+!! *** Temperature dependence of rates ***
+  Real(kind=8)  :: rTref                  ! [1/K] Reciproque value of reference temp for Arrhenius function
+  Real(kind=8)  :: rTloc                  ! [1/K] Reciproque of local ocean temp
+  Real(kind=8)  :: arrFunc                ! []    Temp dependence of rates (also for Phaeocystis)
+  Real(kind=8)  :: CoccoTFunc             ! []    Temp dependence of coccolithophores
+  Real(kind=8)  :: Temp_diatoms           ! []    Temp dependence of diatoms
+  Real(kind=8)  :: Temp_phyto             ! []    Temp dependence of small phyto
+  Real(kind=8)  :: Temp_cocco             ! []    Temp dependence of coccolithophores
+  Real(kind=8)  :: Temp_phaeo             ! []    Temp dependence of phaeocystis
+  Real(kind=8)  :: arrFuncZoo2            ! []    Temperature function for krill
+  Real(kind=8)  :: q10_mic                ! 3Zoo
+  Real(kind=8)  :: q10_mic_res            ! 3Zoo
+  Real(kind=8)  :: q10_mes                ! 3Zoo
+  Real(kind=8)  :: q10_mes_res            ! 3Zoo
+  Real(kind=8)  :: reminSiT
+  Real(kind=8)  :: O2Func                 ! O2remin
+!!------------------------------------------------------------------------------
+!! *** CO2 dependence of rates ! NEW CO2 ***
+  Real(kind=8)  :: h_depth(1)             ! pH from mocsy is converted to proton concentration
+  !Real(kind=8)  :: d_CT_CL_phy            ! NEW inter For the interaction term between CO2 and both temperature and light
+  !Real(kind=8)  :: d_CT_CL_dia
+  !Real(kind=8)  :: d_CT_CL_coc
+  Real(kind=8)  :: CoccoCO2
+  Real(kind=8)  :: DiaCO2
+  Real(kind=8)  :: PhyCO2
+  Real(kind=8)  :: PhaeoCO2
+
+!!------------------------------------------------------------------------------
+!! *** Quotas ***
+  Real(kind=8)  :: quota, quota_dia, quota_cocco, quota_phaeo                         ! [mmol N/mmol C]  Quota between phytoplankton N and C (NEW changed term)
+  Real(kind=8)  :: recipQuota, recipQuota_dia, recipQuota_cocco, recipQuota_phaeo     ! [mmol C/mmol N]  Reciproque of 'quota' (NEW changed term)
+  Real(kind=8)  :: Chl2C, Chl2C_dia, Chl2C_cocco, Chl2C_phaeo                         ! [mg ChlA/mmol C] Quota between phytoplankton ChlA and C (NEW changed term)
+  Real(kind=8)  :: Chl2C_plast, Chl2C_plast_dia, CHL2C_plast_cocco, CHL2C_plast_phaeo ! [mg ChlA/mmol C] needed for photodamage (NEW changed term)
+  Real(kind=8)  :: Chl2N, Chl2N_dia, Chl2N_cocco, Chl2N_phaeo                         ! [mg ChlA/mmol N] Quota between phytoplankton ChlA and N (NEW changed term)
+  Real(kind=8)  :: qSiC
+  Real(kind=8)  :: qSiN
+  Real(kind=8)  :: recipQZoo                                         ! [mmol C/mmol N]  Quota between heterotrophic C and N 
+  Real(kind=8)  :: recipQZoo2                                        ! [mmol C/mmol N]  Quota between second zoo  C and N
+  Real(kind=8)  :: recipQZoo3                                        ! Zoo3 [mmol C/mmol N] Quota between third zoo C and N
+!!! Grazing detritus Quotas for converting                                         
+  Real(kind=8)  :: recipDet                                          ! [mmol C/mmol N]  Quota between second zoo  C and N
+  Real(kind=8)  :: recipDet2                                         ! [mmol C/mmol N]  Quota between second zoo  C and N 
+
+!!------------------------------------------------------------------------------
+!! *** For limiter function ***
+  Real(kind=8)          :: qlimitFac, qlimitFacTmp                   ! Factor that regulates photosynthesis
+  Real(kind=8),external :: recom_limiter                             ! Function calculating qlimitFac
+  Real(kind=8)          :: FeLimitFac                                ! [Mumol/m3] Half sat constant for iron
+  Real(kind=8)          :: pMax, pMax_dia, pMax_cocco, pMax_phaeo    ! [1/day]    Maximum rate of C-specific photosynthesis
+!!------------------------------------------------------------------------------
+!! *** Light ***
+  Real(kind=8)  :: kappar                                             ! [1/m]  Light attenuation coefficient modified by chla
+  Real(kind=8)  :: kappastar                                          ! []
+  Real(kind=8)  :: kdzUpper,kdzLower                                  ! []     light attenuation * deltaZ at lower and upper control volume border
+  Real(kind=8)  :: chl_upper,chl_lower                                ! [mg/m3]     chl  at lower and upper control volume border
+  Real(kind=8)  :: Chlave                                             ! [mg/m3]     vertical average chl between two nodes
+  Real(kind=8)  :: Upperlight, Lowerlight                             ! [?]    light at upper and lower border of control volume
+  Real(kind=8)  :: PARave                                             ! [?]    Average light in the control volumes
+!!------------------------------------------------------------------------------
+!! *** Photosynthesis ***
+  Real(kind=8)  :: Cphot, Cphot_dia, Cphot_cocco, Cphot_phaeo         ! [1/day] C-specific rate of photosynthesis
+!!------------------------------------------------------------------------------
+!! *** Assimilation ***
+  Real(kind=8)  :: V_cm                                               ! scaling factor for temperature dependent maximum of C-specific N-uptake
+  Real(kind=8)  :: limitFacN,limitFacN_dia,limitFacN_cocco, limitFacN_phaeo ! Factor that regulates N-assimilation. Calc from function recom_limiter
+  Real(kind=8)  :: limitFacSi
+  Real(kind=8)  :: N_assim, N_assim_dia, N_assim_Cocco, N_assim_phaeo       ! [mmol N/(mmol C * day)] C specific N utilization rate
+  Real(kind=8)  :: N_fix                                                    ! [mmol N/(mmol C * day)] part of N_assim supplied from N2 (nfix_floor)
+  Real(kind=8)  :: nfix_col                                                 ! [mmol N/(m2 day)] fixation accumulated from the surface in this column (nfix_max)
+  Real(kind=8)  :: Si_assim
+!!------------------------------------------------------------------------------
+!! *** Chlorophyll ***
+  Real(kind=8)  :: ChlSynth, ChlSynth_dia, ChlSynth_cocco, ChlSynth_phaeo             ! [mg CHL/ mmol N] CHL a synthesis regulation term
+  Real(kind=8)  :: phyRespRate, phyRespRate_dia, phyRespRate_cocco, phyRespRate_phaeo ! [1/day] Phytoplankton respiration rate
+  Real(kind=8)  :: KOchl, KOchl_dia, KOchl_cocco, KOchl_phaeo                         ! coefficient for damage to the photosynthetic apparatus
+!!------------------------------------------------------------------------------
+!! *** Vertical only Decomposition of phytoplankton growth components ***
+  Real(kind=8),allocatable,dimension(:)  :: VTTemp_diatoms, VTTemp_phyto, VTTemp_cocco, VTTemp_phaeo            ! Vertical 1D  temperature effect on phytoplankton photosynthesis
+  Real(kind=8),allocatable,dimension(:)  :: VTPhyCO2, VTDiaCO2, VTCoccoCO2, VTPhaeoCO2                        ! CO2 effect
+  Real(kind=8),allocatable,dimension(:)  :: VTqlimitFac_phyto, VTqlimitFac_diatoms, VTqlimitFac_cocco, VTqlimitFac_phaeo  ! nutrient effect
+  Real(kind=8),allocatable,dimension(:)  :: VTCphotLigLim_phyto, VTCphotLigLim_diatoms, VTCphotLigLim_cocco, VTCphotLigLim_phaeo ! light limitation
+  Real(kind=8),allocatable,dimension(:)  :: VTCphot_phyto, VTCphot_diatoms, VTCphot_cocco, VTCphot_phaeo
+  Real(kind=8),allocatable,dimension(:)  :: VTSi_assimDia
+
+!!------------------------------------------------------------------------------
+!! *** Iron chemistry ***
+  Real(kind=8),external :: iron_chemistry, iron_chemistry_2ligands
+  Real(kind=8)  :: logK1, logK2, Klig1, Klig2
+!!------------------------------------------------------------------------------
+!! *** Zooplankton ***
+  Real(kind=8)  :: DiaNsq  
+  Real(kind=8)  :: varpzdia, fDiaN                       ! Part of Diatoms available for food
+  Real(kind=8)  :: PhyNsq
+  Real(kind=8)  :: varpzPhy, fPhyN                       ! Part of Nano available for food
+  Real(kind=8)  :: CoccoNsq
+  Real(kind=8)  :: varpzCocco,fCoccoN
+  Real(kind=8)  :: PhaeoNsq
+  Real(kind=8)  :: varpzPhaeo,fPhaeoN
+  Real(kind=8)  :: MicZooNsq                             ! NEW 3Zoo
+  Real(kind=8)  :: varpzMicZoo, fMicZooN                 ! NEW 3Zoo Part of microzooplankton available for food 
+  Real(kind=8)  :: food, foodsq                          ! [(mmol N)2/m6]
+  Real(kind=8)  :: grazingFlux_phy, grazingFlux_Dia, grazingFlux_Cocco, grazingFlux_Phaeo ! [mmol N / (m3 * day)] (NEW changed term)
+  Real(kind=8)  :: grazingFlux_miczoo                    ! NEW 3Zoo
+  Real(kind=8)  :: grazingFlux
+  Real(kind=8)  :: grazEff                               ! NEW 3Zoo
+  Real(kind=8)  :: HetRespFlux                           ! Zooplankton respiration
+  Real(kind=8)  :: HetLossFlux                           ! [(mmol N)2/(m6 * day)] Zooplankton mortality (quadratic loss)
+!!------------------------------------------------------------------------------
+!! *** Second Zooplankton  ***                                                                                          
+     Real(kind=8)  :: DiaNsq2, PhyNsq2, CoccoNsq2, PhaeoNsq2, HetNsq                   ! NEW (changed term)
+     Real(kind=8)  :: varpzDia2, fDiaN2, varpzPhy2, fPhyN2, varpzCocco2, fCoccoN2, varpzPhaeo2, fPhaeoN2, varpzHet, fHetN ! Part of Diatoms available for food
+     Real(kind=8)  :: MicZooNsq2                         ! NEW Zoo3
+     Real(kind=8)  :: varpzMicZoo2, fMicZooN2            ! NEW Zoo3
+     Real(kind=8)  :: food2, foodsq2                     ! [(mmol N)2/m6]
+     Real(kind=8)  :: grazingFlux_phy2, grazingFlux_Dia2, grazingFlux_Cocco2, grazingFlux_Phaeo2, grazingFlux_het2 ! [mmol N / (m3 * day)  (NEW changed term)
+     Real(kind=8)  :: grazingFlux_miczoo2                ! NEW Zoo3
+     Real(kind=8)  :: grazingFlux2
+     Real(kind=8)  :: Zoo2RespFlux                       ! Zooplankton respiration                   
+     Real(kind=8)  :: Zoo2LossFlux                       ! [(mmol N)2/(m6 * day)] Zooplankton mortality (quadratic loss)  
+     Real(kind=8)  :: Zoo2fecalloss_n                    ! [(mmol N)/(m3*day)] Second zoo fecal pellet                        
+     Real(kind=8)  :: Zoo2fecalloss_c                    ! [(mmol N)/(m3*day)] Second zoo fecal pellet     
+     Real(kind=8)  :: Mesfecalloss_n                     ! NEW Zoo3
+     Real(kind=8)  :: Mesfecalloss_c                     ! NEW Zoo3                          
+     Real(kind=8)  :: recip_res_zoo22 
+!!------------------------------------------------------------------------------
+!! *** Grazing Detritus  *** 
+  Real(kind=8)  :: DetNsq, DetZ2Nsq, DetNsq2, DetZ2Nsq2  
+  Real(kind=8)  :: varpzDet, varpzDetZ2, varpzDet2, varpzDetZ22         ! Part of Diatoms available for food
+  Real(kind=8)  :: fDetN, fDetZ2N, fDetN2, fDetZ2N2
+  Real(kind=8)  :: grazingFlux_Det, grazingFlux_DetZ2                   ! [mmol N / (m3 * day)]
+  Real(kind=8)  :: grazingFlux_Det2, grazingFlux_DetZ22                 ! [mmol N / (m3 * day)]
+!!------------------------------------------------------------------------------
+!! *** Third zooplankton  ***       ! NEW 3Zoo
+  Real(kind=8)  :: DiaNsq3
+  Real(kind=8)  :: varpzDia3, fDiaN3                 ! Part of diatoms available for food
+  Real(kind=8)  :: loss_hetfd
+  Real(kind=8)  :: PhyNsq3
+  Real(kind=8)  :: varpzPhy3, fPhyN3                 ! Part of small phytoplankton available for food
+  Real(kind=8)  :: CoccoNsq3
+  Real(kind=8)  :: varpzCocco3, fCoccoN3             ! Part of coccolithophores available for food
+  Real(kind=8)  :: PhaeoNsq3
+  Real(kind=8)  :: varpzPhaeo3, fPhaeoN3             ! Part of phaeocystis available for food
+  Real(kind=8)  :: food3, foodsq3                    ! [(mmol N)2/m6]
+  Real(kind=8)  :: grazingFlux_phy3, grazingFlux_Dia3, grazingFlux_Cocco3, grazingFlux_Phaeo3 ! [mmol N / (m3 * day)]
+  Real(kind=8)  :: grazingFlux3
+  Real(kind=8)  :: MicZooRespFlux                    ! Zooplankton respiration
+  Real(kind=8)  :: MicZooLossFlux                    ! [(mmol N)2/(m6 * day)] Zooplankton mortality (quadratic loss)
+!!------------------------------------------------------------------------------                                                                                
+!! *** Aggregation  ***
+  Real(kind=8)  :: AggregationRate                   ! [1/day] AggregationRate (of nitrogen)
+  Real(kind=8)  :: AggregationRate_phaeo             ! [1/day] As AggregationRate, scaled by agg_fac_phaeo, applied to Phaeocystis only
+  Real(kind=8)  :: ovfRate, ovfRate_dia, ovfRate_cocco, ovfRate_phaeo  ! [1/day] carbon-overflow DOC exudation (f_ovf), per unit PFT carbon
+  Real(kind=8)  :: ovfFlux, ovfFrac                                  ! [mmol C m-3 day-1] total overflow DOC flux; share of it going to DOC (not CDOM)
+  Real(kind=8)  :: ovrRate, ovrRate_dia, ovrRate_cocco, ovrRate_phaeo  ! [1/day] carbon-overflow respiration (res_ovf), per unit PFT carbon
+  Real(kind=8)  :: ovrFlux                                           ! [mmol C m-3 day-1] total overflow respiration flux (to DIC)
+  Real(kind=8)  :: res_ovf_d_eff, res_ovf_c_eff, res_ovf_p_eff       ! per-PFT res_ovf after the -1 = "use res_ovf" rule
+  Real(kind=8)  :: MortRate_phaeo                    ! [1/day] Phaeocystis linear mortality to detritus (mort_phaeo, x mort_fac_fe_phaeo if DFe < k_Fe_p)
+  Real(kind=8)  :: MortRate, MortRate_dia, MortRate_cocco  ! [1/day] linear mortality to detritus (mort_phy/_d/_c, x light limitation if mort_light)
+  Real(kind=8)  :: mort_d_eff, mort_c_eff, mort_p_eff     ! per-PFT mortality after the -1 = "use mort_phy" rule
+  Real(kind=8)  :: mort_lf                               ! light-limitation factor 1 - Cphot/pMax used with mort_light
+  Real(kind=8)  :: AggregationRate_det               ! [1/day] Detritus part agg_PD*(DetN+DetZ2N) of AggregationRate, scaled by agg_fac_phaeo_det for Phaeocystis
+!!------------------------------------------------------------------------------                                                                                
+!! *** Calcification  ***
+  Real(kind=8)  :: calc_prod_ratio_cocco             ! NEW (before it was defined as a fixed value, but now dependent on cocco and T)
+  Real(kind=8)  :: calcification
+  Real(kind=8)  :: calc_loss_agg
+  Real(kind=8)  :: calc_loss_gra
+  Real(kind=8)  :: calc_diss
+  Real(kind=8)  :: calc_diss_ben                     ! NEW DISS
+  Real(kind=8)  :: calc_loss_gra2                    ! zoo2 detritus
+  Real(kind=8)  :: calc_diss2                        ! zoo2 detritus
+  Real(kind=8)  :: calc_loss_gra3                    ! NEW Zoo3 detritus
+  Real(kind=8)  :: Ca                                ! NEW DISS (calcium ion concentration)
+  Real(kind=8)  :: CO3_sat                           ! NEW DISS (saturated CO3 concentration, calculated from kspc and Ca)
+!!------------------------------------------------------------------------------                                                                                
+!! *** Diagnostics  ***
+  Real(kind=8)  :: recipbiostep                         ! 1/number of steps per recom cycle
+  Real(kind=8),allocatable,dimension(:,:) :: Diags3Dloc
+  Real(kind=8)  :: locNPPn, locGPPn, locNNAn, locChldegn
+  Real(kind=8)  :: locNPPd, locGPPd, locNNAd, locChldegd
+  Real(kind=8)  :: locNPPc, locGPPc, locNNAc, locChldegc
+  Real(kind=8)  :: locNPPp, locGPPp, locNNAp, locChldegp     ! Phaeocystis
+  Real(kind=8),allocatable,dimension(:) :: vertNPPn, vertGPPn, vertNNAn, vertChldegn
+  Real(kind=8),allocatable,dimension(:) :: vertNPPd, vertGPPd, vertNNAd, vertChldegd
+  Real(kind=8),allocatable,dimension(:) :: vertNPPc, vertGPPc, vertNNAc, vertChldegc
+  Real(kind=8),allocatable,dimension(:) :: vertNPPp, vertGPPp, vertNNAp, vertChldegp     ! Phaeocystis
+  Real(kind=8),allocatable,dimension(:) :: vertgrazmeso_tot, vertgrazmeso_n, vertgrazmeso_d, vertgrazmeso_c
+  Real(kind=8),allocatable,dimension(:) :: vertrespmeso, vertrespmacro, vertrespmicro
+  Real(kind=8),allocatable,dimension(:) :: vertcalcdiss, vertcalcif
+  Real(kind=8),allocatable,dimension(:) :: vertaggn, vertaggd, vertaggc, vertaggp
+  Real(kind=8),allocatable,dimension(:) :: vertdocexn, vertdocexd, vertdocexc, vertdocexp
+  Real(kind=8),allocatable,dimension(:) :: vertrespn, vertrespd, vertrespc, vertrespp
+!!------------------------------------------------------------------------------                                                                                
+!! *** Benthos  ***
+  Real(kind=8),allocatable,dimension(:) :: decayBenthos ! [1/day] Decay rate of detritus in the benthic layer
+  Real(kind=8),allocatable,dimension(:) :: wFluxDet     ! [mmol/(m2 * day)] Flux of N,C,Si and calc through sinking of detritus
+  Real(kind=8),allocatable,dimension(:) :: wFluxPhy     ! [mmol/(m2 * day)] Flux of N,C, calc and chl through sinking of phytoplankton
+  Real(kind=8),allocatable,dimension(:) :: wFluxDia     ! [mmol/(m2 * day)] Flux of N,C, Si and chl through sinking of diatoms
+  Real(kind=8),allocatable,dimension(:) :: wFluxCocco   ! NEW [mmol/(m2 * day)] Flux of N,C, calc and chl through sinking of coccos
+  Real(kind=8),allocatable,dimension(:) :: wFluxPhaeo   ! NEW [mmol/(m2 * day)] Flux of N,C, calc and chl through sinking of Phaeocystis
+  Real(kind=8)              :: Vben_det     ! [m/day] speed of sinking into benthos from water column
+  Real(kind=8)              :: Vben_det_seczoo !second zooplankton sinking benthos  
+  Real(kind=8)              :: Vben_phy
+  Real(kind=8)              :: Vben_dia
+  Real(kind=8)              :: Vben_coc     
+  Real(kind=8)              :: Vben_pha     ! Phaeocystis
+  Real(kind=8)              :: Ironflux     ! [umol Fe/(m2*day)] Flux of Fe from sediment to water
+!_______________________________________________________________________________
+! Arrays added for RECOM implementation:
+!!---- PAR
+!real(kind=8),allocatable,dimension(:)     :: PAR
+
+! --> multiplication factor for surface boundary condition in 
+!     bc_surface for river and erosion
+!     river on/off -->=1.0/0.0 
+!     erosion on/off -->=1.0/0.0 
+
+real(kind=8)                               :: is_riverinput
+real(kind=8)                               :: is_erosioninput
+
+real(kind=8)                               :: is_3zoo2det
+real(kind=8)                               :: is_coccos
+
+end module REcoM_declarations
+
+!===============================================================================
+! For arrays needed for the whole 2D or 3D domain, but only needed in REcoM
+!-------------------------------------------------------------------------------
+Module REcoM_GloVar
+  implicit none
+  save
+
+  Real(kind=8),allocatable,dimension(:,:) :: Benthos          ! 4 types of benthos-tracers with size [4 n2d]
+  Real(kind=8),allocatable,dimension(:,:,:) :: Benthos_tr     ! kh 25.03.22 buffer sums per tracer index to avoid non bit identical results regarding global sums when running the tracer loop in parallel
+
+  Real(kind=8),allocatable,dimension(:)   :: GloFeDust        ! [umol/m2/s] Monthly 2D field of iron soluted in surface water from dust
+  Real(kind=8),allocatable,dimension(:)   :: GloNDust         ! [mmol/m2/s] 10-year mean 2D fields of nitrogen soluted in surface water from dust
+  Real(kind=8),dimension(12)              :: AtmCO2           ! [uatm] Atmospheric CO2 partial pressure. One value for the whole planet for each month
+
+  Real(kind=8),allocatable,dimension(:)   :: AtmFeInput       ! [umol/m2/s] Includes ice, but is, other than that identlical to GloFeDust
+  Real(kind=8),allocatable,dimension(:)   :: AtmNInput        ! [umol/m2/s] Includes ice, but is, other than that identlical to GloNDust
+  Real(kind=8),allocatable,dimension(:)   :: GloPCO2surf      ! [uatm] Surface ocean CO2 partial pressure
+  Real(kind=8),allocatable,dimension(:)   :: GloCO2flux       ! [mmol/m2/day] Positive downwards
+  Real(kind=8),allocatable,dimension(:)   :: GloO2flux        ! [mmol/m2/day] Positive downwards
+  Real(kind=8),allocatable,dimension(:)   :: GloCO2flux_seaicemask       ! [mmol/m2/day] Positive downwards
+  Real(kind=8),allocatable,dimension(:)   :: GloO2flux_seaicemask       ! [mmol/m2/day] Positive downwards
+  Real(kind=8),allocatable,dimension(:)   :: GloHplus         ! [mol/kg] Concentrations of H-plus ions in the surface ocean
+
+  Real(kind=8),allocatable,dimension(:,:)   :: CO23D            ! MOCSY: [mol/m3] Aqueous CO2 concentration for all depths
+  Real(kind=8),allocatable,dimension(:,:)   :: pH3D             ! MOCSY: total scale
+  Real(kind=8),allocatable,dimension(:,:)   :: pCO23D           ! MOCSY: [uatm] CO2 partial pressure
+  Real(kind=8),allocatable,dimension(:,:)   :: HCO33D           ! MOCSY: [mol/m3] Bicarbonate ion concentration
+  Real(kind=8),allocatable,dimension(:,:)   :: CO33D            ! DISS: [mol/m3] Carbonate ion concentration
+  Real(kind=8),allocatable,dimension(:,:)   :: OmegaC3D         ! DISS: calcite saturation state
+  Real(kind=8),allocatable,dimension(:,:)   :: kspc3D           ! DISS: [mol^2/kg^2] stoichiometric solubility product of calcite
+  Real(kind=8),allocatable,dimension(:,:)   :: rhoSW3D          ! DISS: [mol/m3] in-situ density of seawater
+
+  Real(kind=8),allocatable,dimension(:,:)   :: rho_particle1       ! BALL: density of particle class 1
+  Real(kind=8),allocatable,dimension(:,:)   :: rho_particle2       ! BALL: density of particle class 2
+  Real(kind=8),allocatable,dimension(:,:)   :: scaling_density1_3D ! BALL: scaling factor
+  Real(kind=8),allocatable,dimension(:,:)   :: scaling_density2_3D ! BALL: scaling factor
+  Real(kind=8),allocatable,dimension(:,:)   :: scaling_visc_3D     ! BALL: scaling factor
+  Real(kind=8),allocatable,dimension(:,:)   :: seawater_visc_3D    ! BALL: scaling factor
+
+  Real(kind=8),allocatable,dimension(:)     :: GlodPCO2surf       ! [mmol/m2/day] ocean-atmosphere  
+  Real(kind=8),allocatable,dimension(:,:)   :: GlodecayBenthos  ! [1/day] Decay rate of detritus in the benthic layer saved for oce_ale_tracer.F90
+
+  Real(kind=8),allocatable,dimension(:,:)   :: GlowFluxDet    ! 
+  Real(kind=8),allocatable,dimension(:,:)   :: GlowFluxPhy    ! 
+  Real(kind=8),allocatable,dimension(:,:)   :: GlowFluxDia    ! 
+  Real(kind=8),allocatable,dimension(:,:)   :: GlowFluxCocco  !
+  Real(kind=8),allocatable,dimension(:,:)   :: GlowFluxPhaeo  !
+
+  Real(kind=8),allocatable,dimension(:,:)   :: diags2D          ! Diagnostics in 2D [8 n2d]
+  Real(kind=8),allocatable,dimension(:)     :: NPPn
+  Real(kind=8),allocatable,dimension(:)     :: NPPd
+  Real(kind=8),allocatable,dimension(:)     :: GPPn
+  Real(kind=8),allocatable,dimension(:)     :: GPPd
+  Real(kind=8),allocatable,dimension(:)     :: NNAn
+  Real(kind=8),allocatable,dimension(:)     :: NNAd
+  Real(kind=8),allocatable,dimension(:)     :: Chldegn
+  Real(kind=8),allocatable,dimension(:)     :: Chldegd
+  Real(kind=8),allocatable,dimension(:)     :: NPPc
+  Real(kind=8),allocatable,dimension(:)     :: GPPc
+  Real(kind=8),allocatable,dimension(:)     :: NNAc
+  Real(kind=8),allocatable,dimension(:)     :: Chldegc
+  Real(kind=8),allocatable,dimension(:)     :: NPPp            ! Phaeocystis
+  Real(kind=8),allocatable,dimension(:)     :: GPPp
+  Real(kind=8),allocatable,dimension(:)     :: NNAp
+  Real(kind=8),allocatable,dimension(:)     :: Chldegp
+  Real(kind=8),allocatable,dimension(:,:)   :: grazmeso_tot
+  Real(kind=8),allocatable,dimension(:,:)   :: grazmeso_n
+  Real(kind=8),allocatable,dimension(:,:)   :: grazmeso_d
+  Real(kind=8),allocatable,dimension(:,:)   :: grazmeso_c
+  Real(kind=8),allocatable,dimension(:,:)   :: respmeso
+  Real(kind=8),allocatable,dimension(:,:)   :: respmacro
+  Real(kind=8),allocatable,dimension(:,:)   :: respmicro
+  Real(kind=8),allocatable,dimension(:,:)   :: calcdiss
+  Real(kind=8),allocatable,dimension(:,:)   :: calcif
+  Real(kind=8),allocatable,dimension(:,:)   :: aggn
+  Real(kind=8),allocatable,dimension(:,:)   :: aggd
+  Real(kind=8),allocatable,dimension(:,:)   :: aggc
+  Real(kind=8),allocatable,dimension(:,:)   :: aggp             ! Phaeocystis
+  Real(kind=8),allocatable,dimension(:,:)   :: docexn
+  Real(kind=8),allocatable,dimension(:,:)   :: docexd
+  Real(kind=8),allocatable,dimension(:,:)   :: docexc
+  Real(kind=8),allocatable,dimension(:,:)   :: docexp           ! Phaeocystis
+  Real(kind=8),allocatable,dimension(:,:)   :: respn
+  Real(kind=8),allocatable,dimension(:,:)   :: respd
+  Real(kind=8),allocatable,dimension(:,:)   :: respc
+  Real(kind=8),allocatable,dimension(:,:)   :: respp            ! Phaeocystis
+  Real(kind=8),allocatable,dimension(:,:)   :: NPPn3D
+  Real(kind=8),allocatable,dimension(:,:)   :: NPPd3D
+  Real(kind=8),allocatable,dimension(:,:)   :: NPPc3D
+  Real(kind=8),allocatable,dimension(:,:)   :: NPPp3D           ! Phaeocystis
+  Real(kind=8),allocatable,dimension(:,:)   :: TTemp_diatoms ! my new variables to track
+  Real(kind=8),allocatable,dimension(:,:)   :: TTemp_phyto ! new Temperature effect
+  Real(kind=8),allocatable,dimension(:,:)   :: TTemp_cocco ! new
+  Real(kind=8),allocatable,dimension(:,:)   :: TTemp_phaeo ! new
+  Real(kind=8),allocatable,dimension(:,:)   :: TPhyCO2 ! new CO2 effect
+  Real(kind=8),allocatable,dimension(:,:)   :: TDiaCO2
+  Real(kind=8),allocatable,dimension(:,:)   :: TCoccoCO2
+  Real(kind=8),allocatable,dimension(:,:)   :: TPhaeoCO2
+  Real(kind=8),allocatable,dimension(:,:)   :: TqlimitFac_phyto ! new nutrient limitation
+  Real(kind=8),allocatable,dimension(:,:)   :: TqlimitFac_diatoms
+  Real(kind=8),allocatable,dimension(:,:)   :: TqlimitFac_cocco
+  Real(kind=8),allocatable,dimension(:,:)   :: TqlimitFac_phaeo
+  Real(kind=8),allocatable,dimension(:,:)   :: TCphotLigLim_phyto ! new light limitation
+  Real(kind=8),allocatable,dimension(:,:)   :: TCphot_phyto       ! new
+  Real(kind=8),allocatable,dimension(:,:)   :: TCphotLigLim_diatoms ! new light limitation
+  Real(kind=8),allocatable,dimension(:,:)   :: TCphot_diatoms
+  Real(kind=8),allocatable,dimension(:,:)   :: TCphotLigLim_cocco ! new light limitation
+  Real(kind=8),allocatable,dimension(:,:)   :: TCphot_cocco
+  Real(kind=8),allocatable,dimension(:,:)   :: TCphotLigLim_phaeo ! new light limitation
+  Real(kind=8),allocatable,dimension(:,:)   :: TCphot_phaeo
+  Real(kind=8),allocatable,dimension(:,:)   :: TSi_assimDia ! tracking the assimilation of Si by Diatoms
+
+  Real(kind=8),allocatable,dimension(:)     :: DenitBen         ! Benthic denitrification Field in 2D [n2d 1]
+
+!  for using MEDUSA
+  Real(kind=8),allocatable,dimension(:,:)   :: SinkFlx         ! Diagnostics in 2D [4 n2d] or [6 n2d] with ciso
+  Real(kind=8),allocatable,dimension(:,:,:) :: SinkFlx_tr      ! kh 25.03.22 buffer sums per tracer index to avoid non bit identical results regarding global sums when running the tracer loop in parallel
+  Real(kind=8),allocatable,dimension(:,:)   :: Sinkingvel1     ! Diagnostics for vertical sinking
+  Real(kind=8),allocatable,dimension(:,:)   :: Sinkingvel2     ! Diagnostics for vertical sinking  
+  Real(kind=8),allocatable,dimension(:,:,:) :: Sinkvel1_tr     ! Sinking speed of particle class 1 OG 16.03.23 
+  Real(kind=8),allocatable,dimension(:,:,:) :: Sinkvel2_tr     ! Sinking speed of particle class 2 OG 16.03.23 
+
+  Real(kind=8),allocatable,dimension(:,:)   :: GloSed           ! Yearly input into bottom water from sediments [n2d 5] or [n2d 7] with ciso
+  Real(kind=8),allocatable,dimension(:,:)   :: lb_flux          ! Yearly burial from medusa: [n2d 5] or [n2d 9] with ciso_14 
+
+! atmospheric box model:
+  Real(kind=8),allocatable,dimension(:)     :: x_co2atm         ! atmospheric CO2 mixing ratio (mole fraction)
+
+  Real(kind=8), allocatable,dimension(:)    :: Alk_surf         ! Surface alkalinity field used for restoring
+  Real(kind=8), allocatable,dimension(:)    :: relax_alk
+  Real(kind=8), allocatable,dimension(:)    :: virtual_alk
+
+  real(kind=8), allocatable,dimension(:,:)  :: PAR3D            ! Light in the water column [nl-1 n2d]
+  real(kind=8), allocatable,dimension(:)    :: RiverineLonOrig, RiverineLatOrig, RiverineDINOrig, RiverineDONOrig, RiverineDOCOrig, RiverineDSiOrig ! Variables to save original values for riverine nutrients
+  real(kind=8), allocatable,dimension(:)    :: RiverDIN2D, RiverDON2D, RiverDOC2D, RiverDSi2D, RiverAlk2D, RiverDIC2D, RiverFe
+  real(kind=8), allocatable,dimension(:)    :: ErosionTSi2D, ErosionTON2D, ErosionTOC2D
+!! Cobeta, Cos(Angle of incidence)
+  Real(kind=8), allocatable,dimension(:)    ::  cosAI
+end module REcoM_GloVar
+
+!===============================================================================
+! For variables saved locally for each column and then used in REcoM
+!-------------------------------------------------------------------------------
+Module REcoM_locVar
+
+  Real(kind=8),allocatable,dimension(:) :: LocBenthos ! Storing the values for benthos in current watercolumn: N,C,Si and Calc
+  Real(kind=8) :: Hplus                     ! [mol/kg] Concentrations of H-plus ions in the surface node
+  Real(kind=8) :: pCO2surf(1)                  ! [uatm] Partial pressure of CO2 in surface layer at current 2D node	
+  Real(kind=8) :: dflux(1)                     ! [mmol/m2/day] Flux of CO2 into the ocean
+  Real(kind=8) :: oflux(1)                     ! [mmol/m2/day] Flux of O2 into the ocean
+  Real(kind=8) :: o2ex(1)                     ! [mmol/m2/s] Flux of O2 into the ocean
+  Real(kind=8) :: ULoc(1)                      ! Wind strength above current 2D node, change array size if used with mocsy input vector longer than one
+  Real(kind=8) :: dpCO2surf(1)              ! [uatm] difference of oceanic pCO2 minus atmospheric pCO2
+
+! mocsy output -----------------------------------------------------------------------------------------------------------------------------
+  Real(kind=8) :: co2flux(1)                   ! air-to-sea flux of CO2 [mol/(m^2 * s)]
+  Real(kind=8) :: co2ex(1)                     ! time rate of change of surface CO2 due to gas exchange [mol/(m^3 * s)]
+  Real(kind=8) :: dpco2(1)                     ! difference of oceanic pCO2 minus atmospheric pCO2 [uatm]
+  Real(kind=8) :: ph(1)                        ! pH on total scale
+  Real(kind=8) :: pco2(1)                      ! oceanic partial pressure of CO2 (uatm)
+  Real(kind=8) :: fco2(1)                      ! oceanic fugacity of CO2 (uatm)
+  Real(kind=8) :: co2(1)                       ! aqueous CO2 concentration [mol/m^3]
+  Real(kind=8) :: hco3(1)                      ! bicarbonate (HCO3-) concentration [mol/m^3]
+  Real(kind=8) :: co3(1)                       ! carbonate (CO3--) concentration [mol/m^3]
+  Real(kind=8) :: OmegaA(1)                    ! Omega for aragonite, i.e., the aragonite saturation state
+  Real(kind=8) :: OmegaC(1)                    ! Omega for calcite, i.e., the   calcite saturation state
+  Real(kind=8) :: BetaD(1)                     ! BetaD = Revelle factor   dpCO2/pCO2 / dDIC/DIC
+  Real(kind=8) :: rhoSW(1)                     ! rhoSW  = in-situ density of seawater; rhoSW = f(s, t, p)
+  Real(kind=8) :: p(1)                         ! pressure [decibars]; p = f(depth, latitude) if computed from depth [m] OR p = depth if [db]
+  Real(kind=8) :: tempis(1)                    ! in-situ temperature [degrees C]
+  Real(kind=8) :: dpos(1)                      ! depth converted to positive values, needed in the mocsy routine
+  Real(kind=8) :: kw660(1)                     ! gas transfer velocity (piston velocity) for CO2 [m/s] 
+  Real(kind=8) :: K0(1)                        ! CO2 solubility
+  Real(kind=8) :: co2flux_seaicemask(1)        ! air-to-sea flux of CO2 [mmol/m2/s]
+  Real(kind=8) :: o2flux_seaicemask(1)         ! air-to-sea flux of CO2 [mmol/m2/s]
+
+! mocsy output entire depth range ------------------------------------------------------------------------------------------------------------  ! NEW MOCSY
+  Real(kind=8) :: ph_depth(1)                  ! NEW MOCSY pH on total scale
+  Real(kind=8) :: pco2_depth(1)                ! NEW MOCSY oceanic partial pressure of CO2 (uatm)
+  Real(kind=8) :: fco2_depth(1)                ! NEW MOCSY oceanic fugacity of CO2 (uatm)
+  Real(kind=8) :: co2_depth(1)                 ! NEW MOCSY aqueous CO2 concentration [mol/m^3]
+  Real(kind=8) :: hco3_depth(1)                ! NEW MOCSY bicarbonate (HCO3-) concentration [mol/m^3]
+  Real(kind=8) :: co3_depth(1)                 ! NEW MOCSY carbonate (CO3--) concentration [mol/m^3]
+  Real(kind=8) :: OmegaA_depth(1)              ! NEW MOCSY Omega for aragonite, i.e., the aragonite saturation state
+  Real(kind=8) :: OmegaC_depth(1)              ! NEW MOCSY Omega for calcite, i.e., the   calcite saturation state
+  Real(kind=8) :: BetaD_depth(1)               ! NEW MOCSY BetaD = Revelle factor   dpCO2/pCO2 / dDIC/DIC
+  Real(kind=8) :: kspc_depth(1)                ! NEW DISS  stoichiometric solubility product of calcite (mol^2/kg^2)
+  Real(kind=8) :: rhoSW_depth(1)               ! NEW MOCSY rhoSW  = in-situ density of seawater; rhoSW = f(s, t, p)
+  Real(kind=8) :: p_depth(1)                   ! NEW MOCSY pressure [decibars]; p = f(depth, latitude) if computed from depth [m] OR p = depth if [db]
+  Real(kind=8) :: tempis_depth(1)              ! NEW MOCSY in-situ temperature [degrees C]
+
+  Integer      :: logfile_outfreq_7            ! NEW MOCSY helper value to calculate the timesteps for the carbonate system (every 7th day)
+  Integer      :: logfile_outfreq_30           ! NEW MOCSY helper value to calculate the timesteps for the carbonate system (every 30th day)
+
+!-------------------------------------------------------------------------------
+
+  Real(kind=8) :: bt, dic_molal, talk_molal    ! Common block: Species
+  Real(kind=8) :: k1, k2, kw, kb, ff           ! Common block: Equilibrium_constants
+  Real(kind=8) :: FeDust                       ! [umol/m2/s]
+  Real(kind=8) :: NDust                        ! [mmol/m2/s]
+  Real(kind=8) :: Loc_ice_conc(1)              ! Used to calculate flux of DIC in REcoM 0 -> 1
+  Real(kind=8) :: LocAtmCO2(1)                 ! [uatm]
+  Real(kind=8) :: LocDiags2D(12)               ! (changed it from 8 to 12)
+!  Real(kind=8) :: LocDenit                    ! BALL
+  Real(kind=8) :: LocRiverDIN, LocRiverDON, LocRiverDOC, LocRiverDSi, LocRiverDIC, LocRiverAlk
+
+  Real(kind=8) :: res_zoo2_a, res_zoo2_f
+  Real(kind=8) :: grazingFluxcarbonzoo2     ! grazingfluxcarbon 
+  Real(kind=8) :: grazingFluxcarbon_mes        ! Zoo3
+
+  Real(kind=8) :: PICPOCtemp                   ! (added to make the calcification dependent on the temperature, after Krumhardt et al. 2017/2019)
+  Real(kind=8) :: PICPOCCO2                    ! (to make calcification dependent on CO2)
+  Real(kind=8) :: PICPOCN                      ! (to make calcification dependent on N-limitation)
+  Real(kind=8) :: calc_prod_final              ! (added to make the calcification dependent on nutrients (N, Fe), after Krumhardt et al. 2017/2019)
+  Integer      :: currentCO2year
+
+end module REcoM_LocVar
+!===============================================================================
+! Specific declarations related to carbon isotope simulations
+!-------------------------------------------------------------------------------
+module REcoM_ciso
+  implicit none
+  save
+
+
+! Options for carbon isotope simulations (see namelist.recom)
+  logical :: ciso_init             = .false.  ! Initial fractionation of bulk organic matter
+  logical :: ciso_14               = .false.  ! Include radiocarbon (-> 31 or 38 tracers)
+  logical :: ciso_organic_14       = .false.  ! Include organic radiocarbon (-> 38 tracers)
+  real(kind=8) :: delta_co2_13        = -6.61
+  real(kind=8) :: big_delta_co2_14(3) = (/0., 0., 0./) 
+  real(kind=8) :: lambda_14 = 3.8561e-12      ! Decay constant of carbon-14
+! for revised atbox 14CO2 implementation
+  logical      :: atbox_spinup    = .true.
+  real(kind=8) :: cosmic_14_init  = 2.0       ! Initial 14C production flux (atoms / s / cm**2)
+
+
+  namelist / paciso / ciso_init, ciso_14, ciso_organic_14, &
+                      lambda_14, delta_co2_13, big_delta_co2_14, &
+                      atbox_spinup, cosmic_14_init
+
+! Extensions of other modules or subroutines
+! Module REcoM_constants: ciso tracer indices
+  integer :: idic_13, iphyc_13, idetc_13, ihetc_13, idoc_13, idiac_13, iphycal_13, idetcal_13, &
+             idic_14, iphyc_14, idetc_14, ihetc_14, idoc_14, idiac_14, iphycal_14, idetcal_14
+
+! Module REcoM_declarations:
+  real(kind=8)  :: quota_13, quota_14, quota_dia_13, quota_dia_14,                     &  ! quotas
+                   recipQuota_13, recipQuota_14, recipQuota_dia_13, recipQuota_dia_14, &  ! reciprocal quotas
+                   recipQZoo_13, recipQZoo_14
+  real(kind=8)  :: HetRespFlux_13, HetRespFlux_14           ! zooplankton respiration fluxes
+  real(kind=8)  :: calcification_13, calcification_14, &    ! calcification
+                   calc_loss_agg_13, calc_loss_agg_14, &
+                   calc_loss_gra_13, calc_loss_gra_14, &
+                   calc_diss_13, calc_diss_14
+
+! Module REcoM_GloVar:
+  real(kind=8),dimension(12)              :: AtmCO2_13                       ! [uatm] Atmospheric 13CO2 partial pressure. One value for the whole planet for each month
+  real(kind=8),dimension(3,12)            :: AtmCO2_14                       ! [uatm] Atmospheric 14CO2 partial pressure. Three latitude zones for each month
+  real(kind=8),allocatable,dimension(:)   :: GloPCO2surf_13, GloPCO2surf_14  ! [uatm] Surface ocean 13|14CO2 partial pressure
+  real(kind=8),allocatable,dimension(:)   :: GloCO2flux_13, GloCO2flux_14    ! [mmol/m2/day] Positive downwards
+  real(kind=8),allocatable,dimension(:)   :: GloCO2flux_seaicemask_13, GloCO2flux_seaicemask_14
+  real(kind=8),allocatable,dimension(:)   :: RiverineDOCOrig_13, RiverineDOCOrig_14, RiverDOC2D_13, RiverDOC2D_14 
+
+! Module REcoM_LocVar:
+  real(kind=8) :: pCO2surf_13(1), pCO2surf_14(1), & ! [uatm] Partial pressure of 13|14CO2 in surface layer at current 2D node
+                  co2flux_13(1), co2flux_14(1), &      ! mocsy output: air-to-sea flux of 13|14CO2 [mol/(m^2 * s)]
+                  co2flux_seaicemask_13(1), co2flux_seaicemask_14(1) ! air-to-sea flux of CO2 [mmol/m2/s]
+  real(kind=8) :: LocAtmCO2_13(1), LocAtmCO2_14(1)  ! [uatm]
+  real(kind=8) :: LocRiverDOC_13, LocRiverDOC_14    ! CHECK
+
+! Subroutines REcoM_main & REcoM_extra:
+  real(kind=8) :: lat_val                           ! nodal latitude (of atmospheric input)
+
+! Subroutine REcoM_extra:
+  real(kind=8) :: delta_co2_14                      ! atmospheric Delta14CO2
+
+! Subroutine REcoM_forcing:
+  real(kind=8) :: co2sat,                         & ! dissolved CO2 at saturation (CO2*air) [mol / m**3]
+                  kwco2                             ! piston velocity of CO2
+
+! Subroutine REcoM_sms:
+  real(kind=8) :: DIC_13, DIC_14,                 & ! [mmol/m3] Dissolved Inorganic 13|14Carbon
+                  PhyC_13, PhyC_14,               & ! [mmol/m3] Intracellular conc of 13|14Carbon in small phytoplankton
+                  DetC_13, DetC_14,               & ! [mmol/m3] Conc of 13|14C in Detritus
+                  HetC_13, HetC_14,               & ! [mmol/m3] Conc of 13|14C in heterotrophs
+                  EOC_13, EOC_14,                 & ! [mmol/m3] Extracellular Organic 13|14C conc
+                  DiaC_13, DiaC_14,               & ! [mmol/m3] Intracellular conc of 13|14Carbon in diatoms
+                  PhyCalc_13, PhyCalc_14,         & ! [mmol/m3] Conc of 13|14C in calcite of phytoplankton
+                  DetCalc_13, DetCalc_14            ! [mmol/m3] Conc of 13|14C in calcite of detritus
+  real(kind=8),allocatable,dimension(:) :: Cphot_z, Cphot_dia_z ! Vertical profiles of photosynthesis rates, fesom1: 46 -> 47 in fesom2
+
+! Subroutine REcoM_init:
+  real(kind=8),allocatable,dimension(:,:) :: delta_dic_13_init, &     ! auxiliary initial
+                                             delta_dic_14_init, &     ! d|Delta13|14C
+                                             big_delta_dic_14_init    ! fields
+
+! Atmospheric box model (global variables):
+  real(kind=8),allocatable,dimension(:) ::   x_co2atm_13, x_co2atm_14, & ! atmospheric CO2 mixing ratio (mole fraction)
+                                             cosmic_14                   ! cosmogenic 14 production (mol / s)
+  real(kind=8) :: production_rate_to_flux_14, &                          ! conversion factor
+                  r_atm_spinup_13, r_atm_spinup_14                       ! 13|14CO2 / 12CO2 spinup ratios
+
+! Specific factors related the carbon-isotopic composition
+! Isotopic ratios
+  real(kind=8) :: r_atm_13, r_atm_14,             & ! atmospheric CO2
+                  r_co2s_13, r_co2s_14,           & ! dissolved CO2
+                  r_dic_13, r_dic_14,             & ! DIC in seawater
+                  r_phyc_13, r_phyc_14,           & ! nanophytoplankton
+                  r_diac_13, r_diac_14,           & ! diatoms
+                  r_iorg_13 = 0.975,              & ! initial ratios of organic matter
+                  r_iorg_14 = 0.950
+                  
+! Fractionation factors
+  real(kind=8) :: alpha_k_13 = 0.99912,           & ! gas transfer (kinetic fractionation,
+                  alpha_k_14 = 0.99824,           & ! mean values for 5-21C by Zhang et al., 1995)
+                  alpha_aq_13, alpha_aq_14,       & ! dissolution of CO2 in sewater (equilibrium fractionation)
+                  alpha_dic_13, alpha_dic_14,     & ! hydrolysis / dissociation of CO2 <-> DIC (equilibrium fract.)
+                  alpha_p_13, alpha_p_14,         & ! photosynthesis of nanophytoplankton
+                  alpha_p_dia_13, alpha_p_dia_14, & ! photosynthesis of diatoms
+                  alpha_calc_13 = 1.000,          & ! calcification (Romanek et al., 1992: 1.001, 1.002)
+                  alpha_calc_14 = 1.000,          &
+                  alpha_dcal_13 = 1.000,          & ! dissolution of calcite (Romanek et al., 1992: 0.999, 0.998)
+                  alpha_dcal_14 = 1.000
+! Radioactive decay constant of carbon-14
+! t1/2 = 5700 years (Bé et al., 2013; recommended by Orr et al., 2017, for OMIP-BGC)
+! if 1 year := 365.25 days:  lambda_14 = 3.8534e-12 / second
+! if 1 year := 365.00 days:  lambda_14 = 3.8561e-12 / second
+! if 1 year := 360    days:  lambda_14 = 3.9096e-12 / second
+
+! Tracer IDs to be considered in decay calculations (oce_ale_tracer.F90)
+  integer, dimension(8) :: c14_tracer_id = (/1402, 1405, 1408, 1410, 1412, 1414, 1420, 1421/)
+
+  contains
+
+
+    subroutine recom_ciso_airsea(tempc, co3, dic)
+!   ----------------------------------------------------------------------------------
+!     Subroutine to calculate carbon-isotopic fractionation during air-sea exchange
+!   ----------------------------------------------------------------------------------
+!
+!     Input variables:
+!     tempc              lokal temperature in C
+!     co3                carbonate ion concentration
+!     dic                total carbon concentration
+!
+!     Output variables, defined in module REcoM_ciso:
+!     alpha_k_13,14      kinetic fract. factors for gas transfer
+!     alpha_aq_13,14     equilib. fract. factors for dissolution
+!     alpha_dic_13,14    equilib. fract. factors for DIC <-> CO2
+!
+!     Internal variables:
+!     epsilon_aq_13,14   equilib. fractionation for dissolution
+!     epsilon_dic_13,14  equilib. fractionation for DIC <-> CO2
+!     fco3               total carbon fraction
+!
+!     mbutzin, 2016 - 2019.
+
+
+!     Declarations
+      implicit none
+
+      real(kind=8), intent(in) ::  tempc, co3, dic
+      real(kind=8) ::  epsilon_aq_13, epsilon_dic_13, fco3
+
+!     Calculation of carbon-isotopic fractionation factors, where
+!
+!     alpha_xy   = Rx / Ry               = fractionation factor
+!     epsilon_xy = (alpha_xy - 1) * 1000 = fractionation (in per mill)
+!     epsilon_14 = 2 * epsilon_13 => alpha_14 = 2 * alpha_13 - 1.
+
+!     We use parametrisations and numerical values determined for carbon-13
+!     by Zhang et al. (1995).
+
+!     Kinetic fractionation during gas transfer, mean values between 5 and 21C
+!     (values are defined in module REcoM_ciso)
+!     epsilon_k_13 = -0.86 => alpha_k_13 =  0.99914, alpha_k_14 =  0.99828
+
+!     Equilibrium fractionation during gas dissolution
+!
+      epsilon_aq_13 = 0.0049 * tempc - 1.31
+      alpha_aq_13   = 1. + 0.001 * epsilon_aq_13
+
+!     Equilibrium fractionation between DIC and CO2
+!
+!     The equilibrium fractionation between DIC and CO2 cannot be simply
+!     calculated from the fractionation factors for HCO3, CO3 and CO2star.
+!     Here, we employ an empirical function involving fCO3 = [CO3] / DIC
+!     assuming that fCO3 is the same for all carbon isotopes
+      fco3 = co3 / dic
+      epsilon_dic_13 = (0.014 * fco3 - 0.107 ) * tempc + 10.53
+      alpha_dic_13 = 1. + 0.001 * epsilon_dic_13
+
+!     Fractionation of radiocarbon
+      if (ciso_organic_14) then
+        alpha_aq_14  = 2. * alpha_aq_13  - 1.
+        alpha_dic_14 = 2. * alpha_dic_13 - 1.
+      else
+!       no fractionation in the inorganic approximation
+        alpha_aq_14  = 1.
+        alpha_dic_14 = 1.
+      end if
+
+    return
+    end subroutine recom_ciso_airsea
+!   ----------------------------------------------------------------------------------
+
+    subroutine recom_ciso_photo (co2st)
+!   ----------------------------------------------------------------------------------
+!        Subroutine calculating carbon-isotopic fractionation during photosynthesis
+!   ----------------------------------------------------------------------------------
+!     Input:
+!     dissolved CO2 (co2st) in mol / m**3
+!
+!     Output:
+!     isotopic fractionation factors for phytoplankton and diatoms due to
+!     photosynthesis (alpha_p_13|14, declared at the head of the module)
+!
+!     Note that we are interested in effective values (implictly including the 
+!     fractionation of dissolved CO2) which are actually derived in field studies
+!     or lab experiments. Young et al. 2013, eq. (5) with values from paragraph [35]
+!
+!     Here, we follow Young et al. 2013, eq. (5) with values from paragraph [35]
+!     eps_p = eps_pm * (1. - rho / co2aq) = 17.6 * (1 - 2.02 / co2aq)
+!     where co2aq is in umol / L
+!
+!     mbutzin, 2017 - 2021.
+
+      implicit none
+      real(kind=8), intent(in):: co2st
+      real(kind=8)            :: co2aq
+
+!     Convert dissolved CO2 from mol / m**3 to umol / L and prevent from division by zero
+      co2aq = max(1.d-8, co2st * 1000.)
+
+!     Fractionation wrt carbon-13
+      alpha_p_13     = max(1., 1. + 0.001 * (17.6 * (1 - 2.02 / co2aq)))
+      alpha_p_dia_13 = alpha_p_13 
+
+!     Fractionation wrt carbon-14
+      alpha_p_14     = 2. * alpha_p_13 - 1.
+      alpha_p_dia_14 = 2. * alpha_p_dia_13 - 1.
+
+    return
+    end subroutine recom_ciso_photo
+!   ----------------------------------------------------------------------------------  
+ 
+ 
+    function lat_zone(lat_n)
+!   ----------------------------------------------------------------------------------
+!   Assign latitude zones from nodal latitude values 
+!   ----------------------------------------------------------------------------------
+    
+      implicit none
+      integer                  :: lat_zone
+    
+!     Input: Latitude value corresponding to node n
+      real(kind=8), intent(in) :: lat_n
+
+!     Binning of latitudes to three zones
+      if (lat_n > 30.)  then       ! Northern Hemisphere polewards of 30°N
+        lat_zone = 1
+      else if (lat_n <- 30.) then  ! Southern Hemisphere polewards of 30°S
+        lat_zone = 3
+      else                         ! (Sub-) Tropical zone
+        lat_zone = 2
+      end if
+    
+      return
+    end function lat_zone
+
+
+    function wind_10(windstr_x, windstr_y)
+!   ----------------------------------------------------------------------------------
+!    computes wind speed at 10 m height "wind10" from wind stress fields tau_x, tau_y
+!    as long as wind10 is not properly passed from ECHAM in coupled simulations.
+!    We follow Peixoto & Oort (1992, Eq. (10.28), (10,29)) and Charnock (1955); 
+!    also see MPI report 349 (2003), Eq. (5.7).
+!   ----------------------------------------------------------------------------------
+      implicit none
+     
+      real(kind=8) :: wind_10
+
+!     Input
+      real(kind=8), intent(in) :: windstr_x, windstr_y
+
+!     Internal variables and parameters
+!     Zonal and meridional velocities at 10 m height
+      real(kind=8) :: u_10, v_10
+!     Zonal and meridional friction velocities
+      real(kind=8) :: u_fric, v_fric
+!     Zonal and meridional roughness lengths
+      real(kind=8) :: l_rough_x, l_rough_y
+!     Inverse von-Karman constant (0.4), Charnock constant (0.018) divided by g, inverse density of air (1.3), log(10)
+      real(kind=8), parameter :: inv_karm = 2.5, charn_g = 0.00173, inv_dens_air = 0.76923, log_10 = 2.30258
+     
+!     Calculate friction velocities (Peixoto & Oort, 1992, Eq. (10.28))
+      u_fric = sqrt(abs(windstr_x) * inv_dens_air)
+      v_fric = sqrt(abs(windstr_y) * inv_dens_air)
+
+!     Calculate roughness lengths (MPI report 349, 2003, Eq. (5.7), quoting Charnock, 1955)
+      l_rough_x = max((charn_g * u_fric**2), 1.5e-5)
+      l_rough_y = max((charn_g * v_fric**2), 1.5e-5)
+
+!     Calculate wind speed at 10 m (Peixoto & Oort, 1992, Eq. (10.29))
+      u_10 = inv_karm * u_fric * (log_10 - log(l_rough_x))
+      v_10 = inv_karm * v_fric * (log_10 - log(l_rough_y))
+     
+      wind_10 = sqrt(u_10**2 + v_10**2)
+     
+      return
+    end function wind_10
+!   ----------------------------------------------------------------------------------
+   
+   
+end module REcoM_ciso
+
+module REcoM_spectral
+  use recom_config      
+  implicit none
+  save
+#if defined(__RECOM_WAVEBANDS)
+! Module REcoM_constants: tracer indices
+!sl  integer :: icdom  ! moved to general recom_module
+!sl DAR_NONSPECTRAL_BACKSCATTERING_RATIO moved to module recom_config so it can
+!sl go in the &spectral namelist group; REcoM_spectral uses recom_config, so it
+!sl is still visible here. Same treatment as QYmax* -- see the note below.
+  Logical :: DAR_RADTRANS_RMUS_PAR =.false.
+  Logical :: DAR_RADTRANS_DECREASING =.false.
+!  integer :: ed_num = 5   ! number of light related diagnostic 
+!sl the following lines moved to general recom_module  
+!slif (RECOM_MARSHALL) then
+!sl  integer :: id1, id1d, id1c, id1p
+!slendif
+!sl  integer, dimension(5)  :: recom_spctrl_tracer_id    = (/1025, 1026, 1027, 1028/)
+!!-----------------------------------------------------------------------------
+!! *** For spectral light application and related
+! *** General constants ***
+!sl due to switch from the use of directives to use of if(s) condition 
+!sl the following should be reclamed in any case
+!slif (RECOM_MARSHALL) then
+!     photoinhibition
+   Real(kind=8)                :: Drel                 = 0.75      ! relative amount of D1 that keeps QY=QYmax  [rel]
+   Real(kind=8)                :: astar                = 0.007     ! chlorophyll absortion cross section [m^{-2} (mg CHL)^{-1}]
+!sl D1 damage/repair parameters (Marshall et al. 2000 photoinhibition). Defaults
+!sl are the published values of Alvarez et al. (2022), ealvarez-s/global_aphyt
+!sl namelist/data.recom lines 48-52 and 100-102; they were 8.0e-7 / 20. / 0.5 here,
+!sl which matched no published run. They are live ONLY under RECOM_MARSHALL, which
+!sl no run in this tree has ever enabled, so this is bit-identical for all of them.
+!sl NOT namelist-settable yet -- changing them needs a rebuild.
+   Real(kind=8)                :: k_deg                = 3.5e-7    ! Target size for photoinhibition [m^{-2} (J)^{-1}]
+   Real(kind=8)                :: r_max                = 12.0      ! Maximum repair rate [d^{-1}]
+   Real(kind=8)                :: k_rep                = 0.25
+   Real(kind=8)                :: astar_d              = 0.007     ! chlorophyll absortion cross section [m^{-2} (mg CHL)^{-1}]
+   Real(kind=8)                :: k_deg_d              = 1.5e-7    ! Target size for photoinhibition [m^{-2} (J)^{-1}]
+   Real(kind=8)                :: r_max_d              = 12.0      ! Maximum repair rate [d^{-1}]
+   Real(kind=8)                :: k_rep_d              = 0.25      ! half saturation constant for repair, [same as DD1]
+   !sl if cocco. astar_cocco/astar_phaeo are SCRATCH, not parameters: recom_sms
+   !sl recomputes both from the optics file each step, so the 0.007 below is never
+   !sl read. The six cocco/phaeo k_deg/r_max/k_rep constants that used to sit here
+   !sl moved to module recom_config on 21 Sep 2026 so they can be set in &spectral.
+   Real(kind=8)                :: astar_cocco              = 0.007     ! chlorophyll absortion cross section [m^{-2} (mg CHL)^{-1}]
+   Real(kind=8)                :: astar_phaeo              = 0.007     ! chlorophyll absortion cross section [m^{-2} (mg CHL)^{-1}]
+   !sl  
+!     photoinhibition
+! QYmax, QYmax_d, QYmax_cocco and QYmax_phaeo moved to module recom_config so
+! they can go in the &spectral namelist group; REcoM_spectral uses recom_config,
+! so they are still visible here. They are the ONLY light-harvesting parameters
+! that act in a spectral build -- alfa/alfa_d/alfa_c/alfa_p are non-spectral only.
+!slendif
+!sl consider this module only in case of RECOM_WAVEBANDS
+!sl then the followingb line should be commented 
+!sl #endif
+
+ !CV Global variables to hold spectral shortwave irradiace
+   Real(kind=8), allocatable, dimension(:) :: oasim_surf  ! 1-d field for reading file
+   Real(kind=8), allocatable, dimension(:,:) :: oasim_es2D
+   Real(kind=8), allocatable, dimension(:,:) :: oasim_ed2D
+
+!!-----------------------------------------------------------------------------
+!! ANNA WAVEBANDS_PARAMS.h define key paramters for wavebands
+!! ANNA WAVEBANDS_PARAMS.h set number of wavebands, number of absorption 'types' here
+!
+! description: Key parameters for wavebands
+!      Anna Hickman Spring/Summer 2008
+!
+! Set parameters:
+! tlam = number of wavebands
+!        must match number of wavebands in input datafiles
+!        must be the same for all data types (water, phyto, CDOM, surface spectra)
+!        (originally set in SPECTRAL_SIZE.h)
+! tnabp = number of types of absorption spectra for phyto
+!         must match number of types in input data file for phyto absorption spectra
+!sl Raised from 2 to 4 so the coccolithophore/Phaeocystis branches have real
+!sl spectra to index. darwin_phytoabsorbFile must now carry four blocks, in the
+!sl order Others, Diatom, Coccolithophore, Phaeocystis -- see
+!sl optics_phyto_recom_carbon_12_4pft_TEST.dat. A file with fewer blocks is
+!sl rejected by WAVEBANDS_INIT_FIXED regardless of enable_coccos.
+
+!sl tnabp moved to module recom_config (it now also dimensions darwin_bbphy,
+!sl which is namelist-settable). Still a compile-time parameter, still 4, and
+!sl still visible here through use recom_config.
+!         Integer, parameter                      :: tnabp = 4
+!         PARAMETER (tnabp=2)
+! Input and assigned data:
+! pwaves       = actual values of wavebands (nm)
+! aw           = absoprtion spectra for water (m-1)
+! bw           = backscatter spectra for water (currently zero)
+! ap           = absorptnion spectra for phyto types (m2 (mgchla)-1)
+!                total absorption is used in light attenuation
+! ap_ps        = as above but absorption of photosynthetic (PS) pigments only (m2 (mgchla)-1)
+!                absorption by psc only is used in growth
+! bp           = backscatter spectra for phytoplankton types (currently zero)
+! sf           = PAR-normalised surface light spectrum
+!                intenities per nm and sum = 1 (uE m-2 s-1 (nm)-1)
+! wb_width     = width of wavebands (nm)
+! acdom        = absorption spectra for cdom (assumed constant) (m-1)
+! ap_type      = absorption 'type' of phytoplankton assigned in darwin_generate_phyto.F
+! aphy_chl     = absorption spectra assigned base on 'type' for each phtyo (chl normalised)
+! aphy_chl_ps  = as above but absorption spectra given is that by photosynthetic (PS) pigs only
+!                aphy_chl and aphy_chl_psc assigned in wavebands_init_vari.F
+! alphachl_nl  = slope of PI curve calulated in darwin_init_vari.F
+!                one value for each wavelength (same units as non-wavebands alphachl)
+! QYmax and QYmax_d :: maximum efficiency of the photochemistry (mmolC J-1)
+! darwin_diag_acdom_ilam :: waveband to write to diagnostics
+! darwin_part_size_P    :: C content of one particle. used to compute number of particles
+!     apart      :: number-specific absorption coefficient for particles
+!     bpart      :: number-specific scattering coefficient for particles
+!     bbpart     :: number-specific backscattering coefficient for particles
+!     apart_P    :: C-specific absorption coefficient for particles
+!     bpart_P    :: C-specific scattering coefficient for particles
+!     bbpart_P   :: C-specific backscattering coefficient for particles
+! n.b. some info about input data is in the headers inside the input files.
+! n.b. final column in input fles reserved for backscatter coeffs. Currently 0.
+! n.b. local PARwl and PARwupl are assigned in recom_forcing.F and recom_sms.F
+
+!         COMMON/wavebands_params/aphy_chl
+!     &         ,aphy_chl_dia
+!     &         ,aphy_chl_ps
+!     &         ,aphy_chl_ps_dia
+!     &         ,alphachl_nl
+!     &         ,alphachl_nl_dia
+!     &         ,aw,bw,ap,bp,ap_ps,bbp
+!     &         ,wb_width,wb_totalWidth
+!     &         ,sf
+!     &         ,QYmax ,QYmax_d
+!#ifdef RECOM_CALC_ACDOM
+!     &         ,darwin_Sdom          ! slope parameter for aCDOM wavelength dependence
+!     &         ,darwin_lambda_aCDOM  ! wavelength where aCDOM is given
+!     &         ,excdom               ! CDOM exponent
+!     &         ,cdomcoeff            ! specific absorption at darwin_lambda_aCDOM
+!#ifdef RECOM_CDOM
+!     &         ,darwin_aCDOM_fac     ! ratio of aCDOM to (aphy+aw) at darwin_lambda_aCDOM
+!#endif
+!#else
+!     &         ,acdom
+!#endif
+!#ifdef RECOM_CALC_APART
+!     &         ,darwin_Sapar         ! slope parameter for aCDOM wavelength dependence
+!     &         ,darwin_lambda_aPart  ! wavelength where aCDOM is given
+!     &         ,exapar               ! CDOM exponent
+!     &         ,aparcoeff            ! specific absorption at darwin_lambda_aPart
+!     &         ,darwin_Sbpar         ! slope parameter for aCDOM wavelength dependence
+!     &         ,darwin_lambda_bPart  ! wavelength where aCDOM is given
+!     &         ,exbpar               ! CDOM exponent
+!     &         ,bparcoeff            ! specific scatter at darwin_lambda_bPart
+!     &         ,bb_to_b              ! backscatter to total scatter ratio
+!#else
+!     &         ,darwin_part_size_P
+!     &         ,apart, bpart, bbpart
+!     &         ,apart_P, bpart_P, bbpart_P
+!#endif
+
+!         COMMON/wavebands_params_i/ap_type
+!     &         ,pwaves
+!#ifdef RECOM_CALC_ACDOM
+!     &         ,nlaCDOM                   ! waveband index where aCDOM is given
+!#endif
+!#ifdef RECOM_CALC_APART
+!     &         ,nlaAPAR                   ! waveband index where aPart is given
+!     &         ,nlaBPAR                   ! waveband index where bPart is given
+!#endif
+!#ifdef RECOM_CALC_REFLEC
+!     &         ,darwin_diag_acdom_ilam    ! waveband to write to diagnostic
+!#endif
+
+
+! Initially was ap_type(npmax), the number of PT
+
+!sl Number of phytoplankton spectra blocks actually present in
+!sl darwin_phytoabsorbFile, counted at read time in WAVEBANDS_INIT_FIXED.
+!sl tnabp stays a compile-time parameter because it dimensions the arrays below;
+!sl nabp_read is what the loops over *read* data must use, so a two-block file
+!sl (Others + Diatom) remains valid for a .not. enable_coccos run.
+         Integer                      :: nabp_read = 0
+         Integer,dimension(tnabp)     :: ap_type
+         Integer,parameter            :: tlam = 13
+         Integer,dimension(tlam)      :: pwaves
+
+         Real(kind=8),dimension(tlam) :: aphy_chl
+         Real(kind=8),dimension(tlam) :: aphy_chl_ps
+         Real(kind=8),dimension(tlam) :: aphy_chl_dia, aphy_chl_cocco
+         Real(kind=8),dimension(tlam) :: aphy_chl_ps_dia, aphy_chl_ps_cocco
+         Real(kind=8),dimension(tlam) :: aphy_chl_phaeo,aphy_chl_ps_phaeo
+         Real(kind=8),dimension(tlam) :: alphachl_nl
+         Real(kind=8),dimension(tlam) :: alphachl_nl_dia
+         Real(kind=8),dimension(tlam) :: alphachl_nl_cocco
+         Real(kind=8),dimension(tlam) :: alphachl_nl_phaeo
+         Real(kind=8),dimension(tlam) :: WtouEins
+         Real(kind=8),dimension(tnabp,tlam) :: ap
+         Real(kind=8),dimension(tnabp,tlam) :: ap_ps
+         Real(kind=8),dimension(tnabp,tlam) :: bp
+         Real(kind=8),dimension(tnabp,tlam) :: bbp
+         Real(kind=8),dimension(tlam) :: aw
+         Real(kind=8),dimension(tlam) :: bw
+         Real(kind=8),dimension(tlam) :: wb_width
+         Real(kind=8)                 :: wb_totalWidth
+         Real(kind=8),dimension(tlam) :: sf
+!sl         Real(kind=8)                 :: QYmax
+!sl         Real(kind=8)                 :: QYmax_d
+!sl if (RECOM_CALC_ACDOM) then
+         Real(kind=8)                 :: darwin_Sdom=0.021          ! used in acdom calculations
+         Real(kind=8)                 :: darwin_lambda_aCDOM=450.   ! wavelength where aCDOM is given
+         Real(kind=8),dimension(tlam) :: excdom                     ! CDOM exponent
+!sl      cdomcoeff moved to module recom_config (&spectral namelist); still visible here via use recom_config.
+         Integer                      :: nlaCDOM                    ! nl number where aCDOM is given used in acdom calculations
+!sl if (RECOM_CDOM) then
+         Real(kind=8)                 :: darwin_aCDOM_fac=0.2       ! ratio of aCDOM to (aphy+aw) at darwin_lambda_aCDOM
+!sl endif
+!sl else
+         Real(kind=8),dimension(tlam) :: acdom
+!sl endif
+!sl if (RECOM_CALC_APART) then
+         Real(kind=8)                 :: darwin_Sapar=0.013         ! used in aPart calculations
+         Real(kind=8)                 :: darwin_lambda_aPart=440.   ! wavelength where aPart is given
+         Real(kind=8),dimension(tlam) :: exapar                     ! aPart exponent
+         Real(kind=8)                 :: aparcoeff=0.016            ! specific Particles absorption
+         Integer                      :: nlaAPAR                    ! nl number where aPart is given used in aPart calculations
+         Real(kind=8)                 :: darwin_Sbpar=0.5           ! used in bPart calculations
+         Real(kind=8)                 :: darwin_lambda_bPart=550.   ! wavelength where bPart is given
+         Real(kind=8),dimension(tlam) :: exbpar                     ! bPart exponent
+         Real(kind=8)                 :: bparcoeff=0.345            ! specific Particles scatter
+         Integer                      :: nlaBPAR                    ! nl number where bPart is given used in bPart calculations
+!sl bb_to_b moved to module recom_config (&spectral) on 9 Oct 2026
+!sl else
+         Real(kind=8),dimension(tlam) :: apart
+         Real(kind=8),dimension(tlam) :: bpart
+         Real(kind=8),dimension(tlam) :: bbpart
+         Real(kind=8),dimension(tlam) :: apart_P
+         Real(kind=8),dimension(tlam) :: bpart_P
+         Real(kind=8),dimension(tlam) :: bbpart_P
+         Real(kind=8)                 :: darwin_part_size_P=1.06e-13 ! biomass/particle conversion for detritus [mmol C/particle]
+!sl endif
+!sl if (RECOM_CALC_REFLEC) then
+         Integer                      :: darwin_diag_acdom_ilam=450  ! waveband to write to diagnostic
+!sl endif
+
+!sl if (RECOM_RADTRANS) then
+! runtime parameters:
+!
+!     darwin_PAR_ilamLo   :: starting waveband index of PAR range (default 1)
+!     darwin_PAR_ilamHi   :: end waveband index of PAR range (default tlam)
+!     darwin_radmodThresh :: threshold for calling radmod (default 1E-4)
+!     darwin_Dmax         :: depth at which Ed is zero (default 500 m)
+!     darwin_rmus         :: inverse average cosine of downward diffuse radiation
+!     darwin_rmuu         :: inverse average cosine of upward diffuse radiation
+!     darwin_bbw          :: backscattering to forward scattering ratio for water
+!     darwin_bbphy        :: backscattering to forward scattering ratio for Chlorophyll
+!     darwin_bbmin        :: minimum backscattering coefficient (not ratio)
+!     darwin_radtrans_kmax  :: deepest layer to compute irradiances in
+!                              (is considered infinitely deep for boundary condition)
+!     darwin_radtrans_niter :: how to solve 3-stream equations:
+!                              -2 means use direct solver (default)
+!                              -1 means use approximate non-iterative solver
+!                              (either a la Aas #ifdef DAR_RADTRANS_DECREASING, or a la W.Gregg)
+!                              >= 0 is number of iterations for iterative improvement of radmod solution
+
+
+!      COMMON /DARWIN_RADTRANS_PARM_I/
+!     &       darwin_PAR_ilamLo, darwin_PAR_ilamHi
+!     &      ,darwin_radtrans_kmax
+!     &      ,darwin_radtrans_niter
+
+      Integer                      :: darwin_PAR_ilamLo=1, darwin_PAR_ilamHi=13
+      Integer                      :: darwin_radtrans_kmax
+      Integer, parameter           :: darwin_radtrans_niter = -2
+!      COMMON /DARWIN_RADTRANS_PARM_R/
+!     &       darwin_radmodThresh, darwin_Dmax,
+!     &       darwin_rmus, darwin_rmuu,
+!     &       darwin_bbw,
+!     &       darwin_bbphy,
+!     &       darwin_bbmin
+
+      Real(kind=8)                  :: darwin_radmodThresh=1e-4  ! threshold for radiation calculations [W/m**2]
+      Real(kind=8)                  :: darwin_Dmax=500.0         ! maximum depth for downwelling radiation [m]
+      Real(kind=8)                  :: darwin_rmus=1.204819277   ! inverse average cosine of downward diffuse radiation [dimensionless 1.0/0.83]
+      Real(kind=8)                  :: darwin_rmuu=2.5           ! inverse average cosine of upward diffuse radiation [dimensionless 1.0/0.4]
+      Real(kind=8)                  :: darwin_bbw=0.5            ! backscatter to forward scattering ratio for water
+!sl darwin_bbphy moved to module recom_config, where it is in &spectral and has
+!sl per-PFT defaults. It used to default to 0.0 here, which made
+!sl DAR_NONSPECTRAL_BACKSCATTERING_RATIO = .true. a silent zero for all PFTs.
+!      Real(kind=8)                  :: darwin_bbphy(tnabp)=0.0   ! double check
+      Real(kind=8)                  :: darwin_bbmin=0.0002
+
+! dependent/hardcoded parameters:
+!
+!     pid        :: pi
+!     rad        :: conversion factor from radians to degree, 180/pi
+!     bphy_chl   :: Chl-specific scattering coefficient for phyto
+!     bbphy_chl  :: Chl-specific backscattering coefficient for phyto
+!
+!
+!      COMMON/DARWIN_RADTRANS_R/
+!     &        pid,rad          !radias and pi - use these rather than darwin versions for simplicity.
+!     &       ,bphy_chl         !scat coef for phyto
+!     &       ,bphy_chl_dia     !scat coef for diatoms
+!     &       ,bbphy_chl        !backscat coef for phyto
+!     &       ,bbphy_chl_dia    !backscat coef for diatoms
+
+! not sure if some of these are necessary
+! SOME OF THESE parameter names are the same as WAVEBANDS, but have an added k dimension....
+! the params aw, bw are only temporary in wavebands_1d .:. CHANGE THEM in WAVEBANDS_1D to something else
+! this list mostly from light.F
+      Real(kind=8)                  ::  radd       !radias and pi - use these rather than darwin versions for simplicity.
+      Real(kind=8)                  ::  pid = 3.1415926535897931
+      Real(kind=8),dimension(tlam)  ::  bphy_chl       !scat coef for phyto
+      Real(kind=8),dimension(tlam)  ::  bbphy_chl      !backscat coef for phyto
+      Real(kind=8),dimension(tlam)  ::  bphy_chl_dia   !scat coef for diatoms
+      Real(kind=8),dimension(tlam)  ::  bbphy_chl_dia  !backscat coef for diatoms
+      Real(kind=8),dimension(tlam)  ::  bphy_chl_cocco   !scat coef for cocco
+      Real(kind=8),dimension(tlam)  ::  bbphy_chl_cocco  !backscat coef for cocco
+      Real(kind=8),dimension(tlam)  ::  bphy_chl_phaeo   !scat coef for phaeo
+      Real(kind=8),dimension(tlam)  ::  bbphy_chl_phaeo  !backscat coef for phaeo      
+!sl end   !/* RECOM_RADTRANS */
+
+!!-----------------------------------------------------------------------------
+!! *** CDOM ***
+!sl if (RECOM_CDOM) then
+  Real(kind=8)  :: fcdom          = 0.02  ! [1]   fraction of DOC production that is CDOM
+  Real(kind=8)  :: rho_cdom       = 0.003 ! [1/d] degradation rate of CDOM
+  Real(kind=8)  :: phot_cdom      = 0.167 ! [1/d] photochemical degradation rate CDOM
+  Real(kind=8)  :: kphot_cdom     = 13.51 ! [W/m?~F2 in PAR range], converted from
+!sl endif
+!SL  Integer       :: tlam = 13
+!find a place to specify that tlam = 13 
+! think of whether it is the right plase to declare
+  Real(kind=8)  :: alpha_mean
+  Real(kind=8)  :: alpha_mean_dia
+  Real(kind=8)  :: alpha_mean_cocco
+  Real(kind=8)  :: alpha_mean_phaeo
+  ! Light diagnostics Ed4D more work to be done
+!  Real(kind=8), allocatable, dimension(:,:,:,:)   ::  Ed4D
+  integer, parameter :: iEdz=1, iEsz=2, iEuz=3, iEutop=4, iEstop=5, ed_num=5
+  Real(kind=8), allocatable, dimension(:,:,:) :: Edz3D, Esz3D, Euz3D, Eutop3D, Estop3D
+  ! (node, waveband) just below the surface, for remote sensing reflectance R = Eu0/(Ed0+Es0):
+  ! Eu0 = Eutop at level 1; Ed0/Es0 = the OASIM irradiance after sea-ice shading, i.e. Edwsf/Eswsf in REcoM_Forcing
+  Real(kind=8), allocatable, dimension(:,:)   :: Eu0_2D, Ed0_2D, Es0_2D
+
+!sl -------------------- spectral wall-clock profiling (open item 2) --------------
+!sl Per-rank accumulators for the spectral light path, reduced and reported next to
+!sl 'runtime recom' in fesom_module.F90. This replaces inferring the solver's cost
+!sl from the difference between a RECOM_RADTRANS=.true. and a .false. run, which is
+!sl only an upper bound because those two runs differ in their biology as well.
+!sl
+!sl   rt_spec_total    whole __RECOM_WAVEBANDS block in REcoM_Forcing
+!sl   rt_spec_iop      inherent optical properties: CDOM, phyto and particle
+!sl                    absorption/scattering, and the a_k/bt_k/bb_k totals
+!sl   rt_spec_radtrans the MONOD_RADTRANS_* call, i.e. the light propagation solve
+!sl   rt_spec_tridiag  SOLVE_TRIDIAGONAL_PIVOT alone, nested inside rt_spec_radtrans
+!sl
+!sl The counters let the SYSTEM_CLOCK overhead be estimated and subtracted: each
+!sl timed region costs two spec_wtime() calls.
+  Real(kind=8)    :: rt_spec_total    = 0.d0
+  Real(kind=8)    :: rt_spec_iop      = 0.d0
+  Real(kind=8)    :: rt_spec_radtrans = 0.d0
+  Real(kind=8)    :: rt_spec_tridiag  = 0.d0
+  Integer(kind=8) :: n_spec_total     = 0_8
+  Integer(kind=8) :: n_spec_radtrans  = 0_8
+  Integer(kind=8) :: n_spec_tridiag   = 0_8
+contains
+
+!sl Wall-clock seconds. SYSTEM_CLOCK rather than MPI_Wtime because REcoM_spectral
+!sl does not use MPI; with an integer(8) count the tick is nanoseconds on Linux.
+  Real(kind=8) function spec_wtime()
+     integer(kind=8) :: cnt, rate
+     call system_clock(count=cnt, count_rate=rate)
+     if (rate > 0_8) then
+        spec_wtime = real(cnt,8) / real(rate,8)
+     else
+        spec_wtime = 0.d0
+     end if
+  end function spec_wtime
+
+!BOP
+!     !ROUTINE: WAVEBANDS_INIT_FIXED
+!     !INTERFACE:
+       subroutine wavebands_init_fixed(mype,wb_width)
+! following CV
+! subroutine wavebands_init_fixed(mype, partit, mesh)
+!     !DESCRIPTION: \bv
+!     *==========================================================*
+!     | SUBROUTINE WAVEBANDS_INIT_FIXED
+!     | o reads-in and assigns input paramters for WAVEBANDS.
+!     *==========================================================*
+!     \ev
+
+!     !USES:
+! following CV
+!     USE MOD_MESH
+!     use MOD_PARTIT ! to get MPI_COMM_FESOM
+       implicit none
+! following CV
+!     type(t_mesh),   intent(in),    target :: mesh
+!     type(t_partit), intent(inout), target :: partit
+!sl#if defined(__RECOM_WAVEBANDS)
+!     == Global variables ===
+!#include "SIZE.h"
+!#include "EEPARAMS.h"
+!#include "PARAMS.h"
+!#include "SPECTRAL_SIZE.h"
+!#include "SPECTRAL.h"
+!#if defined(__RECOM_WAVEBANDS)
+!#include "WAVEBANDS_PARAMS.h"
+!#include "RECOM.h"
+!#endif
+!     !INPUT/OUTPUT PARAMETERS:
+!     == Routine arguments ==
+!     myThid     :: my Thread Id number
+!sl      integer :: myThid
+      integer, intent(in) :: mype         ! MPI rank
+!EOP
+
+!#if defined(__RECOM_WAVEBANDS)
+
+!     !LOCAL VARIABLES:
+!     == Local variables ==
+! local variables
+      integer, parameter      :: MAX_LEN_MBUF = 1000
+      CHARACTER(MAX_LEN_MBUF) :: msgBuf
+      character(80)           :: title
+!  character(80)           :: darwin_waterabsorbFile = 'abw25par.dat'
+!  character(80)           :: darwin_surfacespecFile = 'surfspec_13amt6.dat'
+!  character(80)           :: darwin_phytoabsorbFile = 'optics_phyto_recom_carbon_12.dat'
+!  character(80)           :: darwin_acdomFile       = 'aCDOM13amtVK2006.dat'
+!  character(80)           :: darwin_particleabsorbFile = 'optics_detritus_3bb.dat'
+      integer       :: iUnit
+      integer       :: swlambda,splambda,ssflambda
+      Real(kind=8)  :: sap,sap_ps,sbp,sbbp
+      Real(kind=8)  :: saw,sbw
+      Real(kind=8)  :: ssf
+      Real(kind=8), dimension(tlam)    :: darwin_waves,wb_width
+      Real(kind=8), dimension(tlam+1)  :: darwin_wavebands
+!sl wb_totalWidth is a module variable of REcoM_spectral (declared above the CONTAINS).
+!sl It used to be re-declared here as a local, which shadowed it: the sum computed
+!sl below stayed inside this routine and the module copy remained zero for every
+!sl reader (RECOM_APHYTO, recom_sms astar normalisation, the *_kave averages in
+!sl recom_forcing). Keep using the module variable so those see the real value.
+      Real(kind=8)  :: planck, c, hc, oavo, hcoavo
+!sl if (RECOM_CALC_ACDOM) then
+      Real(kind=8)  ::  rlamm
+!sl else
+!sl if (RECOM_CALC_APART) then
+!sl      Real(kind=8)  ::  rlamm
+!sl endif
+      Real(kind=8)  ::  sacdom
+!sl endif
+
+! local indeces
+      integer       ::  nabp,i,ilam
+      integer       ::  ios          !sl iostat for the phyto-optics reads
+
+      darwin_waves = 0.0d0
+      darwin_wavebands = 0.0d0
+!sl      IF ( darwin_waves(1).EQ.0.0d0 .AND. tlam.EQ.13 ) THEN
+        darwin_waves(1) = 400
+        darwin_waves(2) = 425
+        darwin_waves(3) = 450
+        darwin_waves(4) = 475
+        darwin_waves(5) = 500
+        darwin_waves(6) = 525
+        darwin_waves(7) = 550
+        darwin_waves(8) = 575
+        darwin_waves(9) = 600
+        darwin_waves(10) = 625
+        darwin_waves(11) = 650
+        darwin_waves(12) = 675
+        darwin_waves(13) = 700
+!sl darwin_waves holds the tlam=13 waveband CENTRES; writing element 14 here was an
+!sl out-of-bounds store past the end of the array (caught by -check bounds). The 14
+!sl band BOUNDARIES live in darwin_wavebands(tlam+1) and are derived from pwaves below.
+!sl        darwin_waves(14) = 725
+!sl      ENDIF
+
+
+!sl      _BEGIN_MASTER(myThid)
+!sl      if (mype == 0) then
+!sl      rad = 180.0D0/pid        
+!-----------------------------------------------------------------------
+! The coccolithophore/Phaeocystis branches of WAVEBANDS_INIT_VARI index
+! ap, ap_ps, bp, bbp, darwin_bbphy and ap_type at 3 and 4, and phychl_k/Phy_k
+! in recom_forcing likewise. All are dimensioned with tnabp, which is therefore
+! the maximum number of phytoplankton types the code knows about, not the number
+! the optics file has to supply. The file is counted as it is read below and the
+! real requirement -- four blocks when enable_coccos is set -- is checked there
+! against nabp_read.
+!-----------------------------------------------------------------------
+
+! Quanta conversion
+      planck = 6.6256d-34   !Plancks constant J sec
+      c = 2.998d8                 !speed of light m/sec
+      hc = 1.0/(planck*c)
+      oavo = 1.0/6.023d23   ! 1/Avogadros number
+      hcoavo = hc*oavo
+      do i = 1,tlam
+       rlamm = darwin_waves(i)*1.0d-9  !lambda in m
+       WtouEins(i) = 1.0d6*rlamm*hcoavo      !Watts to uEin/s conversion
+       IF ( rlamm .EQ. 0.0 ) THEN
+        WRITE(msgBuf,'(2A)') 'RECOM_READPARMS: ',    &
+       'please provide wavelengths in darwin_waves.'
+!sl        CALL PRINT_ERROR( msgBuf, myThid )
+        STOP 'ABNORMAL END: S/R RECOM_READPARMS'
+       ENDIF
+      enddo
+      !sl WRITE(*,*) ' mype = ', mype, ' 1 darwin_waves = ', darwin_waves    
+
+! fill in missing waveband information:
+! "representative values" darwin_waves need not be centered within
+! waveband boundaries darwin_wavebands, so both may be given
+! if representative values are not given, compute from waveband
+! boundaries
+      do i = 1,tlam
+        if (darwin_waves(i) .gt. 0.0d0) then
+          pwaves(i) = darwin_waves(i)
+        elseif (darwin_wavebands(i).ge.0.0d0 .and.         &
+                darwin_wavebands(i+1).ge.0.0d0 ) then
+          pwaves(i) = .5*(darwin_wavebands(i)+darwin_wavebands(i+1))
+        else
+          WRITE(msgBuf,'(3A)') 'WAVEBANDS_INIT_FIXED: ',          &
+          'please provide wavelengths in darwin_waves or ',       &
+          'waveband boundaries in darwin_wavebands.'
+!sl          CALL PRINT_ERROR( msgBuf, myThid )
+          STOP 'ABNORMAL END: S/R WAVEBANDS_INIT_FIXED 1'
+        endif
+      enddo
+      if (mype==0) WRITE(*,*) '1 pwaves = ', pwaves
+      !sl WRITE(*,*) ' mype = ', mype, ' 2 pwaves = ', pwaves
+
+! if waveband boundaries not given, compute from representative values
+! these will be used to compute waveband widths
+      do i=1,tlam+1
+        if (darwin_wavebands(i).LE.0.0d0) then
+!         put boundaries half-way between central values
+!         but first and last boundary are at first and last "central" value
+          if (i.eq.1) then
+            darwin_wavebands(i) = real(pwaves(1))
+          else
+             if (i.le.tlam) then
+                darwin_wavebands(i) = 0.5*(real(pwaves(i-1))+real(pwaves(i)))
+             else
+                darwin_wavebands(i) = real(pwaves(tlam))
+              endif
+           endif
+         endif
+       enddo
+
+      !sl WRITE(*,*) ' mype = ', mype,  ' 3 darwin_wavebands = ', darwin_wavebands
+
+! waveband widths used to compute total PAR and alpha_mean
+      wb_totalWidth = 0.0d0
+      do i=1,tlam
+        wb_width(i) = darwin_wavebands(i+1) - darwin_wavebands(i)
+        wb_totalWidth = wb_totalWidth + wb_width(i)
+!       allow for zero-width wavebands...
+        if (wb_width(i).LT.0.0d0) then
+!sl          WRITE(msgBuf,'(2A,I3)') 'WAVEBANDS_INIT_FIXED: ',       &
+!sl          'negative waveband width encountered, waveband: ', i
+!sl          CALL PRINT_ERROR( msgBuf, myThid )
+!sl          WRITE(msgBuf,'(2A)') 'WAVEBANDS_INIT_FIXED: ',          &
+!sl          'Please check darwin_waves and darwin_wavebands.'
+!sl          CALL PRINT_ERROR( msgBuf, myThid )                      &
+!sl          WRITE(msgBuf,'(A)') 'WAVEBANDS_INIT_FIXED: wavebands:'
+!sl          CALL PRINT_ERROR( msgBuf, myThid )
+!sl          WRITE(msgBuf,'(2A)') 'WAVEBANDS_INIT_FIXED: ',          &
+!sl          ' idx       low   rep      high    width'
+!sl          CALL PRINT_ERROR( msgBuf, myThid )
+!sl          do ilam=1,tlam
+!sl           WRITE(msgBuf,'(A,I4,F10.3,I6,F10.3,F9.3)')             &
+!sl          'WAVEBANDS_INIT_FIXED: ', ilam,darwin_wavebands(ilam),  &
+!sl           pwaves(ilam),darwin_wavebands(ilam+1),wb_width(ilam)
+!sl           CALL PRINT_ERROR( msgBuf, myThid )
+!sl          enddo
+          STOP 'ABNORMAL END: S/R WAVEBANDS_INIT_FIXED 2'
+        endif
+      enddo
+!sl      if (mype==0) WRITE(*,*) ' mype = ', mype, ' 3 wb_width = ', wb_width
+      !sl double check the following      
+!     ...but require at least one non-zero-width band
+      if (wb_totalWidth.LE.0.0d0) then
+        if (mype==0) then
+           WRITE(*,'(2A)') 'WAVEBANDS_INIT_FIXED: ',           &
+           'need to provide waveband boundaries in darwin_wavebands.'
+           WRITE(*,*) 'wb_totalWidth = ', wb_totalWidth
+        endif
+        STOP 'ABNORMAL END: S/R WAVEBANDS_INIT_FIXED 3'
+      endif
+
+
+!  Water data files
+      if (darwin_waterabsorbFile .NE. ' '  ) THEN
+ if (recom_debug) print *, achar(27)//'[36m'//'     --> Water data file'//achar(27)//'[0m'             
+!sl        CALL MDSFINDUNIT( iUnit, myThid )
+        open(iUnit,file=darwin_waterabsorbFile,                 &
+                                 status='old',form='formatted')
+        do i = 1,6                    ! six lines of text for the header
+         read(iUnit,'(a50)')title     ! trucates or pads (with spaces) to 50 characters length
+        enddo
+        do ilam = 1,tlam
+         read(iUnit,20)swlambda,saw,sbw
+         if (swlambda.NE.pwaves(ilam)) then
+           WRITE(msgBuf,'(2A)') 'WAVEBANDS_INIT_FIXED: ',       &
+          "wavelength for water spectrum doesn't match darwin_waves:"
+!sl           CALL PRINT_ERROR( msgBuf, myThid )
+           WRITE(msgBuf,'(2A,I3,A,I4,A,I4)') 'WAVEBANDS_INIT_FIXED: ', &
+           'ilam', ilam, ': ', swlambda, ' versus ', pwaves(ilam)
+!sl           CALL PRINT_ERROR( msgBuf, myThid )
+           STOP 'ABNORMAL END: S/R WAVEBANDS_INIT_FIXED 4'
+         endif
+         aw(ilam) = saw
+         bw(ilam) = sbw
+        enddo
+        close(iUnit)
+20      format(i5,f15.4,f10.4)
+if (recom_debug) print *, achar(27)//'[36m'//'     --> end Water data file'//achar(27)//'[0m'
+      else
+        WRITE(msgBuf,'(A)')                                           &
+            'WAVEBANDS_INIT_FIXED: need to specify water absorption'
+!sl        CALL PRINT_ERROR( msgBuf, myThid )
+        STOP 'ABNORMAL END: S/R WAVEBANDS_INIT_FIXED 5'
+      endif
+
+
+! phyto data files
+! ANNA phyto input data files must have a column for absorption by PS pigs
+! ANNA easiest way to 'turn off' PS for growth is to put same values in both abs columns
+!sl Refuse the configuration that used to fail silently: the ratio branch with
+!sl no ratios set gives exactly zero backscatter for every PFT.
+      if (DAR_NONSPECTRAL_BACKSCATTERING_RATIO .and.                     &
+          maxval(abs(darwin_bbphy)) .le. 0.0d0) then
+         if (mype == 0) then
+            WRITE(*,*) 'WAVEBANDS_INIT_FIXED: DAR_NONSPECTRAL_BACKSCATTERING_RATIO'
+            WRITE(*,*) '  is .true. but every darwin_bbphy is zero, which would give'
+            WRITE(*,*) '  zero phytoplankton backscatter. Set darwin_bbphy in &spectral.'
+         end if
+         STOP 'ABNORMAL END: S/R WAVEBANDS_INIT_FIXED (darwin_bbphy all zero)'
+      end if
+      if (darwin_phytoabsorbFile.NE. ' '  ) THEN
+ if (recom_debug) print *, achar(27)//'[36m'//'     --> phytoabsorb file'//achar(27)//'[0m'             
+!sl        CALL MDSFINDUNIT( iUnit, myThid )
+        open(iUnit,file=darwin_phytoabsorbFile,                          &
+                                         status='old',form='formatted')
+        do i = 1,6                       ! six lines of text for the header
+         read(iUnit,'(a50)')title
+        enddo
+        sbbp = 0.0d0
+!sl Count the spectra blocks instead of demanding exactly tnabp of them. A file
+!sl carrying only Others and Diatom stays usable for a .not. enable_coccos run;
+!sl the four-block requirement is a property of enable_coccos, not of the array
+!sl bound, and is checked against nabp_read after the file is closed.
+!sl Types the file does not supply keep zeroed spectra rather than stale memory.
+        ap    = 0.0d0
+        ap_ps = 0.0d0
+        bp    = 0.0d0
+        bbp   = 0.0d0
+        nabp_read = 0
+        do nabp = 1,tnabp
+         read(iUnit,'(a50)',iostat=ios)title   ! one line of text for the phytoplankton type header
+         if (ios .lt. 0) exit                  ! clean end of file: no further blocks
+         if (ios .gt. 0) then
+            if (mype == 0) then
+               WRITE(*,*) 'WAVEBANDS_INIT_FIXED: cannot read phyto spectra header'
+               WRITE(*,*) '  file: ', trim(darwin_phytoabsorbFile)
+               WRITE(*,*) '  block ', nabp, ' iostat ', ios
+            end if
+            STOP 'ABNORMAL END: S/R WAVEBANDS_INIT_FIXED (phyto optics header unreadable)'
+         end if
+         if (mype==0) write(*,*) ' title = ', title
+         do ilam  = 1,tlam
+if  (DAR_NONSPECTRAL_BACKSCATTERING_RATIO) then
+!sl Format 30 is (i4,3f10.4): only the first four columns are read, so a
+!sl five-column optics file works here too and its bb column is ignored.
+!sl bbp is left at the 0.0d0 set above; bbphy_chl_X is built from bp*darwin_bbphy
+!sl in WAVEBANDS_INIT_VARI instead.
+          read(iUnit,30,iostat=ios)splambda,sap,sap_ps,sbp
+          if (ios .ne. 0) then
+             if (mype == 0) then
+                WRITE(*,*) 'WAVEBANDS_INIT_FIXED: bad or truncated phyto optics record'
+                WRITE(*,*) '  file: ', trim(darwin_phytoabsorbFile)
+                WRITE(*,*) '  block ', nabp, ' (', trim(title), ')'
+                WRITE(*,*) '  waveband ', ilam, ' of ', tlam, ', iostat ', ios
+             end if
+             STOP 'ABNORMAL END: S/R WAVEBANDS_INIT_FIXED (phyto optics read failed)'
+          end if
+          if (mype==0) write(*,*) ' DAR_NONSPECTRAL_BACKSCATTERING_RATIO ',      &
+                                    splambda,sap,sap_ps,sbp
+else
+          read(iUnit,'(i4,3f10.4,f20.14)',iostat=ios)splambda,sap,sap_ps,sbp,sbbp
+          if (ios .ne. 0) then
+             if (mype == 0) then
+                WRITE(*,*) 'WAVEBANDS_INIT_FIXED: bad or truncated phyto optics record'
+                WRITE(*,*) '  file: ', trim(darwin_phytoabsorbFile)
+                WRITE(*,*) '  block ', nabp, ' (', trim(title), ')'
+                WRITE(*,*) '  waveband ', ilam, ' of ', tlam, ', iostat ', ios
+                WRITE(*,*) '  A block must hold one title line and ', tlam, ' data lines.'
+             end if
+             STOP 'ABNORMAL END: S/R WAVEBANDS_INIT_FIXED (phyto optics read failed)'
+          end if
+!          write(*,*) 'no DAR_NONSPECTRAL_BACKSCATTERING_RATIO ', splambda,sap,sap_ps,sbp,sbbp
+endif
+          if (splambda.NE.pwaves(ilam)) then
+           WRITE(msgBuf,'(2A)') 'WAVEBANDS_INIT_FIXED: ',                &
+           "wavelength for phyto spectrum doesn't match darwin_waves:"
+!sl           CALL PRINT_ERROR( msgBuf, myThid )
+           WRITE(msgBuf,'(2A,I3,A,I4,A,I4)') 'WAVEBANDS_INIT_FIXED: ',   &
+           'ilam', ilam, ': ', splambda, ' versus ', pwaves(ilam)
+!sl           CALL PRINT_ERROR( msgBuf, myThid )
+           STOP 'ABNORMAL END: S/R WAVEBANDS_INIT_FIXED 6'
+          endif
+          ap(nabp,ilam) = sap
+          ap_ps(nabp,ilam) = sap_ps
+          bp(nabp,ilam) = sbp
+          bbp(nabp,ilam) = sbbp
+         enddo
+         nabp_read = nabp
+        enddo
+!sl If the loop filled every slot there may still be more in the file than the
+!sl code has PFTs for; say so rather than silently ignoring the extra spectra.
+        if (nabp_read .eq. tnabp) then
+           read(iUnit,'(a50)',iostat=ios)title
+!sl require a non-blank line, so a trailing newline in a hand-edited file does
+!sl not raise a spurious "extra blocks" warning
+           if (ios .eq. 0 .and. len_trim(title) .gt. 0) then
+              if (mype == 0) then
+                 WRITE(*,*) 'WAVEBANDS_INIT_FIXED: phyto optics file has more than'
+                 WRITE(*,*) '  tnabp = ', tnabp, ' spectra blocks; the extra ones are ignored.'
+                 WRITE(*,*) '  file: ', trim(darwin_phytoabsorbFile)
+                 WRITE(*,*) '  first ignored block: ', trim(title)
+                 WRITE(*,*) '  Raise tnabp in recom_modules.F90 to use them.'
+              end if
+           end if
+        end if
+        close(iUnit)
+
+!sl ---- what the configuration actually requires of the file ----
+        if (mype == 0) write(*,*) 'WAVEBANDS_INIT_FIXED: phyto spectra blocks read = ', nabp_read
+        if (nabp_read .lt. 2) then
+           if (mype == 0) then
+              WRITE(*,*) 'WAVEBANDS_INIT_FIXED: phyto optics file has too few spectra'
+              WRITE(*,*) '  file: ', trim(darwin_phytoabsorbFile)
+              WRITE(*,*) '  found ', nabp_read, ' block(s); at least 2 are needed'
+              WRITE(*,*) '  (*** Others *** and *** Diatom ***).'
+           end if
+           STOP 'ABNORMAL END: S/R WAVEBANDS_INIT_FIXED (need at least 2 phyto spectra)'
+        end if
+        if (enable_coccos .and. nabp_read .lt. 4) then
+           if (mype == 0) then
+              WRITE(*,*) 'WAVEBANDS_INIT_FIXED: enable_coccos=.true. needs spectral optics'
+              WRITE(*,*) '  for 4 phytoplankton types, but the file supplies ', nabp_read
+              WRITE(*,*) '  file: ', trim(darwin_phytoabsorbFile)
+              WRITE(*,*) '  Block order must be Others, Diatom, Coccolithophore, Phaeocystis.'
+              WRITE(*,*) '  Either extend the file (see'
+              WRITE(*,*) '  optics_phyto_recom_carbon_12_4pft_TEST.dat) or run with'
+              WRITE(*,*) '  enable_coccos=.false. in namelist.recom.'
+           end if
+           STOP 'ABNORMAL END: S/R WAVEBANDS_INIT_FIXED (enable_coccos needs 4 phyto spectra)'
+        end if
+30      format(i4,3f10.4)
+      else
+        WRITE(msgBuf,'(A)')                                            &
+            'WAVEBANDS_INIT_FIXED: need to specify phyto absorption'
+!sl        CALL PRINT_ERROR( msgBuf, myThid )
+        STOP 'ABNORMAL END: S/R WAVEBANDS_INIT_FIXED 7'
+      endif
+
+
+! QQ Surface spectrum NEED IN HERE for initial use
+if (.not. OASIM) then
+      if (darwin_surfacespecFile .NE. ' '  ) THEN
+if (recom_debug) print *, achar(27)//'[36m'//'     --> surfacespec file'//achar(27)//'[0m'              
+!sl       CALL MDSFINDUNIT( iUnit, myThid )
+       open(iUnit,file=darwin_surfacespecFile,                      &
+                                  status='old',form='formatted')
+       do i = 1,3                  ! three lines of text for the header
+        read(iUnit,'(a50)')title
+       enddo
+       do ilam = 1,tlam
+        read(iUnit,40)ssflambda,ssf
+        if (ssflambda.NE.pwaves(ilam)) then
+           WRITE(msgBuf,'(2A)') 'WAVEBANDS_INIT_FIXED: ',              &
+           "wavelength for surface spectrum doesn't match darwin_waves:"
+!sl           CALL PRINT_ERROR( msgBuf, myThid )
+           WRITE(msgBuf,'(2A,I3,A,I4,A,I4)') 'WAVEBANDS_INIT_FIXED: ', &
+           'ilam', ilam, ': ', ssflambda, ' versus ', pwaves(ilam)
+!sl           CALL PRINT_ERROR( msgBuf, myThid )
+           STOP 'ABNORMAL END: S/R WAVEBANDS_INIT_FIXED 8'
+        endif
+        sf(ilam) = ssf
+       enddo
+       close(iUnit)
+40     format(i5,f15.6)
+!sl      if (mype==0) write(*,*) ' sf for mype = ', mype, sf
+      else
+        WRITE(msgBuf,'(A)')                                            &
+     &      'WAVEBANDS_INIT_FIXED: need surface spectrum'
+!sl        CALL PRINT_ERROR( msgBuf, myThid )
+        STOP 'ABNORMAL END: S/R WAVEBANDS_INIT_FIXED 9'
+      endif
+endif  ! no OASIM
+! absorption by cdom
+if (.not. RECOM_CALC_ACDOM) then
+! if no file given then CDOM is zero
+      if (darwin_acdomFile.NE. ' '  ) THEN
+ if (recom_debug) print *, achar(27)//'[36m'//'     --> acdom file'//achar(27)//'[0m'             
+!sl        CALL MDSFINDUNIT( iUnit, myThid )
+        open(iUnit,file=darwin_acdomFile,                             &
+                              status='old',form='formatted')
+        do i = 1,6            ! six lines of text for the header
+         read(iUnit,'(a50)')title
+        enddo
+        do i = 1,tlam
+         read(iUnit,50)sacdom
+         acdom(i) = sacdom
+        enddo
+        close(iUnit)
+50      format(f10.4)
+      else
+        WRITE(msgBuf,'(A)')                                           &
+            'WAVEBANDS_INIT_FIXED: no aCDOM'
+!sl        CALL PRINT_MESSAGE( msgBuf, standardMessageUnit,              &
+!sl                            SQUEEZE_RIGHT, 1 )
+
+        do i = 1,tlam
+         acdom(i) = 0.0d0
+        enddo
+      endif
+else  !/* RECOM_CALC_ACDOM */
+! for 3-D or for direct comparison to RADTRANS would need the same formulation for CDOM as in radtrans.
+!   CDOM absorption exponent
+      nlaCDOM = 0
+      do ilam = 1,tlam
+       if (pwaves(ilam) .eq. darwin_lambda_aCDOM) nlaCDOM = ilam
+       rlamm = float(pwaves(ilam))
+       excdom(ilam) = exp(-darwin_Sdom*(rlamm-darwin_lambda_aCDOM))
+      enddo
+      if (nlaCDOM.eq.0) then
+        WRITE(msgBuf,'(A,I3,A)')                                      &
+            'WAVEBANDS_INIT_FIXED: no waveband found at ',            &
+             darwin_lambda_aCDOM, ' nm (needed for RECOM_CALC_ACDOM).'
+!sl        CALL PRINT_ERROR( msgBuf, myThid )
+        STOP 'ABNORMAL END: S/R WAVEBANDS_INIT_FIXED 10'
+      endif
+
+      WRITE(msgBuf,'(A,1P1E20.12)')                                   &
+           'WAVEBANDS_INIT_FIXED: darwin_aCDOM_fac = ',darwin_aCDOM_fac
+!sl      CALL PRINT_MESSAGE( msgBuf, standardMessageUnit,                &
+!sl                          SQUEEZE_RIGHT, 1 )
+      WRITE(msgBuf,'(A,1P1E20.12)')                                   &
+            'WAVEBANDS_INIT_FIXED: darwin_Sdom = ', darwin_Sdom
+!sl      CALL PRINT_MESSAGE( msgBuf, standardMessageUnit,                &
+!sl                          SQUEEZE_RIGHT, 1 )
+      WRITE(msgBuf,'(A,I3,A,I4)')                                     &
+           'WAVEBANDS_INIT_FIXED: nlaCDOM = ', nlaCDOM, ', lambda = ',&
+            pwaves(nlaCDOM)
+!sl      CALL PRINT_MESSAGE( msgBuf, standardMessageUnit,                &
+!sl                         SQUEEZE_RIGHT, 1 )
+endif !/* RECOM_CALC_ACDOM */
+
+
+if (RECOM_CALC_REFLEC) then
+!     find waveband index for diagnostics
+      if (darwin_diag_acdom_ilam.GE.100) then
+       do ilam = 1,tlam
+        if (pwaves(ilam) .eq. darwin_diag_acdom_ilam) then
+          darwin_diag_acdom_ilam = ilam
+          goto 60
+        endif
+       enddo
+       WRITE(msgBuf,'(2A,I3,A)') 'WAVEBANDS_INIT_FIXED: ',            &
+       'darwin_diag_acdom_ilam =',darwin_diag_acdom_ilam,             &
+       ' not found in darwin_waves'
+!sl       CALL PRINT_ERROR( msgBuf, myThid )
+       STOP 'ABNORMAL END: S/R WAVEBANDS_INIT_FIXED 11'
+60     continue
+      endif
+
+      WRITE(msgBuf,'(A,I3,A,I4)')                                     &
+            'WAVEBANDS_INIT_FIXED: Index diag ilam = ',               &
+            darwin_diag_acdom_ilam, ', lambda = ',                    &
+            pwaves(darwin_diag_acdom_ilam)
+!sl      CALL PRINT_MESSAGE( msgBuf, standardMessageUnit,                &
+!sl                          SQUEEZE_RIGHT, 1 )
+endif
+
+      WRITE(msgBuf,'(A)') 'WAVEBANDS_INIT_FIXED:'
+!sl      CALL PRINT_MESSAGE( msgBuf, standardMessageUnit,                &
+!sl                         SQUEEZE_RIGHT, 1 )
+      WRITE(msgBuf,'(A)') 'WAVEBANDS_INIT_FIXED: wavebands:'
+!sl      CALL PRINT_MESSAGE(msgBuf,standardMessageUnit,                  &
+!sl                         SQUEEZE_RIGHT,myThid)
+      WRITE(msgBuf,'(2A)') 'WAVEBANDS_INIT_FIXED: ',                  &
+         ' idx       low   rep      high    width'
+!sl      CALL PRINT_MESSAGE(msgBuf,standardMessageUnit,                  &
+!sl                        SQUEEZE_RIGHT,myThid)
+      do i=1,tlam
+        WRITE(msgBuf,'(A,I4,F10.3,I6,F10.3,F9.3)')                    &
+        'WAVEBANDS_INIT_FIXED: ', i,                                  &
+        darwin_wavebands(i),pwaves(i),darwin_wavebands(i+1),wb_width(i)
+!sl        CALL PRINT_MESSAGE(msgBuf,standardMessageUnit,                &
+!sl                         SQUEEZE_RIGHT,myThid)
+      enddo
+      WRITE(msgBuf,'(A)') 'WAVEBANDS_INIT_FIXED:'
+!sl      CALL PRINT_MESSAGE( msgBuf, standardMessageUnit,                &
+!sl                         SQUEEZE_RIGHT, 1 )
+if (.not. RECOM_CALC_APART) then
+!   absorption and scattering by particles
+      if (darwin_particleabsorbFile .NE. ' '  ) THEN
+!sl        CALL MDSFINDUNIT( iUnit, myThid )
+        open(iUnit,file=darwin_particleabsorbFile,                    &
+                                 status='old',form='formatted')
+        do i = 1,6                    ! six lines of text for the header
+         read(iUnit,'(a50)')title     ! trucates or pads (with spaces) to 50 characters length
+        enddo
+        do ilam = 1,tlam
+         read(iUnit,'(I4,3E15.5)')splambda,sap,sbp,sbbp
+         if (splambda.NE.pwaves(ilam)) then
+           WRITE(msgBuf,'(2A)') 'WAVEBANDS_INIT_FIXED: ',             &
+          "wavelength for particle spectrum doesn't match darwin_waves:"
+!sl           CALL PRINT_ERROR( msgBuf, myThid )                         
+           WRITE(msgBuf,'(2A,I3,A,I4,A,I4)') 'WAVEBANDS_INIT_FIXED: ',&
+           'ilam', ilam, ': ', splambda, ' versus ', pwaves(ilam)
+!sl           CALL PRINT_ERROR( msgBuf, myThid )
+           STOP 'ABNORMAL END: S/R WAVEBANDS_INIT_FIXED 12'
+         endif
+         apart(ilam) = sap
+         bpart(ilam) = sbp
+         bbpart(ilam) = sbbp
+         apart_P(ilam) = sap/darwin_part_size_P
+         bpart_P(ilam) = sbp/darwin_part_size_P
+         bbpart_P(ilam) = sbbp/darwin_part_size_P
+        enddo
+        close(iUnit)
+      else
+        do ilam = 1,tlam
+         apart(ilam) = 0.0d0
+         bpart(ilam) = 0.0d0
+         bbpart(ilam) = 0.0d0
+         apart_P(ilam) = 0.0d0
+         bpart_P(ilam) = 0.0d0
+         bbpart_P(ilam) = 0.0d0
+        enddo
+      endif
+else
+      nlaAPAR = 0
+      do ilam = 1,tlam
+       if (pwaves(ilam) .eq. darwin_lambda_aPart) nlaAPAR = ilam
+       rlamm = float(pwaves(ilam))
+       exapar(ilam) = exp(-darwin_Sapar*(rlamm-darwin_lambda_aPart))
+      enddo
+      nlaBPAR = 0
+      do ilam = 1,tlam
+       if (pwaves(ilam) .eq. darwin_lambda_bPart) nlaBPAR = ilam
+       rlamm = float(pwaves(ilam))
+       exbpar(ilam) = (darwin_lambda_bPart/rlamm)**darwin_Sbpar
+      enddo
+endif ! /* RECOM_CALC_APART */
+
+
+!
+! PRINT A SUMMARY (in STDOUT)
+!
+!     Incoming Light
+if (.not. OASIM) then
+      WRITE(msgBuf,'(A)') 'WAVEBANDS_INIT_FIXED: surface spectrum:'
+!sl      CALL PRINT_MESSAGE( msgBuf, standardMessageUnit,            &
+!sl                         SQUEEZE_RIGHT, 1 )
+      WRITE(msgBuf,'(A,A)') 'WAVEBANDS_INIT_FIXED:  lam      sf'
+!sl      CALL PRINT_MESSAGE( msgBuf, standardMessageUnit,            &
+!sl                         SQUEEZE_RIGHT, 1 )
+      do ilam = 1,tlam
+        WRITE(msgBuf,'(A,I4,F15.6)') 'WAVEBANDS_INIT_FIXED: ',    &
+           pwaves(ilam), sf(ilam)
+!sl        CALL PRINT_MESSAGE( msgBuf, standardMessageUnit,          &
+!sl                           SQUEEZE_RIGHT, 1 )
+      enddo
+      WRITE(msgBuf,'(A)') 'WAVEBANDS_INIT_FIXED:'
+!sl      CALL PRINT_MESSAGE( msgBuf, standardMessageUnit,            &
+!sl                         SQUEEZE_RIGHT, 1 )
+endif
+!
+!     Water absorption/scatter/backsc.
+      WRITE(msgBuf,'(A)') 'WAVEBANDS_INIT_FIXED: water spectra:'
+!sl      CALL PRINT_MESSAGE( msgBuf, standardMessageUnit,            &
+!sl                          SQUEEZE_RIGHT, 1 )
+      WRITE(msgBuf,'(A,A)') 'WAVEBANDS_INIT_FIXED: ',             &
+          ' lam         aw        bw'
+!sl      CALL PRINT_MESSAGE( msgBuf, standardMessageUnit,            &
+!sl                          SQUEEZE_RIGHT, 1 )
+      do ilam = 1,tlam
+        WRITE(msgBuf,'(A,I4,F15.4,F10.4)') 'WAVEBANDS_INIT_FIXED: ', &
+          pwaves(ilam), aw(ilam), bw(ilam)
+!sl        CALL PRINT_MESSAGE( msgBuf, standardMessageUnit,             &
+!sl                           SQUEEZE_RIGHT, 1 )
+      enddo
+      WRITE(msgBuf,'(A)') 'WAVEBANDS_INIT_FIXED:'
+!sl      CALL PRINT_MESSAGE( msgBuf, standardMessageUnit,               &
+!sl                          SQUEEZE_RIGHT, 1 )
+!
+!     Phyto absorption/scatter/backsc.
+      WRITE(msgBuf,'(A)') 'WAVEBANDS_INIT_FIXED: phyto spectra:'
+!sl      CALL PRINT_MESSAGE( msgBuf, standardMessageUnit,               &
+!sl                          SQUEEZE_RIGHT, 1 )
+      do nabp = 1,nabp_read
+        WRITE(msgBuf,'(A,I4)') 'WAVEBANDS_INIT_FIXED: type ',nabp
+!sl        CALL PRINT_MESSAGE( msgBuf, standardMessageUnit,             &
+!sl                          SQUEEZE_RIGHT, 1 )
+        WRITE(msgBuf,'(A,A)') 'WAVEBANDS_INIT_FIXED: ',              &
+          ' lam    ap        ap_ps     bp             bbp'
+!sl        CALL PRINT_MESSAGE( msgBuf, standardMessageUnit,             &
+!sl                          SQUEEZE_RIGHT, 1 )
+        do ilam = 1,tlam
+          WRITE(msgBuf,'(A,I4,3F10.4,F20.9)') 'WAVEBANDS_INIT_FIXED: ', &
+          pwaves(ilam), ap(nabp,ilam), ap_ps(nabp,ilam),                &
+          bp(nabp,ilam), bbp(nabp,ilam)
+!sl          CALL PRINT_MESSAGE( msgBuf, standardMessageUnit,              &
+!sl                            SQUEEZE_RIGHT, 1 )
+        enddo
+        WRITE(msgBuf,'(A)') 'WAVEBANDS_INIT_FIXED:'
+!sl        CALL PRINT_MESSAGE( msgBuf, standardMessageUnit,                &
+!sl                          SQUEEZE_RIGHT, 1 )
+      enddo
+!
+!     Particulate absorption/scatter/backsc.
+if (.not. RECOM_CALC_APART) then
+      WRITE(msgBuf,'(A)') 'WAVEBANDS_INIT_FIXED: particulate spectra:'
+!sl      CALL PRINT_MESSAGE( msgBuf, standardMessageUnit,                  &
+!sl                          SQUEEZE_RIGHT, 1 )
+      WRITE(msgBuf,'(A,A)') 'WAVEBANDS_INIT_FIXED: ',                   &
+           ' lam      apart          bpart          bbpart'
+!sl      CALL PRINT_MESSAGE( msgBuf, standardMessageUnit,                  &
+!sl                          SQUEEZE_RIGHT, 1 )
+      do ilam = 1,tlam
+        WRITE(msgBuf,'(A,I4,1P3G15.6)')'WAVEBANDS_INIT_FIXED: ',        &
+           pwaves(ilam), apart(ilam), bpart(ilam), bbpart(ilam)
+!sl        CALL PRINT_MESSAGE( msgBuf, standardMessageUnit,                &
+!sl                            SQUEEZE_RIGHT, 1 )
+      enddo
+      WRITE(msgBuf,'(A)') 'WAVEBANDS_INIT_FIXED:'
+!sl      CALL PRINT_MESSAGE( msgBuf, standardMessageUnit,                  &
+!sl                          SQUEEZE_RIGHT, 1 )
+!
+      WRITE(msgBuf,'(2A)') 'WAVEBANDS_INIT_FIXED: particulate spectra ', &
+                         'in phosphorus units:'
+!sl      CALL PRINT_MESSAGE( msgBuf, standardMessageUnit,                   &
+!sl                          SQUEEZE_RIGHT, 1 )
+      WRITE(msgBuf,'(A,A)') 'WAVEBANDS_INIT_FIXED: ',                    &
+           ' lam      apart_P        bpart_P        bbpart_P'
+!sl      CALL PRINT_MESSAGE( msgBuf, standardMessageUnit,                   &
+!sl                          SQUEEZE_RIGHT, 1 )
+      do ilam = 1,tlam
+        WRITE(msgBuf,'(A,I4,2F15.9,F15.12)') 'WAVEBANDS_INIT_FIXED: ',   &
+           pwaves(ilam), apart_P(ilam), bpart_P(ilam), bbpart_P(ilam)
+!sl        CALL PRINT_MESSAGE( msgBuf, standardMessageUnit,                 &
+!sl                            SQUEEZE_RIGHT, 1 )
+      enddo
+      WRITE(msgBuf,'(A)') 'WAVEBANDS_INIT_FIXED:'
+!sl      CALL PRINT_MESSAGE( msgBuf, standardMessageUnit,                   &
+!sl                          SQUEEZE_RIGHT, 1 )
+endif
+!
+!     CDOM absorption
+if (.not. RECOM_CALC_ACDOM) then
+      WRITE(msgBuf,'(A)') 'WAVEBANDS_INIT_FIXED: CDOM spectrum:'
+!sl      CALL PRINT_MESSAGE( msgBuf, standardMessageUnit,                   &
+!sl                          SQUEEZE_RIGHT, 1 )
+      WRITE(msgBuf,'(A,A)') 'WAVEBANDS_INIT_FIXED:  lam   aCDOM'
+!sl      CALL PRINT_MESSAGE( msgBuf, standardMessageUnit,                   &
+!sl                          SQUEEZE_RIGHT, 1 )
+      do ilam = 1,tlam
+        WRITE(msgBuf,'(A,I4,F10.4)') 'WAVEBANDS_INIT_FIXED: ',           &
+           pwaves(ilam), acdom(ilam)
+!sl        CALL PRINT_MESSAGE( msgBuf, standardMessageUnit,                 &
+!sl                            SQUEEZE_RIGHT, 1 )
+      enddo
+      WRITE(msgBuf,'(A)') 'WAVEBANDS_INIT_FIXED:'
+!sl      CALL PRINT_MESSAGE( msgBuf, standardMessageUnit,                   &
+!sl                         SQUEEZE_RIGHT, 1 )
+endif
+
+if (RECOM_RADTRANS) then
+!     constants
+      pid = DACOS(-1.0D0)
+      radd = 180.0D0/pid
+endif
+
+!sl      _END_MASTER(myThid)
+!sl     endif
+
+!Sl#endif /* RECOM_WAVEBANDS */
+
+      return
+      end subroutine wavebands_init_fixed
+
+
+  SUBROUTINE WAVEBANDS_INIT_VARI(mype)
+       implicit none
+!     == Global variables ===
+!#include "SIZE.h"
+!#include "SPECTRAL_SIZE.h"
+!#if defined(__RECOM_WAVEBANDS)
+!#include "WAVEBANDS_PARAMS.h"
+!#endif
+!     !INPUT/OUTPUT PARAMETERS:
+!     == Routine arguments ==
+!     myThid     :: my Thread Id number
+!sl       INTEGER   :: myThid
+       integer, intent(in) :: mype         ! MPI rank
+!CEOP
+
+!sl#if defined(__RECOM_WAVEBANDS)
+
+!     !FUNCTIONS:
+!      LOGICAL MASTER_CPU_THREAD
+!      EXTERNAL MASTER_CPU_THREAD
+
+!     !LOCAL VARIABLES:
+!     == Local variables ==
+!       INTEGER npmax
+!       _RL outfile(2,tlam)
+!       _RL outfile_ps(2,tlam)
+
+       INTEGER :: np,nl,i,ilam, nap
+!sl locals for the spectral PI-curve slope (see the block at the end of this routine)
+       Real(kind=8) :: mQY, mQY_dia, mQY_cocco, mQY_phaeo
+       Real(kind=8) :: cu_area_phy, cu_area_dia, cu_area_cocco, cu_area_phaeo
+
+!         datafile has 1=small phyto, 2=diatoms, 3=coccos, 4=Phaeocystis.
+!sl Only the types the file supplied; the rest stay 0, which is what the
+!sl ap_type(n).eq.0 fallbacks below test for.
+          ap_type = 0
+          do nap=1, nabp_read
+              ap_type(nap) = nap
+          enddo
+
+!SL we have to extend to account for more PFTs
+!SL consider a loop
+!       npmax = 4
+!          do nap=1, tnabp
+!          if (ap_type(np).eq.1) then
+
+           do i = 1,tlam
+              aphy_chl(i) = ap(1,i)
+              aphy_chl_ps(i) = ap_ps(1,i)
+if (RECOM_RADTRANS) then
+              bphy_chl(i) = bp(1,i)
+if (DAR_NONSPECTRAL_BACKSCATTERING_RATIO) then
+              bbphy_chl(i) = bp(1,i)*darwin_bbphy(1)
+else
+              bbphy_chl(i) = bbp(1,i)
+endif
+endif
+!           enddo
+!          endif
+        
+!          if (ap_type(np).eq.2) then
+!           do i = 1,tlam
+
+              aphy_chl_dia(i) = ap(2,i)
+              aphy_chl_ps_dia(i) = ap_ps(2,i)
+if (RECOM_RADTRANS) then
+              bphy_chl_dia(i) = bp(2,i)
+if (DAR_NONSPECTRAL_BACKSCATTERING_RATIO) then
+              bbphy_chl_dia(i) = bp(2,i) * darwin_bbphy(2)
+else
+              bbphy_chl_dia(i) = bbp(2,i)
+endif
+endif      
+              if (enable_coccos) then
+              aphy_chl_cocco(i) = ap(3,i)
+!sl was ap_ps(2,i): the coccolithophore PS-pigment absorption was reading the
+!sl diatom column, so aphy_chl_ps_cocco equalled aphy_chl_ps_dia.
+              aphy_chl_ps_cocco(i) = ap_ps(3,i)
+if (RECOM_RADTRANS) then
+              bphy_chl_cocco(i) = bp(3,i)
+if (DAR_NONSPECTRAL_BACKSCATTERING_RATIO) then
+!sl was darwin_bbphy(2), the diatom ratio, for the same copy-paste reason.
+              bbphy_chl_cocco(i) = bp(3,i) * darwin_bbphy(3)
+else
+              bbphy_chl_cocco(i) = bbp(3,i)
+endif
+endif      
+              aphy_chl_phaeo(i) = ap(4,i)
+              aphy_chl_ps_phaeo(i) = ap_ps(4,i)
+if (RECOM_RADTRANS) then
+              bphy_chl_phaeo(i) = bp(4,i)
+if (DAR_NONSPECTRAL_BACKSCATTERING_RATIO) then
+              bbphy_chl_phaeo(i) = bp(4,i) * darwin_bbphy(4)
+else
+              bbphy_chl_phaeo(i) = bbp(4,i)
+endif
+endif      
+              endif
+           enddo
+!          endif  
+!         enddo
+
+!SL we have to extend to account for more PFTs (cocco and phaeo)
+          if(ap_type(1).eq.0) then
+           do i=1,tlam
+           aphy_chl(i) = 9.9d2
+           aphy_chl_ps(i) = 9.9d2
+if (RECOM_RADTRANS) then
+           bphy_chl(i) = 9.9d2
+           bbphy_chl(i) = 9.9d2
+endif
+           enddo
+          endif
+          if(ap_type(2).eq.0) then
+           do i=1,tlam
+           aphy_chl_dia(i) = 8.9d2
+           aphy_chl_ps_dia(i) = 8.9d2
+if (RECOM_RADTRANS) then
+           bphy_chl_dia(i) = 8.9d2
+           bbphy_chl_dia(i) = 8.9d2
+endif
+           enddo
+          endif
+          if (enable_coccos) then
+          if(ap_type(3).eq.0) then
+           do i=1,tlam
+           aphy_chl_cocco(i) = 8.9d2
+           aphy_chl_ps_cocco(i) = 8.9d2
+if (RECOM_RADTRANS) then
+           bphy_chl_cocco(i) = 8.9d2
+           bbphy_chl_cocco(i) = 8.9d2
+endif
+           enddo
+          endif
+          if(ap_type(4).eq.0) then
+           do i=1,tlam
+           aphy_chl_phaeo(i) = 8.9d2
+           aphy_chl_ps_phaeo(i) = 8.9d2
+if (RECOM_RADTRANS) then
+           bphy_chl_phaeo(i) = 8.9d2
+           bbphy_chl_phaeo(i) = 8.9d2
+endif
+           enddo
+          endif          
+          endif        
+!#endif /* RECOM_WAVEBANDS */
+
+!-----------------------------------------------------------------------
+! Spectral slope of the PI curve: alphachl_nl = mQY * aphy_chl_ps.
+! Ported from MITgcm/Darwin recom_init_vari.F (the block around its call to
+! WAVEBANDS_INIT_VARI). Without it alphachl_nl stays zero, so alpha_I in
+! recom_sms is zero, the guard 'alpha_I .ge. tiny' fails and Cphot is forced
+! to zero -- i.e. no photosynthesis at all in a __RECOM_WAVEBANDS build.
+! Must stay at the END of this routine: it consumes aphy_chl_ps(_dia), which
+! is filled above.
+!-----------------------------------------------------------------------
+      mQY       = 0.d0
+      mQY_dia   = 0.d0
+      mQY_cocco = 0.d0
+      mQY_phaeo = 0.d0
+      do nl = 1,tlam
+         mQY       = mQY       + ((QYmax       / real(tlam,8)) / WtouEins(nl))
+         mQY_dia   = mQY_dia   + ((QYmax_d     / real(tlam,8)) / WtouEins(nl))
+         mQY_cocco = mQY_cocco + ((QYmax_cocco / real(tlam,8)) / WtouEins(nl))
+         mQY_phaeo = mQY_phaeo + ((QYmax_phaeo / real(tlam,8)) / WtouEins(nl))
+      end do
+      mQY       = max(tiny, mQY)
+      mQY_dia   = max(tiny, mQY_dia)
+      mQY_cocco = max(tiny, mQY_cocco)
+      mQY_phaeo = max(tiny, mQY_phaeo)
+
+      do nl = 1,tlam
+         alphachl_nl(nl)     = mQY     * aphy_chl_ps(nl)
+         alphachl_nl_dia(nl) = mQY_dia * aphy_chl_ps_dia(nl)
+      end do
+!sl Same treatment for the two extra PFTs; without it alphachl_nl_cocco/_phaeo
+!sl stay zero, the 'alpha_I_cocco .ge. tiny' guards in recom_sms fail and
+!sl coccolithophore/Phaeocystis photosynthesis is identically zero -- the same
+!sl bug that was fixed for aphy/dia in a374f8d8.
+      if (enable_coccos) then
+         do nl = 1,tlam
+            alphachl_nl_cocco(nl) = mQY_cocco * aphy_chl_ps_cocco(nl)
+            alphachl_nl_phaeo(nl) = mQY_phaeo * aphy_chl_ps_phaeo(nl)
+         end do
+      else
+         alphachl_nl_cocco = 0.d0
+         alphachl_nl_phaeo = 0.d0
+      end if
+
+! Waveband-width weighted mean, used for the Ek diagnostic in recom_sms.
+! Deliberate deviation from upstream: it writes
+! cu_area_phy = cu_area + wb_width(nl)*alphachl_nl(nl) inside the loop with
+! cu_area never updated, so only the last waveband survives; accumulate here.
+      cu_area_phy   = 0.d0
+      cu_area_dia   = 0.d0
+      cu_area_cocco = 0.d0
+      cu_area_phaeo = 0.d0
+      do nl = 1,tlam
+         cu_area_phy   = cu_area_phy   + wb_width(nl) * alphachl_nl(nl)
+         cu_area_dia   = cu_area_dia   + wb_width(nl) * alphachl_nl_dia(nl)
+         cu_area_cocco = cu_area_cocco + wb_width(nl) * alphachl_nl_cocco(nl)
+         cu_area_phaeo = cu_area_phaeo + wb_width(nl) * alphachl_nl_phaeo(nl)
+      end do
+      if (wb_totalWidth .gt. 0.d0) then
+         alpha_mean       = cu_area_phy   / wb_totalWidth
+         alpha_mean_dia   = cu_area_dia   / wb_totalWidth
+         alpha_mean_cocco = cu_area_cocco / wb_totalWidth
+         alpha_mean_phaeo = cu_area_phaeo / wb_totalWidth
+      else
+         alpha_mean       = 0.d0
+         alpha_mean_dia   = 0.d0
+         alpha_mean_cocco = 0.d0
+         alpha_mean_phaeo = 0.d0
+      end if
+
+      if (mype==0) then
+         WRITE(*,*) 'wavebands_init_vari: wb_totalWidth  = ', wb_totalWidth
+         WRITE(*,*) 'wavebands_init_vari: mQY, mQY_dia   = ', mQY, mQY_dia
+         WRITE(*,*) 'wavebands_init_vari: alphachl_nl    = ', alphachl_nl
+         WRITE(*,*) 'wavebands_init_vari: alpha_mean/dia = ', alpha_mean, alpha_mean_dia
+         if (enable_coccos) then
+            WRITE(*,*) 'wavebands_init_vari: mQY cocco/phaeo   = ', mQY_cocco, mQY_phaeo
+            WRITE(*,*) 'wavebands_init_vari: alphachl_nl_cocco = ', alphachl_nl_cocco
+            WRITE(*,*) 'wavebands_init_vari: alphachl_nl_phaeo = ', alphachl_nl_phaeo
+            WRITE(*,*) 'wavebands_init_vari: alpha_mean c/p    = ', alpha_mean_cocco, alpha_mean_phaeo
+         end if
+      end if
+
+  return
+  end SUBROUTINE WAVEBANDS_INIT_VARI
+  SUBROUTINE MONOD_ACDOM(                                        &
+!if (RECOM_CDOM) then
+                             Nn, cdomlocal,                      &
+!else
+!                             P_chl, aclocal, awlocal,            &
+!endif
+                             acdomlocal                         &
+                             , mype)
+      IMPLICIT NONE
+!     === Global variables ===
+!#include "SIZE.h"
+!#include "EEPARAMS.h"
+!#include "PARAMS.h"
+!#include "SPECTRAL_SIZE.h"
+!#if defined(__RECOM_WAVEBANDS)
+!#include "WAVEBANDS_PARAMS.h"
+!#endif
+      integer, intent(in) :: mype         ! MPI rank
+      INTEGER      :: Nn
+! !INPUT PARAMETERS: ===================================================
+!     P_chl      :: Chlorophyll per species and level
+!     ac         :: absorption spectra for each phtyo (chl normalised)
+!     awlocal    :: absoprtion spectra for water (m-1)
+!     myTime     :: Current time in simulation
+!     myIter     :: Current iteration number in simulation
+!     myThid     :: My Thread Id number
+
+! !OUTPUT PARAMETERS: ==================================================
+!     acdom      :: absortpion spectra for CDOM per level
+      real(kind=8), dimension(Nn)      :: cdomlocal
+      real(kind=8), dimension(Nn,tlam) ::acdomlocal
+!sl      INTEGER      :: myThid
+!     !LOCAL VARIABLES:
+!     == Local variables ==
+      INTEGER      :: k, np, ilam
+      real(kind=8) ::  actot450, atot450      
+!EOP
+if (RECOM_CALC_ACDOM) then
+
+!sl!     !LOCAL VARIABLES:
+!sl!     == Local variables ==
+!sl      INTEGER      :: npmax
+!sl      INTEGER      :: k, np, ilam
+!sl      real(kind=8) ::  actot450, atot450
+
+! use cdom-like tracer
+      do k = 1,Nn  !Nr
+       do ilam = 1,tlam
+        acdomlocal(k,ilam) = cdomcoeff*cdomlocal(k)*excdom(ilam)
+       enddo
+      enddo
+endif  !/* RECOM_CALC_ACDOM */
+      RETURN
+  end SUBROUTINE MONOD_ACDOM
+  SUBROUTINE MONOD_no_ACDOM(                                     &
+                             Nn,                                 &
+                             P_chl, aclocal, awlocal,            &
+                             acdomlocal                          &
+                             ,npmax, mype)
+      IMPLICIT NONE
+!     === Global variables ===
+!#include "SIZE.h"
+!#include "EEPARAMS.h"
+!#include "PARAMS.h"
+!#include "SPECTRAL_SIZE.h"
+!#if defined(__RECOM_WAVEBANDS)
+!#include "WAVEBANDS_PARAMS.h"
+!#endif
+      integer, intent(in) :: mype         ! MPI rank
+      INTEGER, intent(in) :: npmax
+      INTEGER      :: Nn
+! !INPUT PARAMETERS: ===================================================
+!     P_chl      :: Chlorophyll per species and level
+!     ac         :: absorption spectra for each phtyo (chl normalised)
+!     awlocal    :: absoprtion spectra for water (m-1)
+!     myTime     :: Current time in simulation
+!     myIter     :: Current iteration number in simulation
+!     myThid     :: My Thread Id number
+
+! !OUTPUT PARAMETERS: ==================================================
+!     acdom      :: absortpion spectra for CDOM per level
+      real(kind=8), dimension(npmax,Nn)    :: P_chl
+      real(kind=8), dimension(npmax,tlam)  :: aclocal
+      real(kind=8), dimension(tlam  )  :: awlocal
+      real(kind=8), dimension(Nn,tlam) ::acdomlocal
+!sl      INTEGER      :: myThid
+!     !LOCAL VARIABLES:
+      INTEGER      :: k, np, ilam
+      real(kind=8) ::  actot450, atot450
+!EOP
+if (RECOM_CALC_ACDOM) then
+
+!sl!     !LOCAL VARIABLES:
+!sl!     == Local variables ==
+!sl      INTEGER      :: npmax
+!sl      INTEGER      :: k, np, ilam
+!sl      real(kind=8) ::  actot450, atot450
+! ANNA moved cdom calculation from WG's light.f
+! it's done for RADTRANS and WAVEBANDS_3D
+!sl      npmax = tnabp
+!sl      if (enable_coccos) npmax = 4
+      do k = 1,Nn
+       actot450 = 0.0d0
+       atot450 = 0.0d0
+       do np = 1,npmax
+        actot450 = actot450  + P_chl(np,k) * aclocal(np,nlaCDOM) !nb. n,k swapped from WG
+       enddo
+       atot450 = awlocal(nlaCDOM) + actot450
+       do ilam = 1,tlam
+        acdomlocal(k,ilam) = darwin_aCDOM_fac * atot450 * excdom(ilam)
+       enddo
+      enddo
+!      do nl = 1,tlam
+!       write(6,*)'nl,lam,aw,ac,acdom = ',nl,lam(nl),
+!    *aw(nl),ac(1,nl),acdom(1,nl)
+!      enddo
+! ANNA cdom end
+endif  !/* RECOM_CALC_ACDOM */
+      RETURN
+
+  end SUBROUTINE MONOD_no_ACDOM  
+!--------------------- MONOD_RADTRANS_ITER ---------------------------
+      subroutine MONOD_RADTRANS_ITER(                                  &
+                         Nn,                                           &
+                         H,rmud,Edsf,Essf,a_k,bt_k,bb_k,kmax,niter,    &
+                         Edbot,Esbot,Eubot,Eutop,                      &
+                         tirrq,tirrwq,                                 &
+                         c1out, c2out                                  & 
+                         , mype)
+
+! !DESCRIPTION:
+!
+!  Model of irradiance in the water column.  Accounts for three
+!  irradiance streams:
+!
+!  Edbot = direct downwelling irradiance in W/m2 per waveband
+!
+!  Edbot = direct downwelling irradiance in W/m2 per waveband
+!  Esbot = diffuse downwelling irradiance in W/m2 per waveband
+!  Eubot = diffuse upwelling irradiance in W/m2 per waveband
+!
+!  Propagation is done in energy units, tests are done in quanta,
+!  final is quanta for phytoplankton growth.
+!
+!  The Ed equation is integrated exactly.
+!  Es and Eu are first computed using a truncation to downward-
+!  decreasing modes a la Aas that makes Es continuous.
+!  Then niter alternating upward and downward integrations are performed,
+!  each time using Es at the top and Eu at the bottom of each layer as a
+!  boundary condition.  The boundary condition in the deepest wet layer
+!  is always downward-decreasing modes only.
+!  During upward integrations, Eu is made continuous, during downward
+!  integrations, Es.
+!  At the end, Ed and Es are continuous, but Eu is so only approximately.
+!
+! !USES: ===============================================================
+      IMPLICIT NONE
+!#include "SIZE.h"              /* Nr */
+!#include "SPECTRAL_SIZE.h"     /* tlam */
+!#include "SPECTRAL.h"          /* WtouEin */
+!#include "WAVEBANDS_PARAMS.h"  /* darwin_PAR_ilamLo/Hi
+
+! !INPUT PARAMETERS: ===================================================
+!     H     :: layer thickness (including hFacC!)
+!     rmud  :: inv.cosine of direct (underwater solar) zenith angle
+!     Edsf  :: direct downwelling irradiance below surface per waveband
+!     a_k   :: absorption coefficient per level and waveband (1/m)
+!     bt_k  :: total scattering coefficient per level and waveband (1/m)
+!              = forward + back scattering coefficient
+!     bb_k  :: backscattering coefficient per level and waveband (1/m)
+!     kmax  :: maximum number of layers to compute
+!     niter :: number of up-down iterations after initial Aas integration
+      integer, intent(in) :: mype         ! MPI rank
+      INTEGER                          :: Nn
+      Real(kind=8),dimension(Nn)       :: H
+      Real(kind=8)                     :: rmud
+      Real(kind=8),dimension(tlam)     :: Edsf
+      Real(kind=8),dimension(tlam)     :: Essf
+      Real(kind=8),dimension(Nn,tlam)  :: a_k
+      Real(kind=8),dimension(Nn,tlam)  :: bt_k
+      Real(kind=8),dimension(Nn,tlam)  :: bb_k
+      INTEGER                          :: kmax,niter
+!sl      INTEGER                          :: myThid
+!?                                                                                                                 62,1          18%
+! !OUTPUT PARAMETERS: ==================================================
+!     Edbot    :: direct downwelling irradiance at bottom of layer
+!     Esbot    :: diffuse downwelling irradiance at bottom of layer
+!     Eubot    :: diffuse upwelling irradiance at bottom of layer
+!     tirrq  :: total scalar irradiance at cell center (uEin/m2/s)
+!     tirrwq :: total scalar irradiance at cell center per waveband
+      Real(kind=8),dimension(tlam,Nn)  :: Edbot
+      Real(kind=8),dimension(tlam,Nn)  :: Esbot
+      Real(kind=8),dimension(tlam,Nn)  :: Eubot
+      Real(kind=8),dimension(tlam,Nn)  :: Eutop
+      Real(kind=8),dimension(Nn)       :: tirrq
+      Real(kind=8),dimension(tlam,Nn)  :: tirrwq
+      Real(kind=8),dimension(tlam,Nn)  :: c1out
+      Real(kind=8),dimension(tlam,Nn)  :: c2out
+
+!sl if (RECOM_RADTRANS) then
+
+! !LOCAL VARIABLES: ====================================================
+      INTEGER                          :: k, nl, iter, kbot
+      Real(kind=8),dimension(tlam,Nn)  :: Edtop
+      Real(kind=8),dimension(tlam,Nn)  :: Estop
+      Real(kind=8)  :: Etopwq, Ebotwq
+      Real(kind=8)  :: zd
+      Real(kind=8)  :: rmus,rmuu
+
+!     !LOCAL VARIABLES: ================================================
+      Real(kind=8)  :: cd,au,Bu,Cu
+      Real(kind=8)  :: as,Bs,Cs,Bd,Fd
+      Real(kind=8)  :: bquad,cquad,sqarg
+      Real(kind=8)  :: a1,a2,denom
+      Real(kind=8)  :: c1,c2,tmp,Esnew,Eunew
+      Real(kind=8),dimension(Nn)       :: R2
+      Real(kind=8),dimension(Nn)       :: R1
+      Real(kind=8),dimension(Nn)       :: x
+      Real(kind=8),dimension(Nn)       :: y
+      Real(kind=8),dimension(Nn)       :: expAddr
+      Real(kind=8),dimension(Nn)       :: expAsdr
+      Real(kind=8),dimension(Nn)       :: expmAudr
+      Real(kind=8),dimension(Nn)       :: idenom
+!
+      Real(kind=8)  :: rbot = 0.0 !bottom reflectance (not used)
+      Real(kind=8)  :: rd = 1.5   !these are taken from Ackleson, et al. 1994 (JGR)
+      Real(kind=8)  :: ru = 3.0
+!sl endif      
+!EOP
+if (RECOM_RADTRANS) then
+      rmus = darwin_rmus
+      rmuu = darwin_rmuu
+
+!     find deepest wet layer
+      kbot = MIN(kmax, Nn)   !Nr
+      DO WHILE (H(kbot).EQ.0 .AND. kbot.GT.1)
+        kbot = kbot - 1
+      ENDDO
+
+      DO nl = 1,tlam
+       DO k=1,Nn
+        Edtop(nl,k) = 0.0
+        Estop(nl,k) = 0.0
+        Eutop(nl,k) = 0.0
+        Edbot(nl,k) = 0.0
+        Esbot(nl,k) = 0.0
+        Eubot(nl,k) = 0.0
+        c1out(nl,k) = 0.0
+        c2out(nl,k) = 0.0
+       ENDDO
+       IF (Edsf(nl) .GE. darwin_radmodThresh .OR.             &
+           Essf(nl) .GE. darwin_radmodThresh) THEN
+        DO k=1,kbot
+         zd = H(k)
+         cd = (a_k(k,nl)+bt_k(k,nl))*rmud
+         au = a_k(k,nl)*rmuu
+         Bu = ru*bb_k(k,nl)*rmuu
+         Cu = au+Bu
+         as = a_k(k,nl)*rmus
+         Bs = rd*bb_k(k,nl)*rmus
+         Cs = as+Bs
+         Bd = bb_k(k,nl)*rmud
+         Fd = (bt_k(k,nl)-bb_k(k,nl))*rmud
+         bquad = Cs - Cu
+         cquad = Bs*Bu - Cs*Cu
+         sqarg = bquad*bquad - 4.0*cquad
+         a1 = 0.5*(-bquad + sqrt(sqarg))
+         a2 = 0.5*(-bquad - sqrt(sqarg))  ! K of Aas
+         R1(k) = (a1+Cs)/Bu
+         R2(k) = (a2+Cs)/Bu
+         denom = (cd-Cs)*(cd+Cu) + Bs*Bu
+         x(k) = -((cd+Cu)*Fd+Bu*Bd)/denom
+         y(k) = (-Bs*Fd+(cd-Cs)*Bd)/denom
+         expAddr(k) = exp(-cd*zd)
+         expmAudr(k) = exp(-a1*zd)
+         expAsdr(k) = exp(a2*zd)
+         idenom(k) = 1./(R1(k)-R2(k)*expAsdr(k)*expmAudr(k))
+        ENDDO
+
+!     integrate Ed equation first
+        Edtop(nl,1) = Edsf(nl)
+        DO k=1,kbot-1
+         Edbot(nl,k) = Edtop(nl,k)*expAddr(k)
+         Edtop(nl,k+1) = Edbot(nl,k)
+        ENDDO
+        Edbot(nl,kbot) = Edtop(nl,kbot)*expAddr(kbot)
+
+!     start with Aas solution (no increasing mode)
+        Estop(nl,1) = Essf(nl)
+        DO k=1,kbot-1
+         c2 = Estop(nl,k) - x(k)*Edtop(nl,k)
+         Estop(nl,k+1) = MAX(0., c2*expAsdr(k) + x(k)*Edbot(nl,k))
+         Eubot(nl,k) = MAX(0., R2(k)*c2*expAsdr(k) + y(k)*Edbot(nl,k))
+         Eutop(nl,k) = R2(k)*c2 + y(k)*Edtop(nl,k)
+         c1out(nl,k) = 0.
+         c2out(nl,k) = c2
+        ENDDO
+!       Aas b.c. in bottom layer
+        c2 = Estop(nl,kbot) - x(kbot)*Edtop(nl,kbot)
+        Eutop(nl,kbot) = R2(kbot)*c2 + y(kbot)*Edtop(nl,kbot)
+        c1out(nl,kbot) = 0.
+        c2out(nl,kbot) = c2
+
+!     improve solution iteratively
+        DO iter=1,niter
+!        bottom boundary condition
+         Eubot(nl,kbot-1) = Eutop(nl,kbot)
+
+         !SL Remember/double check declare kbot
+         DO k=kbot-1,2,-1
+!         compute Eubot(k-1) from Estop(k) and Eubot(k)
+          tmp = Estop(nl,k)-x(k)*Edtop(nl,k)
+          c1 = (Eubot(nl,k)-R2(k)*expAsdr(k)*tmp-y(k)*Edbot(nl,k))       &
+               *idenom(k)
+          c2 = (R1(k)*tmp + y(k)*expmAudr(k)*Edbot(nl,k)                 &
+               - expmAudr(k)*Eubot(nl,k))*idenom(k)                     
+          Eunew = R2(k)*c2 + R1(k)*expmAudr(k)*c1 + y(k)*Edtop(nl,k)
+          Eubot(nl,k-1) = MAX(0., Eunew)
+         ENDDO
+         DO k=1,kbot-1
+!         compute Estop(k+1) from Estop(k) and Eubot(k)
+          tmp = Estop(nl,k) - x(k)*Edtop(nl,k)
+          c1 = (Eubot(nl,k)-R2(k)*expAsdr(k)*tmp-y(k)*Edbot(nl,k))       &
+                *idenom(k)
+          c2 = (R1(k)*tmp + y(k)*expmAudr(k)*Edbot(nl,k)                 &
+                - expmAudr(k)*Eubot(nl,k))*idenom(k)
+          Esnew = expAsdr(k)*c2 + c1 + x(k)*Edbot(nl,k)
+          Estop(nl,k+1) = MAX(0., Esnew)
+          Eutop(nl,k) = R2(k)*c2+R1(k)*expmAudr(k)*c1+y(k)*Edtop(nl,k)
+          c1out(nl,k) = c1
+          c2out(nl,k) = c2
+         ENDDO
+!        Aas b.c. in bottom layer
+         c2 = Estop(nl,kbot) - x(kbot)*Edtop(nl,kbot)
+         Eutop(nl,kbot) = R2(kbot)*c2 + y(kbot)*Edtop(nl,kbot)
+         c1out(nl,kbot) = 0.
+         c2out(nl,kbot) = c2
+!       enddo iter
+        ENDDO
+
+!     compute missing fields
+!       uses c2 from previous iteration!
+        Esbot(nl,kbot) = c2*expAsdr(kbot) + x(kbot)*Edbot(nl,kbot)
+        Eubot(nl,kbot) = R2(kbot)*c2*expAsdr(kbot)                       &
+                       + y(kbot)*Edbot(nl,kbot)
+
+
+!       Es is continuous now (unless negative...)
+        DO k=1,kbot-1
+         Esbot(nl,k) = Estop(nl,k+1)
+        ENDDO
+!      endif thresh
+       ENDIF
+       DO k = 1,Nn
+if (DAR_RADTRANS_RMUS_PAR) then
+        Etopwq = (Edtop(nl,k)+Estop(nl,k)+Eutop(nl,k))*WtouEins(nl)
+        Ebotwq = (Edbot(nl,k)+Esbot(nl,k)+Eubot(nl,k))*WtouEins(nl)
+!       interpolate and convert to scalar using rmus only!?
+        tirrwq(nl,k) = sqrt(Etopwq*Ebotwq)*rmus
+else
+!       convert to scalar irradiance in quanta
+        Etopwq = (rmud*Edtop(nl,k)+rmus*Estop(nl,k)+rmuu*Eutop(nl,k)) &
+               * WtouEins(nl)
+        Ebotwq = (rmud*Edbot(nl,k)+rmus*Esbot(nl,k)+rmuu*Eubot(nl,k)) &
+               * WtouEins(nl)
+!       and interpolate
+        tirrwq(nl,k) = sqrt(Etopwq*Ebotwq)
+endif
+       ENDDO
+
+!     enddo nl
+      ENDDO
+
+      DO k = 1,Nn
+!  sum PAR range
+       tirrq(k) = 0.0
+       DO nl = darwin_PAR_ilamLo,darwin_PAR_ilamHi
+        tirrq(k) = tirrq(k) + tirrwq(nl,k)
+       ENDDO
+      ENDDO
+!
+endif !/* RECOM_RADTRANS */
+
+      return
+      end subroutine MONOD_RADTRANS_ITER
+!======================================================================
+! !ROUTINE: MONOD_RADTRANS_DIRECT
+! !INTERFACE: ==========================================================
+      subroutine MONOD_RADTRANS_DIRECT(                              &
+                         Nn,                                         &
+                         H,rmud,Edsf,Essf,a_k,bt_k,bb_k,kmax,        &
+                         Edbot,Esbot,Eubot,Estop,Eutop,              &
+                         tirrq,tirrwq,                               &
+                         amp1, amp2                                  &
+                         , mype)
+! !DESCRIPTION:
+!
+!  Model of irradiance in the water column.  Accounts for three
+!  irradiance streams [Ackleson, Balch, Holligan, JGR, 1994],
+!
+!  Edbot = direct downwelling irradiance in W/m2 per waveband
+!  Esbot = diffuse downwelling irradiance in W/m2 per waveband
+!  Eubot = diffuse upwelling irradiance in W/m2 per waveband
+!
+!  all defined at the bottom of each layer.  Also computed are Estop,
+!  Eutop at the top of each layer which should be very close to Esbot,
+!  Eubot of the layer above.
+!
+!  The Ed equation is integrated exactly, Es and Eu are computed by
+!  solving a set of linear equation for the amplitudes in the exact
+!  solution [see, e.g., Kylling, Stamnes, Tsay, JAC, 1995].
+!  The boundary condition in the deepest wet layer is
+!  downward-decreasing modes only (i.e., zero irradiance at infinite
+!  depth, assuming the optical properties of the last layer).
+!
+!  Also computed are scalar radiance and PAR at the grid cell center
+!  (both in uEin/m2/s).
+!
+! !USES: ===============================================================
+      IMPLICIT NONE
+!#include "SIZE.h"              /* Nr */
+!#include "EEPARAMS.h"
+!#include "SPECTRAL_SIZE.h"     /* tlam */
+!#include "SPECTRAL.h"          /* WtouEin */
+!#include "WAVEBANDS_PARAMS.h"  /* darwin_PAR_ilamLo/Hi
+!                              /*   darwin_radmodThresh */
+!                              /*   darwin_rmus darwin_rmuu */
+
+! !INPUT PARAMETERS: ===================================================
+!     H     :: layer thickness (including hFacC!)
+!     rmud  :: inv.cosine of direct (underwater solar) zenith angle
+!     Edsf  :: direct downwelling irradiance below surface per waveband
+!     Essf  :: diffuse downwelling irradiance below surface per waveband
+!     a_k   :: absorption coefficient per level and waveband (1/m)
+!     bt_k  :: total scattering coefficient per level and waveband (1/m)
+!              = forward + back scattering coefficient
+!     bb_k  :: backscattering coefficient per level and waveband (1/m)
+!     kmax  :: maximum number of layers to compute
+      integer, intent(in) :: mype         ! MPI rank
+      Real(kind=8),dimension(Nn)       :: H
+      Integer                          :: Nn
+      Real(kind=8)                     :: rmud
+      Real(kind=8),dimension(tlam)     :: Edsf
+      Real(kind=8),dimension(tlam)     :: Essf
+      Real(kind=8),dimension(Nn,tlam)  :: a_k
+      Real(kind=8),dimension(Nn,tlam)  :: bt_k
+      Real(kind=8),dimension(Nn,tlam)  :: bb_k
+      INTEGER                          :: kmax
+!sl      INTEGER                          :: myThid
+
+! !OUTPUT PARAMETERS: ==================================================
+!     Edbot  :: direct downwelling irradiance at bottom of layer
+!     Esbot  :: diffuse downwelling irradiance at bottom of layer
+!     Eubot  :: diffuse upwelling irradiance at bottom of layer
+!     Estop  :: diffuse downwelling irradiance at top of layer
+!     Eutop  :: diffuse upwelling irradiance at top of layer
+!     tirrq  :: total scalar irradiance at cell center (uEin/m2/s)
+!     tirrwq :: total scalar irradiance at cell center per waveband
+!     amp1   :: amplitude of downward increasing mode
+!     amp2   :: amplitude of downward decreasing mode
+      Real(kind=8),dimension(tlam,Nn)   :: Edbot
+      Real(kind=8),dimension(tlam,Nn)   :: Esbot
+      Real(kind=8),dimension(tlam,Nn)   :: Eubot
+      Real(kind=8),dimension(tlam,Nn)   :: Estop
+      Real(kind=8),dimension(tlam,Nn)   :: Eutop
+      Real(kind=8),dimension(Nn)        :: tirrq
+      Real(kind=8),dimension(tlam,Nn)   :: tirrwq
+      Real(kind=8),dimension(tlam,Nn)   :: amp1
+      Real(kind=8),dimension(tlam,Nn)   :: amp2
+!CEOP
+
+!sl if (RECOM_RADTRANS) then
+
+! !LOCAL VARIABLES: ====================================================
+      INTEGER                           :: k, nl, kbot
+      Real(kind=8),dimension(tlam,Nn)   :: Edtop
+      Real(kind=8)                      :: Etopwq, Ebotwq
+      Real(kind=8)                      :: zd
+      Real(kind=8)                      :: rmus,rmuu
+      Real(kind=8)                      :: cd,au,Bu,Cu
+      Real(kind=8)                      :: as,Bs,Cs,Bd,Fd
+      Real(kind=8)                      :: bquad,D
+      Real(kind=8)                      :: kappa1,kappa2,denom
+      Real(kind=8)                      :: c1,c2
+      Real(kind=8),dimension(Nn)        :: r2
+      Real(kind=8),dimension(Nn)        :: r1
+      Real(kind=8),dimension(Nn)        :: x
+      Real(kind=8),dimension(Nn)        :: y
+      Real(kind=8),dimension(Nn)        :: ed
+      Real(kind=8),dimension(Nn)        :: e2
+      Real(kind=8),dimension(Nn)        :: e1
+      Real(kind=8),dimension(2*Nn)      :: a3d(2*Nn)
+      Real(kind=8),dimension(2*Nn)      :: b3d(2*Nn)
+      Real(kind=8),dimension(2*Nn)      :: c3d(2*Nn)
+      Real(kind=8),dimension(2*Nn)      :: y3d(2*Nn)
+      Real(kind=8)                      :: rd = 1.5d0  !these are taken from Ackleson, et al. 1994 (JGR)
+      Real(kind=8)                      :: ru = 3.0d0
+      Real(kind=8)                      :: rt_t0_td    !sl tridiagonal-solve timer
+!sl endif
+if (RECOM_RADTRANS) then      
+      rmus = darwin_rmus
+      rmuu = darwin_rmuu
+!     find deepest wet layer
+      kbot = MIN(kmax, Nn)
+      DO WHILE (H(kbot).EQ.0 .AND. kbot.GT.1)
+        kbot = kbot - 1
+      ENDDO
+
+      IF (H(kbot).EQ.0) kbot = kbot - 1
+
+      DO nl = 1,tlam
+       DO k=1,Nn
+        Edtop(nl,k) = 0.0
+        Estop(nl,k) = 0.0
+        Eutop(nl,k) = 0.0
+        Edbot(nl,k) = 0.0
+        Esbot(nl,k) = 0.0
+        Eubot(nl,k) = 0.0
+        amp1(nl,k) = 0.0
+        amp2(nl,k) = 0.0
+       ENDDO
+      ENDDO
+      IF (kbot.GT.0) THEN
+!sl      if (mype==71) write(*,*) ' Edsf, Essf  = ', Edsf, Essf, darwin_radmodThresh        
+       DO nl=1,tlam
+        IF (Edsf(nl) .GE. darwin_radmodThresh .OR.        &
+            Essf(nl) .GE. darwin_radmodThresh) THEN
+         DO k=1,kbot
+          zd = H(k)
+          cd = (a_k(k,nl)+bt_k(k,nl))*rmud
+          au = a_k(k,nl)*rmuu
+          Bu = ru*bb_k(k,nl)*rmuu
+          Cu = au+Bu
+          as = a_k(k,nl)*rmus
+          Bs = rd*bb_k(k,nl)*rmus
+          Cs = as+Bs
+          Bd = bb_k(k,nl)*rmud
+          Fd = (bt_k(k,nl)-bb_k(k,nl))*rmud
+          bquad = Cs + Cu
+          D = 0.5*(bquad + SQRT(bquad*bquad - 4.0*Bs*Bu))
+          kappa1 = D - Cs
+          kappa2 = Cs - Bs*Bu/D  ! == D - Cu
+          r1(k) = Bu/D
+          r2(k) = Bs/D
+          denom = (cd-Cs)*(cd+Cu) + Bs*Bu
+          x(k) = -((cd+Cu)*Fd+Bu*Bd)/denom
+          y(k) = (-Bs*Fd+(cd-Cs)*Bd)/denom
+          ed(k) = EXP(-cd*zd)
+          e1(k) = EXP(-kappa1*zd)
+          e2(k) = EXP(-kappa2*zd)
+         ENDDO
+!sl         if (mype==71) write(*,*) ' kappa1 = ', kappa1, zd, ed, 'kappa2 = ', kappa2, e1
+
+! integrate Ed equation first
+         Edtop(nl,1) = Edsf(nl)
+         DO k=1,kbot-1
+          Edbot(nl,k) = Edtop(nl,k)*ed(k)
+          Edtop(nl,k+1) = Edbot(nl,k)
+         ENDDO
+         Edbot(nl,kbot) = Edtop(nl,kbot)*ed(kbot)
+
+! setup tridiagonal matrix of continuity/boundary conditions
+! variables: c2(1), c1(1), c2(2), ..., c1(kbot)
+! a3d,b3d,c3d: lower, main and upper diagonal
+! y3d: right-hand side
+!
+! top b.c.: c2(1) + e1(1)*r1(1)*c1(1) = Essf - x(1)*Edsf
+         a3d(1) = 0.0d0        ! not used
+         b3d(1) = 1.           ! A(1,1)*c2(1)
+         c3d(1) = e1(1)*r1(1)  ! A(1,2)*c1(1)
+         y3d(1) = Essf(nl) - x(1)*Edsf(nl)
+! continuity at layer boundaries
+         DO k=1, kbot-1
+           a3d(2*k) = (1. - r2(k)*r1(k+1))*e2(k)  !   A(2k,2k-1)*c2(k)
+           b3d(2*k) = r1(k) - r1(k+1)             ! + A(2k,2k  )*c1(k)
+           c3d(2*k) = -1. + r2(k+1)*r1(k+1)       ! + A(2k,2k+1)*c2(k+1)
+           y3d(2*k)= (x(k+1) - x(k) - r1(k+1)*(y(k+1)-y(k)))*Edbot(nl,k)
+           a3d(2*k+1) = 1 - r1(k)*r2(k)                !   A(2k+1,2k  )*c1(k)
+           b3d(2*k+1) = r2(k) - r2(k+1)                ! + A(2k+1,2k+1)*c2(k+1)
+           c3d(2*k+1) = (-1. + r1(k+1)*r2(k))*e1(k+1)  ! + A(2k+1,2k+2)*c1(k+1)
+           y3d(2*k+1)= (y(k+1) - y(k) - r2(k)*(x(k+1)-x(k)))*Edbot(nl,k)
+         ENDDO
+! bottom boundary condition: c1 = 0
+         a3d(2*kbot) = 0.0d0  !   A(2*kbot,2*kbot-1)*c2(kbot)
+         b3d(2*kbot) = 1.0d0  ! + A(2*kbot,2*kbot  )*c1(kbot)
+         c3d(2*kbot) = 0.0d0  ! not used
+         y3d(2*kbot) = 0.0d0  ! = 0
+!sl         if (mype==71) write(*,*) 'MONOD_RADTRANS_DIRECT, a3d = ', a3d
+!sl         if (mype==71) write(*,*) 'MONOD_RADTRANS_DIRECT, b3d = ', b3d
+!sl         if (mype==71) write(*,*) 'MONOD_RADTRANS_DIRECT, c3d = ', c3d
+
+         rt_t0_td = spec_wtime()
+         CALL SOLVE_TRIDIAGONAL_PIVOT(Nn,a3d,b3d,c3d,y3d,2*kbot)
+         rt_spec_tridiag = rt_spec_tridiag + (spec_wtime() - rt_t0_td)
+         n_spec_tridiag  = n_spec_tridiag + 1_8
+!sl         if (mype==71) write(*,*) 'MONOD_RADTRANS_DIRECT, y3d = ', y3d
+
+! compute irradiances
+         DO k=1,kbot
+          c2 = y3d(2*k-1)
+          c1 = y3d(2*k)
+          Estop(nl,k) = c2 + r1(k)*e1(k)*c1 + x(k)*Edtop(nl,k)
+          Esbot(nl,k) = e2(k)*c2 + r1(k)*c1 + x(k)*Edbot(nl,k)
+          Eutop(nl,k) = r2(k)*c2 + e1(k)*c1 + y(k)*Edtop(nl,k)
+
+          Eubot(nl,k) = r2(k)*e2(k)*c2 + c1 + y(k)*Edbot(nl,k)
+          amp1(nl,k) = c1
+          amp2(nl,k) = c2
+         ENDDO
+         IF (kbot .LT. Nn) THEN
+          Estop(nl,kbot+1) = Esbot(nl,kbot)
+          Eutop(nl,kbot+1) = Eubot(nl,kbot)
+         ENDIF
+
+!       endif thresh
+        ENDIF
+
+        DO k = 1,Nn
+! convert to scalar irradiance in quanta
+if (DAR_RADTRANS_RMUS_PAR) then
+!        use rmus for all 3 components (?)
+         Etopwq = (Edtop(nl,k)+Estop(nl,k)+Eutop(nl,k))*WtouEins(nl)
+         Ebotwq = (Edbot(nl,k)+Esbot(nl,k)+Eubot(nl,k))*WtouEins(nl)
+         tirrwq(nl,k) = SQRT(Etopwq*Ebotwq)*rmus
+else
+!        use appropriate average cosine for each component
+         Etopwq = (rmud*Edtop(nl,k)+rmus*Estop(nl,k)+rmuu*Eutop(nl,k)) &
+                  *WtouEins(nl)
+         Ebotwq = (rmud*Edbot(nl,k)+rmus*Esbot(nl,k)+rmuu*Eubot(nl,k)) &
+                  *WtouEins(nl)
+!        and interpolate
+         tirrwq(nl,k) = SQRT(Etopwq*Ebotwq)
+endif
+        ENDDO
+
+!      enddo nl
+       ENDDO
+!     endif kbot.gt.0
+      ENDIF
+
+      DO k = 1,Nn
+! sum PAR range
+       tirrq(k) = 0.0
+       DO nl = darwin_PAR_ilamLo,darwin_PAR_ilamHi
+        tirrq(k) = tirrq(k) + tirrwq(nl,k)
+       ENDDO
+      ENDDO
+      !sl write(*,*) 'end MONOD_RADTRANS_DIRECT, tirrq(1) = ', tirrq(1),tirrq(Nn)
+
+endif !/* RECOM_RADTRANS */
+
+      return
+      end subroutine MONOD_RADTRANS_DIRECT
+!BOP
+
+!!-----------------------------------------------------------------------------
+!$Header: /u/gcmpack/MITgcm_contrib/darwin2/pkg/monod/solve_tridiagonal_pivot.F,v 1.1 2012/08/23 21:53:00 jahn Exp $
+      SUBROUTINE SOLVE_TRIDIAGONAL_PIVOT(                  &
+                           Nn,                             &                      
+                           a3d, b3d, c3d,                  &
+                           y3d,                            &
+                           n)                      
+!     !DESCRIPTION: \bv
+!     *==========================================================*
+!     | S/R SOLVE_TRIDIAGONAL_PIVOT
+!     | o Solve a tri-diagonal system A*X=Y (dimension n)
+!     |   by Gaussian elimination with pivoting
+!     *==========================================================*
+!     | o input arrays are overwritten
+!     | o result is returned in y3d
+!     *==========================================================*
+!     \ev
+
+!     !USES:
+      IMPLICIT NONE
+!     == Global data ==
+!#include "SIZE.h"
+
+!     !INPUT/OUTPUT PARAMETERS:
+!     == Routine Arguments ==
+!     a3d(2:n)   :: matrix lower diagnonal
+!     b3d(1:n)   :: matrix main  diagnonal
+!     c3d(1:n-1) :: matrix upper diagnonal
+!     y3d(1:n)   :: Input = Y vector ; Output = X = solution of A*X=Y
+!sl      integer, intent(in) :: mype         ! MPI rank
+      integer                             :: Nn
+      Real(kind=8),dimension(2*Nn)        :: a3d
+      Real(kind=8),dimension(2*Nn)        :: b3d
+      Real(kind=8),dimension(2*Nn)        :: c3d
+      Real(kind=8),dimension(2*Nn)        :: y3d
+      INTEGER                             :: n       !sl ,myThid
+!EOP
+
+!     !LOCAL VARIABLES:
+!     == Local variables ==
+      INTEGER                             :: k
+      Real(kind=8)                        :: tmpc, tmpy
+      Real(kind=8)                        :: recVar
+!     d3d(1:Nr-2) :: second upper diagnonal, generated by pivoting
+      Real(kind=8),dimension(2*Nn)        :: d3d
+
+      c3d(n) = 0.
+
+! eliminate lower diagonal
+!     only c3d, d3d and y3d are modified and will be used later
+      DO k=1,n-1
+        IF(ABS(b3d(k)).GE.ABS(a3d(k+1)))THEN
+!         scale current row, subtract from next
+          recVar = 1. / b3d(k)
+          c3d(k) = c3d(k)*recVar
+          y3d(k) = y3d(k)*recVar
+          b3d(k+1) = b3d(k+1) - a3d(k+1)*c3d(k)
+          y3d(k+1) = y3d(k+1) - a3d(k+1)*y3d(k)
+          d3d(k) = 0.
+        ELSE
+!         swap rows, then scale current and subtract from next
+          recVar = 1. / a3d(k+1)
+          tmpc = c3d(k)
+          tmpy = y3d(k)
+          c3d(k) = b3d(k+1)*recVar
+          d3d(k) = c3d(k+1)*recVar
+          y3d(k) = y3d(k+1)*recVar
+          b3d(k+1) = tmpc - b3d(k)*c3d(k)
+          c3d(k+1) =      - b3d(k)*d3d(k)
+          y3d(k+1) = tmpy - b3d(k)*y3d(k)
+        ENDIF
+      ENDDO
+      recVar = 1. / b3d(n)
+      y3d(n) = y3d(n)*recVar
+
+! backsubstitute
+!     y3d(n) is already good
+      y3d(n-1) = y3d(n-1) - c3d(n-1)*y3d(n)
+      DO k=n-2,1,-1
+        y3d(k) = y3d(k) - c3d(k)*y3d(k+1) - d3d(k)*y3d(k+2)
+      ENDDO
+
+      RETURN
+      END SUBROUTINE SOLVE_TRIDIAGONAL_PIVOT
+! $Header: /u/gcmpack/MITgcm_contrib/darwin2/pkg/monod/monod_acdom.F,v 1.3 2013/04/16 20:21:57 jahn Exp $
+! $Name:  $
+
+!#include "RECOM_OPTIONS.h"
+
+!CBOP
+! !ROUTINE: MONOD_ACDOM
+
+! !INTERFACE: ==========================================================
+      SUBROUTINE RECOM_APHYTO(                                  &
+                             Nr,                                &
+                             D1,QYm,Drel,                       &
+                             aphyt_slope,aphyt_icept,           &
+                             aphy_PSpigm,aphy_ALLpigm,          &
+                             aphytolocal                        &
+                             , mype)
+
+! !DESCRIPTION:
+!     computes aphyto from D1 state variable
+
+! !USES: ===============================================================
+      IMPLICIT NONE
+!     === Global variables ===
+!#include "SIZE.h"
+!#include "EEPARAMS.h"
+!#include "PARAMS.h"
+!#include "SPECTRAL_SIZE.h"
+!#if defined(__RECOM_WAVEBANDS)
+!#include "WAVEBANDS_PARAMS.h"
+!C#include "RECOM_PARAMS.h"
+!#endif
+! !INPUT PARAMETERS: ===================================================
+!     D1         :: Fraction of PSII active for photochemistry
+!     QYm        :: Maximum quantum yield of photochemistry
+!     Drel       :: Minimum D1 that keeps QY=QYm
+!     aphy_chl_ps:: absorption spectrum photosynthetic pigments (ap_ps, m2 mgChla-1)
+!     aphy_chl   :: absorption spectrum all pigments (ap, m2 mgChla-1)
+!     myTime     :: Current time in simulation
+!     myIter     :: Current iteration number in simulation
+!     myThid     :: My Thread Id number
+! !OUTPUT PARAMETERS: ==================================================
+!     aphytolocal :: absortpion spectra for phytoplankton group per level
+      integer, intent(in) :: mype         ! MPI rank
+      integer                         :: Nr
+      Real(kind=8),dimension(Nr)      :: D1(Nr)
+      Real(kind=8)                    :: QYm
+      Real(kind=8)                    :: Drel
+      Real(kind=8)                    :: aphyt_slope
+      Real(kind=8)                    :: aphyt_icept
+      Real(kind=8),dimension(tlam)    :: aphy_PSpigm
+      Real(kind=8),dimension(tlam)    :: aphy_ALLpigm
+      Real(kind=8),dimension(Nr,tlam) :: aphytolocal
+!     _RL     myTime
+!     INTEGER myIter
+!sl      INTEGER :: myThid
+!EOP
+
+!sl if (RECOM_CALC_APHYT) then
+!     !LOCAL VARIABLES:
+!     == Local variables ==
+      INTEGER      :: k, ilam
+      Real(kind=8) :: QY, NPQ, astar
+      Real(kind=8) :: ALPHAmar, PPC
+      Real(kind=8) ::  slope1, slope2
+!sl endif      
+if (RECOM_CALC_APHYT) then      
+!      Drel = 0.75d0
+      do k = 1,Nr
+! Compute alpha from D1
+         if (D1(k) .gt. 1.0d0) then
+            QY = QYm
+         else
+            QY = min(((QYm/Drel) * D1(k)) ,  QYm)
+         endif
+         NPQ = 1-(QY/QYm)
+         astar = 0.d0
+       do ilam = 1,tlam
+           astar = astar + (wb_width(ilam) * aphy_PSpigm(ilam))
+       end do
+         astar = astar / wb_totalWidth
+         ALPHAmar = astar * (1-NPQ) * QY * 86400.d0
+
+! Use alpha as proxy for non-photosynthetic pigments ratio
+         PPC = 1-(ALPHAmar / (astar * QYm * 86400.d0) )
+
+! Compute slopes from PPC
+! Slope 488-532nm, (Eisner et al 2003 L&O 48) linear model with NOMAD data
+!sl The coefficients are PFT-specific and are now passed in rather than
+!sl hard-coded. The MITgcm original carries one routine per PFT --
+!sl recom_aphyto_phy.F  : (-1.93d-3 * PPC) - 1.011d-4
+!sl recom_aphyto_dia.F  : (-1.418d-3 * PPC) - 5.8d-5
+!sl (Alvarez et al. 2022, ealvarez-s/code_recom_radtrans), plus a generic
+!sl recom_aphyto_slopes.F written exactly as below. Merging the two routines
+!sl into this one had left a single hard-coded pair, (-1.997d-3, -6.139d-5),
+!sl that matches NEITHER published PFT.
+         slope1 = (aphyt_slope * PPC) + aphyt_icept
+
+! Modify absorption spectra with slopes
+! TO DO: make tlam indexes flexible, find wbs closest to 488 and 532        
+      do ilam = 1,tlam
+         aphytolocal(k,ilam) = aphy_PSpigm(ilam)
+      enddo !l
+      aphytolocal(k,5) = aphytolocal(k,6) + ((-slope1)*(525-500))
+      aphytolocal(k,4) = aphytolocal(k,6) + ((-slope1)*(525-475))
+      aphytolocal(k,3) = aphytolocal(k,3)                          &
+                       + (aphytolocal(k,4) - aphy_PSpigm(4))
+      aphytolocal(k,2) = aphytolocal(k,2)                          & 
+                       + (aphytolocal(k,4) - aphy_PSpigm(4))
+      aphytolocal(k,1) = aphytolocal(k,1)                          &
+                       + (aphytolocal(k,4) - aphy_PSpigm(4))
+      enddo  !k
+endif !/* RECOM_CALC_APHYT */
+      RETURN
+      END SUBROUTINE RECOM_APHYTO
+
+!   subroutine recom_oasim_get_surface_light(n, time, lon, lat, oasim_ed, oasim_es, mesh, partit)
+!   ! Read monthly OASIM/NOBM fields
+!   ! Interpolate in time, horizontal space, and possibly wavelength
+!   ! Return Ed and Es on REcoM wavebands
+!   end subroutine
+
+#endif /* __RECOM_WAVEBANDS */
+
+end module REcoM_spectral        

@@ -75,6 +75,10 @@ endif()
 option(RECOM_COUPLED "Use RECOM" OFF)
 message(STATUS "RECOM_COUPLED: ${RECOM_COUPLED}")
 
+# spectrally resolved underwater light in the in-tree spectral REcoM (src/int_recom, fesom2.8_recom_spectral)
+option(RECOM_WAVEBANDS "Use SPECTRAL in RECOM" ON)
+message(STATUS "RECOM_WAVEBANDS: ${RECOM_WAVEBANDS}")
+
 option(USE_ICEPACK "Use ICEPACK" OFF)
 message(STATUS "USE_ICEPACK: ${USE_ICEPACK}")
 
@@ -204,6 +208,10 @@ set(src_home ${CMAKE_CURRENT_SOURCE_DIR}) # path to src directory starting from 
 
 # Link FESOM2 fortran code
 file(GLOB sources_Fortran ${src_home}/*.F90)
+if(${RECOM_COUPLED})  # the in-tree spectral REcoM, compiled into the fesom target as in fesom2.6_recom_tra_diags_spectral
+   file(GLOB sources_recom ${src_home}/int_recom/*.F90 ${src_home}/int_recom/recom/*.F90)
+   list(APPEND sources_Fortran ${sources_recom})
+endif()
 
 # Link custom CVMix files and fesom2cvmix wrapper-interface files
 if(CVMIX)
@@ -265,11 +273,7 @@ target_include_directories(${PROJECT_NAME} PUBLIC $<BUILD_INTERFACE:${CMAKE_Fort
 target_include_directories(${PROJECT_NAME} PUBLIC $<INSTALL_INTERFACE:module/fesom>)
 target_link_libraries(${PROJECT_NAME} PRIVATE MPI::MPI_Fortran)
 
-# Link RECOM code
-if(RECOM_COUPLED)  # ADD RECOM LIB
-   add_subdirectory(recom)
-   target_link_libraries(${PROJECT_NAME} PRIVATE recom)
-endif()
+# REcoM is the in-tree src/int_recom (added to sources_Fortran above), not the src/recom submodule library
 
 # Pull CVMix in via FetchContent and build it as part of FESOM's build tree.
 # Offline workflow:
@@ -396,6 +400,9 @@ endif()
 
 if(${RECOM_COUPLED})
    target_compile_definitions(${PROJECT_NAME} PRIVATE __recom USE_PRECISION=2 __usetp) #__3Zoo2Det __coccos)
+   if(${RECOM_WAVEBANDS})
+      target_compile_definitions(${PROJECT_NAME} PRIVATE __RECOM_WAVEBANDS)
+   endif()
 endif()
 
 if(${CISO_COUPLED})

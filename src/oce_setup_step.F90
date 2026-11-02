@@ -1185,10 +1185,16 @@ SUBROUTINE oce_initial_state(tracers, partit, mesh)
     if (partit%mype==0) write(*,*) 'tracer IDs are: ', tracers%data(1:tracers%num_tracers)%ID
     !
 #if defined(__recom)
-    ! read preindustrial DIC (as fesom2.6_recom_tra_diags_spectral)
+    ! read preindustrial DIC (as fesom2.6_recom_tra_diags_spectral). The fork overrides entry 5 of the
+    ! &tracer_init3d lists, which is DIC (ID 1002) in its namelist.tra ordering; here the entry is found by
+    ! its ID, so a namelist.tra with another ordering does not overwrite a different tracer's file.
     if(DIC_PI) then
-        filelist(5) = 'GLODAPv2.2016b.PI_TCO2_fesom2_mmol_fix_z_Fillvalue.nc'
-        varlist(5)  = 'PI_TCO2_mmol'
+        do k=1, size(idlist)
+            if (idlist(k)==1002) then
+                filelist(k) = 'GLODAPv2.2016b.PI_TCO2_fesom2_mmol_fix_z_Fillvalue.nc'
+                varlist(k)  = 'PI_TCO2_mmol'
+            end if
+        end do
     end if
 
     if (partit%mype==0) then

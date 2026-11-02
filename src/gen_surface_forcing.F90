@@ -2262,7 +2262,10 @@ if (recom_debug .and. partit%mype==0) print *, achar(27)//'[36m'//'     --> Atm_
    else
 
 !-Checking if files need to be opened---------------------------------------------
-     call monthly_event(do_read)
+     ! The fork called monthly_event(do_read) here without its N argument (undefined behaviour; upstream
+     ! fc846804 added N=1). This is the .not.(use_MEDUSA .and. sedflx_num/=0) branch, where sedfilename is
+     ! never set: the fork's runs never read here (they would have aborted at a month end), so neither do we.
+     do_read = .false.
      if(do_read) then ! file is opened and read every year
       i=month
       if (i > 12) i=1

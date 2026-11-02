@@ -3,7 +3,7 @@ module diff_ver_recom_expl_interface
     subroutine diff_ver_recom_expl(tr_num, tracer, partit, mesh) 
         use mod_mesh
         USE MOD_PARTIT
-        USE MOD_PARSUP
+        use par_support_module, only: par_abort
         use mod_tracer
         integer       , intent(in)   , target :: tr_num
         type(t_tracer), intent(inout), target :: tracer
@@ -17,7 +17,7 @@ module ver_sinking_recom_interface
     subroutine ver_sinking_recom(tr_num, tracer, partit, mesh)
         use mod_mesh
         USE MOD_PARTIT
-        USE MOD_PARSUP
+        use par_support_module, only: par_abort
         use mod_tracer
         integer       , intent(in)   , target :: tr_num
         type(t_tracer), intent(inout), target :: tracer
@@ -31,7 +31,7 @@ module ver_sinking_recom_benthos_interface
     subroutine ver_sinking_recom_benthos(tr_num, tracer, partit, mesh)
         use mod_mesh
         USE MOD_PARTIT
-        USE MOD_PARSUP
+        use par_support_module, only: par_abort
         use mod_tracer
         integer       , intent(in)   , target :: tr_num
         type(t_tracer), intent(inout), target :: tracer
@@ -50,7 +50,7 @@ subroutine ver_sinking_recom_benthos(tr_num, tracers, partit, mesh)
 
     use MOD_MESH
     use MOD_PARTIT
-    use MOD_PARSUP
+    use par_support_module, only: par_abort
     use MOD_TRACER
 
     use recom_declarations
@@ -85,10 +85,10 @@ subroutine ver_sinking_recom_benthos(tr_num, tracers, partit, mesh)
     integer                   :: i_fe, i            ! tracer index of DFe (ID 1019)
     real(kind=WP)             :: fe_loc             ! DFe in the layer [umol/m3]
 
-#include "../associate_part_def.h"
-#include "../associate_mesh_def.h"
-#include "../associate_part_ass.h"
-#include "../associate_mesh_ass.h"
+#include "associate_part_def.h"
+#include "associate_mesh_def.h"
+#include "associate_part_ass.h"
+#include "associate_mesh_ass.h"
 
     trarr=>tracers%data(tr_num)%values(:,:)
 
@@ -103,7 +103,7 @@ subroutine ver_sinking_recom_benthos(tr_num, tracers, partit, mesh)
        end do
        if (i_fe == 0) then
           if (partit%mype == 0) print *, 'FATAL: Phaeocystis sinking needs DFe (tracer ID 1019), not found'
-          call par_ex(partit%MPI_COMM_FESOM, partit%mype)
+          call par_abort(partit%MPI_COMM_FESOM, partit%mype)
           stop
        end if
     end if
@@ -272,7 +272,7 @@ subroutine diff_ver_recom_expl(tr_num, tracers, partit, mesh)
 
     use MOD_MESH
     use MOD_PARTIT
-    use MOD_PARSUP
+    use par_support_module, only: par_abort
     use MOD_TRACER
 
     use recom_declarations
@@ -305,10 +305,10 @@ subroutine diff_ver_recom_expl(tr_num, tracers, partit, mesh)
 
     real(kind=WP), dimension(:,:), pointer :: trarr
 
-#include "../associate_part_def.h"
-#include "../associate_mesh_def.h"
-#include "../associate_part_ass.h"
-#include "../associate_mesh_ass.h"
+#include "associate_part_def.h"
+#include "associate_mesh_def.h"
+#include "associate_part_ass.h"
+#include "associate_mesh_ass.h"
 
     trarr=>tracers%data(tr_num)%values(:,:)
 
@@ -349,7 +349,7 @@ if (use_MEDUSA .and. (sedflx_num .ne. 0)) then
         write(*,*) 'check specified in boundary conditions'
         write(*,*) 'the model will stop!'
       end if
-      call par_ex(partit%MPI_COMM_FESOM, partit%mype)
+      call par_abort(partit%MPI_COMM_FESOM, partit%mype)
       stop
   END SELECT
 else
@@ -379,7 +379,7 @@ else
              write(*,*) 'check specified in boundary conditions'
              write(*,*) 'the model will stop!'
           end if
-          call par_ex(partit%MPI_COMM_FESOM, partit%mype)
+          call par_abort(partit%MPI_COMM_FESOM, partit%mype)
           stop
     END SELECT
 endif ! (use_MEDUSA .and. (sedflux_num .gt. 0))  
@@ -418,7 +418,7 @@ subroutine ver_sinking_recom(tr_num, tracers, partit, mesh)
 
     use MOD_MESH
     use MOD_PARTIT
-    use MOD_PARSUP
+    use par_support_module, only: par_abort
     use MOD_TRACER
 
     use REcoM_declarations
@@ -459,10 +459,10 @@ subroutine ver_sinking_recom(tr_num, tracers, partit, mesh)
 
     real(kind=WP), dimension(:,:), pointer :: trarr
 
-#include "../associate_part_def.h"
-#include "../associate_mesh_def.h"
-#include "../associate_part_ass.h"
-#include "../associate_mesh_ass.h"
+#include "associate_part_def.h"
+#include "associate_mesh_def.h"
+#include "associate_part_ass.h"
+#include "associate_mesh_ass.h"
 
     trarr=>tracers%data(tr_num)%values(:,:)
 
@@ -541,7 +541,7 @@ if (is_phaeo .and. Vsink .gt. 0.1) then
    end do
    if (i_fe == 0) then
       if (partit%mype == 0) print *, 'FATAL: Phaeocystis sinking needs DFe (tracer ID 1019), not found'
-      call par_ex(partit%MPI_COMM_FESOM, partit%mype)
+      call par_abort(partit%MPI_COMM_FESOM, partit%mype)
       stop
    end if
 end if
@@ -705,7 +705,7 @@ subroutine ballast(tr_num, tracers, partit, mesh)
 
     use MOD_MESH
     use MOD_PARTIT
-    use MOD_PARSUP
+    use par_support_module, only: par_abort
     use MOD_TRACER
 
     use recom_config
@@ -736,10 +736,10 @@ subroutine ballast(tr_num, tracers, partit, mesh)
     real(kind=8)                          :: Lon_degree(1)
     real(kind=8)                          :: Lat_degree(1)
 
-#include "../associate_part_def.h"
-#include "../associate_mesh_def.h"
-#include "../associate_part_ass.h"
-#include "../associate_mesh_ass.h"
+#include "associate_part_def.h"
+#include "associate_mesh_def.h"
+#include "associate_part_ass.h"
+#include "associate_mesh_ass.h"
 
   ! For ballasting, calculate scaling factors here and pass them to FESOM, where sinking velocities are calculated
      ! -----
@@ -820,7 +820,7 @@ subroutine get_particle_density(tracers, partit, mesh)
 
     use MOD_MESH
     use MOD_PARTIT
-    use MOD_PARSUP
+    use par_support_module, only: par_abort
     use MOD_TRACER
 
     use recom_config
@@ -850,10 +850,10 @@ subroutine get_particle_density(tracers, partit, mesh)
     real(kind=8)                          :: b4(mesh%nl-1, partit%myDim_nod2D+partit%eDim_nod2D)
     real(kind=8)                          :: aux(mesh%nl-1, partit%myDim_nod2D+partit%eDim_nod2D)
 
-#include "../associate_part_def.h"
-#include "../associate_mesh_def.h"
-#include "../associate_part_ass.h"
-#include "../associate_mesh_ass.h"
+#include "associate_part_def.h"
+#include "associate_mesh_def.h"
+#include "associate_part_ass.h"
+#include "associate_mesh_ass.h"
 
     num_tracers=tracers%num_tracers
 
@@ -924,7 +924,7 @@ subroutine get_seawater_viscosity(tr_num, tracers, partit, mesh)
   use recom_glovar
     use MOD_MESH
     use MOD_PARTIT
-    use MOD_PARSUP
+    use par_support_module, only: par_abort
     use MOD_TRACER
     use o_PARAM
     use o_ARRAYS
@@ -948,10 +948,10 @@ subroutine get_seawater_viscosity(tr_num, tracers, partit, mesh)
     type(t_partit), intent(inout), target :: partit
     type(t_mesh)  , intent(in)   , target :: mesh
 
-#include "../associate_part_def.h"
-#include "../associate_mesh_def.h"
-#include "../associate_part_ass.h"
-#include "../associate_mesh_ass.h"
+#include "associate_part_def.h"
+#include "associate_mesh_def.h"
+#include "associate_part_ass.h"
+#include "associate_mesh_ass.h"
 
     seawater_visc_3D(:,:) = 0.0
     do row=1,myDim_nod2d

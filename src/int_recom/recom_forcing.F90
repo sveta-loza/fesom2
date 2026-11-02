@@ -30,7 +30,7 @@ subroutine REcoM_Forcing(zNodes, n, Nn, state, SurfSW, Loc_slp, Temp, Sali, Sali
     use g_config
     use mod_mesh
     USE MOD_PARTIT
-    USE MOD_PARSUP
+    use par_support_module, only: par_abort
     use mod_tracer
     use MOD_DYN
     use MOD_ICE
@@ -248,10 +248,10 @@ subroutine REcoM_Forcing(zNodes, n, Nn, state, SurfSW, Loc_slp, Temp, Sali, Sali
     integer                                   :: idiags,k
     integer                                   :: tr_num
 
-#include "../associate_part_def.h"
-#include "../associate_mesh_def.h"
-#include "../associate_part_ass.h"
-#include "../associate_mesh_ass.h"
+#include "associate_part_def.h"
+#include "associate_mesh_def.h"
+#include "associate_part_ass.h"
+#include "associate_mesh_ass.h"
 
 
     tiny_N   = tiny_chl/chl2N_max   ! 0.00001/ 3.15d0   Chl2N_max [mg CHL/mmol N] Maximum CHL a : N ratio = 0.3 gCHL gN^-1

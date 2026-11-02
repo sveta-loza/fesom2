@@ -41,7 +41,7 @@ subroutine REcoM_sms(n,Nn,state,thick,recipthick,SurfSR,sms,Temp, Sali_depth &
     use o_ARRAYS
     use o_PARAM
     USE MOD_PARTIT
-    USE MOD_PARSUP
+    use par_support_module, only: par_abort
 
     use g_forcing_arrays
     use g_comm_auto
@@ -235,10 +235,10 @@ real(kind=8) :: &
     MicZooN,   & ! [mmol/m3] Microzooplankton nitrogen
     MicZooC      ! [mmol/m3] Microzooplankton carbon
 
-#include "../associate_part_def.h"
-#include "../associate_mesh_def.h"
-#include "../associate_part_ass.h"
-#include "../associate_mesh_ass.h"
+#include "associate_part_def.h"
+#include "associate_mesh_def.h"
+#include "associate_part_ass.h"
+#include "associate_mesh_ass.h"
 
 
     ! ===========================================================================
@@ -6095,7 +6095,7 @@ endif
                 print*,'grazingFlux_Cocco2: ', grazingFlux_Cocco2
                 print*,'grazingFlux_Cocco3: ', grazingFlux_Cocco3
                 print*,'recipQuota_cocco: ', recipQuota_cocco
-                call par_ex(partit%MPI_COMM_FESOM, partit%mype)
+                call par_abort(partit%MPI_COMM_FESOM, partit%mype)
                 stop
             endif
 

@@ -8,7 +8,7 @@ module recom_init_interface
         subroutine recom_init(tracers, partit, mesh)
         USE MOD_MESH
         USE MOD_PARTIT
-        USE MOD_PARSUP
+        use par_support_module, only: par_abort
         use mod_tracer
         type(t_tracer), intent(inout), target :: tracers
         type(t_partit), intent(inout), target :: partit
@@ -22,7 +22,7 @@ end module
 subroutine recom_init(tracers, partit, mesh)
     USE MOD_MESH
     USE MOD_PARTIT
-    USE MOD_PARSUP
+    use par_support_module, only: par_abort
     USE MOD_TRACER
     use g_clock
     use REcoM_declarations
@@ -51,10 +51,10 @@ subroutine recom_init(tracers, partit, mesh)
     ! After reading tracer namelist - validate actual IDs
     integer, dimension(tracers%num_tracers) :: tracer_id_array
 
-#include "../associate_part_def.h"
-#include "../associate_mesh_def.h"
-#include "../associate_part_ass.h"
-#include "../associate_mesh_ass.h"
+#include "associate_part_def.h"
+#include "associate_mesh_def.h"
+#include "associate_part_ass.h"
+#include "associate_mesh_ass.h"
 
     elem_size   = myDim_elem2D+eDim_elem2D
     node_size   = myDim_nod2D+eDim_nod2D

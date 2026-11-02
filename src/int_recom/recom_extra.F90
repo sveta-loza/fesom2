@@ -5,7 +5,7 @@ subroutine Depth_calculations(n, nn, wf, zf, thick, recipthick, partit, mesh)
     use recom_config
     use mod_mesh
     use MOD_PARTIT
-    use MOD_PARSUP
+    use par_support_module, only: par_abort
     use o_PARAM
     use o_ARRAYS
     use g_CONFIG
@@ -31,10 +31,10 @@ subroutine Depth_calculations(n, nn, wf, zf, thick, recipthick, partit, mesh)
     ! Local variables
     integer                                          :: k           ! Layer index
 
-#include "../associate_part_def.h"
-#include "../associate_mesh_def.h"
-#include "../associate_part_ass.h"
-#include "../associate_mesh_ass.h"
+#include "associate_part_def.h"
+#include "associate_mesh_def.h"
+#include "associate_part_ass.h"
+#include "associate_mesh_ass.h"
 ! ======================================================================================
 !! zbar(nl) allocate the array for storing the standard depths (depth of layers)
 !! zbar is negative 
@@ -97,7 +97,7 @@ subroutine Cobeta(partit, mesh)
     use g_clock
     use mod_mesh
     use MOD_PARTIT
-    use MOD_PARSUP
+    use par_support_module, only: par_abort
     use o_PARAM
     use g_comm_auto
 
@@ -117,10 +117,10 @@ subroutine Cobeta(partit, mesh)
     ! Constants
     real(kind=8), parameter                          :: nWater        = 1.33  ! Refractive indices of water
 
-#include "../associate_part_def.h"
-#include "../associate_mesh_def.h"
-#include "../associate_part_ass.h"
-#include "../associate_mesh_ass.h"
+#include "associate_part_def.h"
+#include "associate_mesh_def.h"
+#include "associate_part_ass.h"
+#include "associate_mesh_ass.h"
 
 !! find day (****NOTE for year starting in winter*****)  
 !! Paltridge, G. W. and C. M. R. Platt, Radiative Processes 
@@ -160,7 +160,7 @@ end subroutine Cobeta
     use o_PARAM
     use mod_mesh
     use MOD_PARTIT
-    use MOD_PARSUP
+    use par_support_module, only: par_abort
     use g_comm_auto
 
     implicit none
@@ -170,10 +170,10 @@ end subroutine Cobeta
     type(t_partit), intent(inout),   target          :: partit
     type(t_mesh)  , intent(inout),   target          :: mesh
 
-#include "../associate_part_def.h"
-#include "../associate_mesh_def.h"
-#include "../associate_part_ass.h"
-#include "../associate_mesh_ass.h"
+#include "associate_part_def.h"
+#include "associate_mesh_def.h"
+#include "associate_part_ass.h"
+#include "associate_mesh_ass.h"
  
    ! Values from FESOM                                                                                                 
 

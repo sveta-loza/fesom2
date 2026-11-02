@@ -14,7 +14,7 @@
 
     use mod_mesh
     USE MOD_PARTIT
-    USE MOD_PARSUP
+    use par_support_module, only: par_abort
 
     use g_config
     use o_arrays
@@ -32,10 +32,10 @@
     type(t_partit), intent(inout), target :: partit
     type(t_mesh)  , intent(inout), target :: mesh
 
-#include "../associate_part_def.h"
-#include "../associate_mesh_def.h"
-#include "../associate_part_ass.h"
-#include "../associate_mesh_ass.h"
+#include "associate_part_def.h"
+#include "associate_mesh_def.h"
+#include "associate_part_ass.h"
+#include "associate_mesh_ass.h"
 
 !     Globally integrated air-sea CO2 flux (mol / s)
       total_co2flux    = 0.

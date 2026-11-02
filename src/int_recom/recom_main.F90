@@ -7,7 +7,7 @@ module recom_interface
         subroutine recom(ice, dynamics, tracers, partit, mesh)
             use mod_mesh
             use MOD_PARTIT
-            use MOD_PARSUP
+            use par_support_module, only: par_abort
             use mod_tracer
             use MOD_DYN
             use MOD_ICE
@@ -30,7 +30,7 @@ module bio_fluxes_interface
 
             use mod_mesh
             use MOD_PARTIT
-            use MOD_PARSUP
+            use par_support_module, only: par_abort
             use mod_tracer
 
             use g_config
@@ -56,7 +56,7 @@ subroutine recom(ice, dynamics, tracers, partit, mesh)
     use o_ARRAYS
     use o_PARAM
     use MOD_PARTIT
-    use MOD_PARSUP
+    use par_support_module, only: par_abort
 
     use recom_declarations
     use bio_fluxes_interface
@@ -125,10 +125,10 @@ subroutine recom(ice, dynamics, tracers, partit, mesh)
     real(kind=8),  allocatable :: Light_watercolumn(:,:,:)
 #endif
 
-#include "../associate_part_def.h"
-#include "../associate_mesh_def.h"
-#include "../associate_part_ass.h"
-#include "../associate_mesh_ass.h"
+#include "associate_part_def.h"
+#include "associate_mesh_def.h"
+#include "associate_part_ass.h"
+#include "associate_mesh_ass.h"
 
     allocate(Temp(nl-1), Sali_depth(nl-1), zr(nl-1) , PAR(nl-1))
     allocate(C(nl-1, bgc_num))
@@ -757,7 +757,7 @@ subroutine bio_fluxes(tracers, partit, mesh)
 
     use mod_mesh
     use MOD_PARTIT
-    use MOD_PARSUP
+    use par_support_module, only: par_abort
     use mod_tracer
 
     use g_config
@@ -777,10 +777,10 @@ subroutine bio_fluxes(tracers, partit, mesh)
     !___________________________________________________________________________
     real(kind=WP), dimension(:,:), pointer :: alkalinity
 
-#include "../associate_part_def.h"
-#include "../associate_mesh_def.h"
-#include "../associate_part_ass.h"
-#include "../associate_mesh_ass.h"
+#include "associate_part_def.h"
+#include "associate_mesh_def.h"
+#include "associate_part_ass.h"
+#include "associate_mesh_ass.h"
 
     alkalinity => tracers%data(2+ialk)%values(:,:) ! 1 temp, 2 salt, 3 din, 4 dic, 5 alk
 !___________________________________________________________________

@@ -2526,6 +2526,8 @@ endif !/* RECOM_MARSHALL */
            Ek = zero
       end if
 !sl?      alpha = alpha_mean    ??
+      !sl CO2 limitation in the spectral branch (RECOM_CO2LIM_SPECTRAL, default off, 2 Nov 2026)
+      if (RECOM_CO2LIM_SPECTRAL) Cphot = Cphot * PhyCO2
 #else
 
             if (pMax < tiny .OR. PARave /= PARave .OR. CHL2C /= CHL2C) then
@@ -2590,6 +2592,8 @@ endif !/* RECOM_MARSHALL */
            Ek_dia = zero
         end if
 !sl        alpha_d = alpha_mean_dia          ??
+      !sl CO2 limitation in the spectral branch (RECOM_CO2LIM_SPECTRAL, default off, 2 Nov 2026)
+      if (RECOM_CO2LIM_SPECTRAL) Cphot_dia = Cphot_dia * DiaCO2
 #else /* not RECOM_WAVEBANDS  */
 
             if (pMax_dia < tiny .OR. PARave /= PARave .OR. CHL2C_dia /= CHL2C_dia) then
@@ -2650,6 +2654,8 @@ endif !/* RECOM_MARSHALL */
         end if
 !sl        alpha_cocco = alpha_mean_cocco  ??
 
+      !sl CO2 limitation in the spectral branch (RECOM_CO2LIM_SPECTRAL, default off, 2 Nov 2026)
+      if (RECOM_CO2LIM_SPECTRAL) Cphot_cocco = Cphot_cocco * CoccoCO2
 #else /* not RECOM_WAVEBANDS  */
 
                 if (pMax_cocco < tiny .OR. PARave /= PARave .OR. CHL2C_cocco /= CHL2C_cocco) then
@@ -2708,6 +2714,8 @@ endif !/* RECOM_MARSHALL */
         end if
 !sl?        alpha_phaeo = alpha_mean_phaeo  ??
 
+      !sl CO2 limitation in the spectral branch (RECOM_CO2LIM_SPECTRAL, default off, 2 Nov 2026)
+      if (RECOM_CO2LIM_SPECTRAL) Cphot_phaeo = Cphot_phaeo * PhaeoCO2
 #else /* not RECOM_WAVEBANDS  */
 
                 if (pMax_phaeo < tiny .OR. PARave /= PARave .OR. CHL2C_phaeo /= CHL2C_phaeo) then

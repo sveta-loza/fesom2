@@ -84,6 +84,16 @@ use cpl_yac_driver
 #if defined (__recom)
   use recom_init_interface
   use recom_interface
+  use recom_ref_dump_hooks
+!sl negative-tracer diagnostic (open item 1), reported after 'runtime recom'
+  use recom_config, only: recom_neg_diag, neg_maxtr, neg_maxlv, neg_in_count, &
+                          neg_out_count, neg_in_lvl, neg_in_min, neg_points
+#if defined(__RECOM_WAVEBANDS)
+!sl spectral wall-clock accumulators, reported next to 'runtime recom'
+  use REcoM_spectral, only: rt_spec_total, rt_spec_iop, rt_spec_radtrans, &
+                            rt_spec_tridiag, n_spec_total, n_spec_radtrans, &
+                            n_spec_tridiag
+#endif
   use recom_glovar
 #endif
 
@@ -1031,6 +1041,9 @@ contains
             seconds_til_now=INT(dt)*(n-1)
 #endif
         call clock      
+#if defined(__recom)
+        call rdh_step_begin(mstep, yearnew, daynew, timenew, month, ndpyr, dt, f%partit, f%mesh)
+#endif
         !___compute horizontal velocity on nodes (originaly on elements)________
 #if defined(__recom) && defined(__usetp)
         if (f%my_fesom_group==0) then
@@ -1156,7 +1169,10 @@ contains
 #endif 
         ! the in-tree spectral REcoM (fesom2.6_recom_tra_diags_spectral interface)
         f%t_recom_s = MPI_Wtime()
+        call rdh_recom_in(f%ice, f%tracers, f%partit, f%mesh, dt, kappa, rad, daynew, month, mstep, &
+                          ndpyr, yearold, timenew)
         call recom(f%ice, f%dynamics, f%tracers, f%partit, f%mesh)
+        call rdh_recom_out(f%tracers, f%partit)
         f%t_recom_e = MPI_Wtime()
 #endif
         
@@ -1178,6 +1194,9 @@ contains
         call oce_timestep_ale(n, f%ice, f%dynamics, f%tracers, f%partit, f%mesh)
 #if defined (FESOM_PROFILING)
         call fesom_profiler_end("oce_timestep_ale")
+#endif
+#if defined(__recom)
+        call rdh_step_end(f%tracers, f%partit)
 #endif
         if (use_transit) then
           ! Prevent negative concentrations of SF6, CFC-11 and CFC-12 during the first years (inital values are zero)
@@ -1395,6 +1414,13 @@ contains
     ! 20..24 are the io_meandata sub-decomposition: update_means, streamloop,
     ! pack, mask, xsend (see rtime_om_* in io_meandata.F90).
     integer           :: tr_num, n_rtime=27
+#if defined (__recom)
+!sl the fork's spectral light sub-timers (kept out of 2.8's mean_rtime layout): total spectral block,
+!sl IOP assembly, radiative-transfer solve, tridiagonal solve; and the negative-tracer report loop
+    real(kind=real32) :: mean_spec(4), max_spec(4), min_spec(4)
+    integer(kind=8)   :: nspec(3)
+    integer           :: nn
+#endif
     integer           :: i 
     real(kind=real32), allocatable :: mean_rtime(:), max_rtime(:), min_rtime(:)
     allocate(mean_rtime(n_rtime), max_rtime(n_rtime), min_rtime(n_rtime))
@@ -1568,6 +1594,32 @@ contains
     mean_rtime(n_rtime) = mean_rtime(n_rtime) / real(f%npes,real32)
     call MPI_AllREDUCE(MPI_IN_PLACE, max_rtime(n_rtime),  1, MPI_REAL, MPI_MAX, f%MPI_COMM_FESOM, f%MPIerr)
     call MPI_AllREDUCE(MPI_IN_PLACE, min_rtime(n_rtime),  1, MPI_REAL, MPI_MIN, f%MPI_COMM_FESOM, f%MPIerr)
+#if defined(__RECOM_WAVEBANDS)
+!sl spectral light breakdown; 4 (tridiagonal) is nested inside 3 (RT solve),
+!sl and 2+3 together account for nearly all of 1.
+    mean_spec(1) = real(rt_spec_total,   real32)
+    mean_spec(2) = real(rt_spec_iop,     real32)
+    mean_spec(3) = real(rt_spec_radtrans,real32)
+    mean_spec(4) = real(rt_spec_tridiag, real32)
+    max_spec = mean_spec
+    min_spec = mean_spec
+    call MPI_AllREDUCE(MPI_IN_PLACE, mean_spec, 4, MPI_REAL, MPI_SUM, f%MPI_COMM_FESOM, f%MPIerr)
+    mean_spec = mean_spec / real(f%npes,real32)
+    call MPI_AllREDUCE(MPI_IN_PLACE, max_spec,  4, MPI_REAL, MPI_MAX, f%MPI_COMM_FESOM, f%MPIerr)
+    call MPI_AllREDUCE(MPI_IN_PLACE, min_spec,  4, MPI_REAL, MPI_MIN, f%MPI_COMM_FESOM, f%MPIerr)
+    nspec(1) = n_spec_total
+    nspec(2) = n_spec_radtrans
+    nspec(3) = n_spec_tridiag
+    call MPI_AllREDUCE(MPI_IN_PLACE, nspec, 3, MPI_INTEGER8, MPI_SUM, f%MPI_COMM_FESOM, f%MPIerr)
+#endif
+!sl negative-tracer diagnostic: sum the counts, take the deepest minimum
+    if (recom_neg_diag) then
+       call MPI_AllREDUCE(MPI_IN_PLACE, neg_in_count,  neg_maxtr, MPI_INTEGER8, MPI_SUM, f%MPI_COMM_FESOM, f%MPIerr)
+       call MPI_AllREDUCE(MPI_IN_PLACE, neg_out_count, neg_maxtr, MPI_INTEGER8, MPI_SUM, f%MPI_COMM_FESOM, f%MPIerr)
+       call MPI_AllREDUCE(MPI_IN_PLACE, neg_in_lvl,    neg_maxlv, MPI_INTEGER8, MPI_SUM, f%MPI_COMM_FESOM, f%MPIerr)
+       call MPI_AllREDUCE(MPI_IN_PLACE, neg_points,    1,         MPI_INTEGER8, MPI_SUM, f%MPI_COMM_FESOM, f%MPIerr)
+       call MPI_AllREDUCE(MPI_IN_PLACE, neg_in_min,    neg_maxtr, MPI_DOUBLE_PRECISION, MPI_MIN, f%MPI_COMM_FESOM, f%MPIerr)
+    end if
 #endif
 
     ! Per-stream cumulative cost — printed sorted at finalize from rank 0.
@@ -1664,6 +1716,42 @@ contains
 
 #if defined (__recom)
         print 43, '  runtime recom:              ',  mean_rtime(n_rtime), min_rtime(n_rtime), max_rtime(n_rtime), 100.*mean_rtime(n_rtime)/mean_rtime(21),'%'
+#if defined(__RECOM_WAVEBANDS)
+        print 47, '    > runtime spectral total :',    mean_spec(1),    min_spec(1),     max_spec(1)
+        print 47, '      >> IOP assembly        :',    mean_spec(2),    min_spec(2),     max_spec(2)
+        print 47, '      >> radtrans solve      :',    mean_spec(3),    min_spec(3),     max_spec(3)
+        print 47, '         ... of which tridiag:',    mean_spec(4),    min_spec(4),     max_spec(4)
+        print 48, '    spectral block calls  (all ranks):', nspec(1)
+        print 48, '    radtrans solve calls  (all ranks):', nspec(2)
+        print 48, '    tridiagonal solves    (all ranks):', nspec(3)
+#endif
+!sl ---- negative-tracer diagnostic (open item 1) -----------------------------
+!sl Entry counts are taken from the tracer array before any biology, exit counts
+!sl from the same column after REcoM_Forcing has clamped it. Exit must be zero;
+!sl anything at entry was produced by transport since the previous call.
+        if (recom_neg_diag) then
+          write(*,*)
+          write(*,*) '  negative BGC tracer values (all ranks, whole run):'
+          print 49, '    (node,level,tracer) triples scanned :', neg_points
+          print 49, '    negative ON EXIT from REcoM         :', sum(neg_out_count)
+          print 49, '    negative ON ENTRY (from transport)  :', sum(neg_in_count)
+          write(*,*) '    per tracer (index within bgc_num, count, most negative):'
+          do nn = 1, neg_maxtr
+            if (neg_in_count(nn) > 0_8) print 50, '      bgc index ', nn, ' :  ', &
+                                              neg_in_count(nn), '   min = ', neg_in_min(nn)
+          end do
+          write(*,*) '    per level (entry):'
+          do nn = 1, neg_maxlv
+            if (neg_in_lvl(nn) > 0_8) print 51, '      level ', nn, ': ', neg_in_lvl(nn)
+          end do
+          write(*,*)
+        end if
+!sl ---------------------------------------------------------------------------
+        47 format (a,3f15.4)
+        48 format (a42,i18)
+        49 format (a44,i18)
+        50 format (a20,i4,a4,i16,a10,es12.4)
+        51 format (a22,i4,a2,i16)
 #endif
 
         44 format (a33,i15)        !Format Ncores

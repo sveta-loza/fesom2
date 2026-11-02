@@ -1573,9 +1573,16 @@ subroutine set_par_support_ini(partit, mesh)
      stop
   end if
   
+  if (partit%npes == 1) then
+     ! fesom-jax reference runs (fesom2.6_recom_tra_diags_spectral): a single-rank partition
+     ! (every node on rank 0, no halo)
+     write(*,*) 'npes=1: trivial partition, METIS not called'
+     partit%part = 0
+  else
   write(*,*) 'Calling partit for npes=', np
   call do_partit(mesh%ssh_stiff%dim, mesh%ssh_stiff%rowptr, mesh%ssh_stiff%colind, &
        mesh%nlevels_nod2D, np, partit%part)
+  end if
 
 write(*,*) 'DONE'
 write(*,*) size(partit%part)

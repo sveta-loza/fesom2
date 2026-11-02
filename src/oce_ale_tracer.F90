@@ -34,6 +34,7 @@ module oce_ale_tracer_module
     use o_arrays
     use ver_sinking_recom_interface
     use diff_ver_recom_expl_interface
+    use recom_ref_dump_hooks, only: rdh_transport, rdh_tracer, rdh_tracer_field, rdh_tracer_benthos
     use ver_sinking_recom_benthos_interface
     use g_comm_auto
     use g_support
@@ -143,6 +144,9 @@ subroutine solve_tracers_ale(ice, dynamics, tracers, partit, mesh)
         fer_UV     => dynamics%fer_uv(:,:,:)
         fer_Wvel   => dynamics%fer_w(:,:)
     end if
+#if defined(__recom)
+    call rdh_transport(dynamics, partit, mesh)
+#endif
     del_ttf => tracers%work%del_ttf
 
 #if defined(__recom) && defined(__usetp)
@@ -317,10 +321,16 @@ subroutine solve_tracers_ale(ice, dynamics, tracers, partit, mesh)
 #if defined (FESOM_PROFILING)
         call fesom_profiler_start("tr_init_ab")
 #endif
+#if defined(__recom)
+        call rdh_tracer('tra_in', tr_num, tracers, partit, .true., .false., .false.)
+#endif
         !$ACC UPDATE DEVICE(tracers%data(tr_num)%values)
         call init_tracers_AB(tr_num, tracers, partit, mesh)
 #if defined (FESOM_PROFILING)
         call fesom_profiler_end("tr_init_ab")
+#endif
+#if defined(__recom)
+        call rdh_tracer('tra_ab', tr_num, tracers, partit, .true., .true., .false.)
 #endif
         if (conservation_freq > 0) call conservation_probe('start', 'a', tr_num, tracers, partit, mesh)
  
@@ -384,6 +394,9 @@ subroutine solve_tracers_ale(ice, dynamics, tracers, partit, mesh)
 
         !___________________________________________________________________________
         ! diffuse tracers
+#if defined(__recom)
+        call rdh_tracer('tra_adv', tr_num, tracers, partit, .false., .false., .true.)
+#endif
         if (flag_debug .and. partit%mype==0)  print *, achar(27)//'[37m'//'         --> call diff_tracers_ale'//achar(27)//'[0m'
         if (conservation_freq > 0) call conservation_probe('advection', 'a', tr_num, tracers, partit, mesh)
 #if defined (FESOM_PROFILING)
@@ -425,6 +438,9 @@ subroutine solve_tracers_ale(ice, dynamics, tracers, partit, mesh)
         end if
         if (conservation_freq > 0) call conservation_probe('relaxation', 'b', tr_num, tracers, partit, mesh)
 
+#if defined(__recom)
+        call rdh_tracer('tra_out', tr_num, tracers, partit, .false., .false., .false.)
+#endif
 #if defined (FESOM_PROFILING)
         call fesom_profiler_start("tr_exchange")
 #endif
@@ -743,6 +759,9 @@ subroutine diff_tracers_ale(tr_num, dynamics, tracers, ice, partit, mesh)
 !        if (recom_debug .and. mype==0)  print *, tracers%data(tr_num)%ID
 
 #if defined(__recom)
+    call rdh_tracer('tra_redi', tr_num, tracers, partit, .false., .false., .true.)
+#endif
+#if defined(__recom)
 ! 1) Remineralization from the benthos
 !    Nutrient fluxes come from the bottom boundary
 !    Unit [mmol/m2/s]
@@ -758,6 +777,8 @@ if (any(recom_remin_tracer_id == tracers%data(tr_num)%ID)) then
         tracers%data(tr_num)%values(nzmin:nzmax,n)=tracers%data(tr_num)%values(nzmin:nzmax,n)+ &
                                                 dtr_bf(nzmin:nzmax,n)
         end do
+        call rdh_tracer_field('tra_bf', 'dtr_bf', tracers%data(tr_num)%ID, dtr_bf, partit%myDim_nod2D)
+        call rdh_tracer('tra_bf', tr_num, tracers, partit, .false., .false., .false.)
 end if
 
 ! 2) Sinking in water column
@@ -779,13 +800,24 @@ if (any(recom_sinking_tracer_id == tracers%data(tr_num)%ID)) then
 !< scaling_visc_3D
 !< scaling_density1_3D, scaling_density2_3D
               call ballast(tr_num, tracers, partit, mesh)
+        call rdh_tracer_field('tra_ball', 'seawater_visc_3D', tracers%data(tr_num)%ID, seawater_visc_3D, partit%myDim_nod2D)
+        call rdh_tracer_field('tra_ball', 'rho_particle1', tracers%data(tr_num)%ID, rho_particle1, partit%myDim_nod2D)
+        call rdh_tracer_field('tra_ball', 'rho_particle2', tracers%data(tr_num)%ID, rho_particle2, partit%myDim_nod2D)
+        call rdh_tracer_field('tra_ball', 'scaling_visc_3D', tracers%data(tr_num)%ID, scaling_visc_3D, partit%myDim_nod2D)
+        call rdh_tracer_field('tra_ball', 'scaling_density1_3D', tracers%data(tr_num)%ID, scaling_density1_3D, partit%myDim_nod2D)
+        call rdh_tracer_field('tra_ball', 'scaling_density2_3D', tracers%data(tr_num)%ID, scaling_density2_3D, partit%myDim_nod2D)
         end if
 
 ! sinking
         call ver_sinking_recom(tr_num, tracers, partit, mesh)  !--- vert_sink ---
+        call rdh_tracer_field('tra_sink', 'vert_sink', tracers%data(tr_num)%ID, vert_sink, partit%myDim_nod2D)
+        call rdh_tracer_field('tra_sink', 'SinkingVel1', tracers%data(tr_num)%ID, Sinkvel1_tr(:, :, tr_num), partit%myDim_nod2D)
+        call rdh_tracer_field('tra_sink', 'SinkingVel2', tracers%data(tr_num)%ID, Sinkvel2_tr(:, :, tr_num), partit%myDim_nod2D)
 ! update tracer fields
 ! sinking into the benthos
         call ver_sinking_recom_benthos(tr_num, tracers, partit, mesh)  !--- str_bf ---
+        call rdh_tracer_field('tra_sink', 'str_bf', tracers%data(tr_num)%ID, str_bf, partit%myDim_nod2D)
+        call rdh_tracer_benthos(tracers%data(tr_num)%ID, tr_num, partit%myDim_nod2D)
 
 ! update tracer fields
 
@@ -797,6 +829,7 @@ if (any(recom_sinking_tracer_id == tracers%data(tr_num)%ID)) then
         tracers%data(tr_num)%values(nzmin:nzmax,n)=tracers%data(tr_num)%values(nzmin:nzmax,n)+ &
                                                 str_bf(nzmin:nzmax,n)
         end do
+        call rdh_tracer('tra_sink', tr_num, tracers, partit, .false., .false., .false.)
 endif
 #endif
     !___________________________________________________________________________
@@ -855,6 +888,9 @@ endif
     end if
 #endif
 
+#if defined(__recom)
+    call rdh_tracer('tra_tstar', tr_num, tracers, partit, .false., .false., .true.)
+#endif
     !___________________________________________________________________________
     if (tracers%data(tr_num)%i_vert_diff) then
         ! do vertical diffusion: implicite
@@ -878,6 +914,9 @@ endif
         ! (w/out Redi)
         if (conservation_freq > 0) call conservation_probe('divided', 'b', tr_num, tracers, partit, mesh)
         call diff_ver_part_impl_ale(tr_num, dynamics, tracers, ice, partit, mesh)
+#if defined(__recom)
+        call rdh_tracer('tra_impl', tr_num, tracers, partit, .false., .false., .false.)
+#endif
         if (impl_on_device) then
             !$ACC UPDATE HOST(tracers%data(tr_num)%values)
         end if

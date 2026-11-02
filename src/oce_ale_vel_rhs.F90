@@ -28,6 +28,9 @@ contains
 !
 !_______________________________________________________________________________
 subroutine compute_vel_rhs(ice, dynamics, partit, mesh)
+#if defined(__recom)
+    use recom_ref_dump_hooks, only: rdh_slp_force
+#endif
     implicit none 
     type(t_ice)   , intent(inout), target :: ice
     type(t_dyn)   , intent(inout), target :: dynamics
@@ -68,6 +71,9 @@ subroutine compute_vel_rhs(ice, dynamics, partit, mesh)
     end if 
     
     !___________________________________________________________________________
+#if defined(__recom)
+    call rdh_slp_force(l_mslp, partit, mesh)
+#endif
     use_pice=0
     if (use_floatice .and.  .not. trim(which_ale)=='linfs') use_pice=1
     if ((toy_ocean)  .and. (trim(which_toy)=="soufflet"))   use_pice=0

@@ -257,6 +257,9 @@ subroutine read_other_NetCDF(file, vari, itime, model_2Darray, check_dummy, do_o
             end if ! --> if (ncdata(i,j)==miss .or. ncdata(i,j)==-99.0_WP) then
         end do ! --> do j=1,latlen
     end do ! --> do i=1,lonlen
+    !sl (fesom2.6_recom_tra_diags_spectral) a NaN with no valid neighbour within 30 cells (deep inland)
+    !sl must not reach the interpolation
+    where (ieee_is_nan(ncdata)) ncdata = 0.0_WP
     !write(*,*) 'post',minval(ncdata), maxval(ncdata)
     
     !___________________________________________________________________________

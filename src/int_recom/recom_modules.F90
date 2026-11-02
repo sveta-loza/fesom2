@@ -631,6 +631,12 @@ module recom_config
   Logical                :: RECOM_CALC_APHYT      = .false.
   Logical                :: RECOM_CALC_REFLEC     = .false.
   Logical                :: RECOM_BMASS           = .false.
+!sl RECOM_CO2LIM_SPECTRAL: multiply the spectral Cphot of each PFT by its CO2 factor (PhyCO2, DiaCO2,
+!sl CoccoCO2, PhaeoCO2, &paco2lim). Until Nov 2026 the factor was applied only on the broadband (#else) branch
+!sl of recom_sms, so spectral growth was never CO2-limited and CO2lim acted only on calcification there.
+!sl Separate from CO2lim on purpose (CO2lim also governs broadband growth and calcification).
+!sl Default .false. = unchanged, bit-identical (2 Nov 2026).
+  Logical                :: RECOM_CO2LIM_SPECTRAL = .false.
 ! Maximum quantum yield of photosynthesis [mmol C (J)^{-1}], per PFT. In a
 ! spectral build these set the initial slope of the P-I curve through
 ! alphachl_nl_X = mQY_X * aphy_chl_ps_X (wavebands_init_vari), and they are the
@@ -744,6 +750,7 @@ module recom_config
   Real(kind=8)           :: bb_bg_slope = 1.0d0
 
   namelist /spectral/ RECOM_CDOM, RECOM_MARSHALL, RECOM_RADTRANS, OASIM, RECOM_BMASS, &
+                      RECOM_CO2LIM_SPECTRAL, &
                       RECOM_CALC_ACDOM,  RECOM_CALC_APART, RECOM_CALC_APHYT,         &
                       RECOM_CALC_REFLEC, &
                       DAR_NONSPECTRAL_BACKSCATTERING_RATIO, darwin_bbphy, &

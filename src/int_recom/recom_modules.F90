@@ -637,6 +637,12 @@ module recom_config
 !sl Separate from CO2lim on purpose (CO2lim also governs broadband growth and calcification).
 !sl Default .false. = unchanged, bit-identical (2 Nov 2026).
   Logical                :: RECOM_CO2LIM_SPECTRAL = .false.
+!sl ice_light_transm (light test L2, NEXT_STEPS 23n, 4 Nov 2026): fraction of the OASIM spectral light that passes
+!sl through the ice-covered part of a cell. The OASIM arguments of REcoM_Forcing (and the Ed0/Es0 diagnostics) are
+!sl shaded by (1 - a_ice) + a_ice*ice_light_transm instead of (1 - a_ice). OASIM contains no sea ice, so 1 would
+!sl remove the ice shading altogether (the pre-e178dd77 defect). The broadband SW*(1 - a_ice) path is unchanged.
+!sl Default 0 = unchanged, bit-identical (the old expression is used when it is 0).
+  Real(kind=8)           :: ice_light_transm = 0.0d0
 ! Maximum quantum yield of photosynthesis [mmol C (J)^{-1}], per PFT. In a
 ! spectral build these set the initial slope of the P-I curve through
 ! alphachl_nl_X = mQY_X * aphy_chl_ps_X (wavebands_init_vari), and they are the
@@ -750,7 +756,7 @@ module recom_config
   Real(kind=8)           :: bb_bg_slope = 1.0d0
 
   namelist /spectral/ RECOM_CDOM, RECOM_MARSHALL, RECOM_RADTRANS, OASIM, RECOM_BMASS, &
-                      RECOM_CO2LIM_SPECTRAL, &
+                      RECOM_CO2LIM_SPECTRAL, ice_light_transm, &
                       RECOM_CALC_ACDOM,  RECOM_CALC_APART, RECOM_CALC_APHYT,         &
                       RECOM_CALC_REFLEC, &
                       DAR_NONSPECTRAL_BACKSCATTERING_RATIO, darwin_bbphy, &

@@ -124,6 +124,8 @@ subroutine setup_model(partit)
   read (fileunit, NML=paciso)
 #if defined (__RECOM_WAVEBANDS)
   read (fileunit, NML=spectral)
+  !sl light test L2 (4 Nov 2026): echo the ice transmission when it is used
+  if (ice_light_transm > 0.d0 .and. partit%mype==0) print *, 'spectral: ice_light_transm = ', ice_light_transm
 #endif
   close (fileunit)
 #endif

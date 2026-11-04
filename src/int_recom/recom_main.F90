@@ -123,6 +123,7 @@ subroutine recom(ice, dynamics, tracers, partit, mesh)
     real(kind=WP)              :: ttf_rhs_bak (mesh%nl-1, tracers%num_tracers) ! local variable ! OG - tra_diag
 #if defined(__RECOM_WAVEBANDS)
     real(kind=8),  allocatable :: Light_watercolumn(:,:,:)
+    real(kind=8)               :: ice_fac_spec   !sl ice shading of the OASIM light (light test L2)
 #endif
 
 #include "../associate_part_def.h"
@@ -169,6 +170,14 @@ subroutine recom(ice, dynamics, tracers, partit, mesh)
 
         !!---- This is needed for piston velocity
         Loc_ice_conc = a_ice(n)
+#if defined(__RECOM_WAVEBANDS)
+        !!---- Ice shading of the spectral (OASIM) light; the expression is unchanged when ice_light_transm = 0
+        if (ice_light_transm > 0.d0) then
+            ice_fac_spec = (1.d0 - a_ice(n)) + a_ice(n) * ice_light_transm
+        else
+            ice_fac_spec = 1.d0 - a_ice(n)
+        end if
+#endif
 
         !!---- Mean sea level pressure
 #if defined (__oasis)
@@ -429,8 +438,9 @@ endif
 #if defined(__RECOM_WAVEBANDS)
 !sl sea ice shades the spectral light exactly as SW*(1-a_ice) shades the broadband path above.
 !sl Applied to the argument only: oasim_ed2D/es2D hold the monthly forcing and are reused every step.
-           , oasim_ed2D(n,:) * (1.d0 - a_ice(n))                 &
-           , oasim_es2D(n,:) * (1.d0 - a_ice(n))                 &
+!sl ice_fac_spec is (1-a_ice), or (1-a_ice)+a_ice*ice_light_transm when that is set (light test L2, 4 Nov 2026).
+           , oasim_ed2D(n,:) * ice_fac_spec                      &
+           , oasim_es2D(n,:) * ice_fac_spec                      &
            , Light_watercolumn                                   & ! Light (Ed) variables
 #endif           
                            , PAR, ice, dynamics, tracers, partit, mesh)
@@ -557,8 +567,8 @@ if (recom_debug .and. mype==0) print *, achar(27)//'[36m'//'     --> before main
 !sl just below the surface, for Rrs: the same quantities as Reflec in REcoM_Forcing (Eutop at kSurface = 1
 !sl over the ice-shaded OASIM arguments passed above)
              Eu0_2D(n,:) = Light_watercolumn(1,:,iEutop)
-             Ed0_2D(n,:) = oasim_ed2D(n,:) * (1.d0 - a_ice(n))
-             Es0_2D(n,:) = oasim_es2D(n,:) * (1.d0 - a_ice(n))
+             Ed0_2D(n,:) = oasim_ed2D(n,:) * ice_fac_spec
+             Es0_2D(n,:) = oasim_es2D(n,:) * ice_fac_spec
 if (recom_debug .and. mype==0) print *, achar(27)//'[36m'//'     --> after main Ed4D'//achar(27)//'[0m'
 #endif
 

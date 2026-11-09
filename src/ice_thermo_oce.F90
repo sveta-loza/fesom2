@@ -704,10 +704,16 @@ subroutine budget (ithermp, hice,hsn,t,ta,qa,fsh,flo,ug,S_oc,ch_i,ce_i,fh,subli)
         C=C*(TFrez(S_oc)-t)                     ! downward conductivity term
         
         t=t+(A1+A2+C)/A3                        ! NEW ICE TEMPERATURE AS THE SUM OF ALL COMPONENTS
-        t=min(0.0_WP, max(t, -100.0_WP))       ! keep t physical each iter: prevents the
-                                               ! unbounded Newton from overshooting into
-                                               ! exp(q2/(t+tmelt)) / (t+tmelt)**4 overflow -> NaN
-                                               ! (cold-start Arctic nucleation, t_skin=0 guess)
+        t=max(t, -100.0_WP)                    ! lower bound only: prevents the unbounded Newton
+                                               ! from overshooting into exp(q2/(t+tmelt)) /
+                                               ! (t+tmelt)**4 overflow -> NaN (cold-start Arctic
+                                               ! nucleation, t_skin=0 guess). NO upper clamp inside
+                                               ! the loop: upstream FESOM2 clamps t<=0 only after it,
+                                               ! so B (saturation humidity -> sublimation, latent
+                                               ! heat) keeps the overshoot value in melt conditions;
+                                               ! clamping each iteration cut the latent heat loss and
+                                               ! made FESIM melt Antarctic summer ice 8 % faster than
+                                               ! the monolithic model (TerraDT 2026-11-09).
     end do
     t=min(0.0_WP,t)
     

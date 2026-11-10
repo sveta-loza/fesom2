@@ -242,6 +242,11 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh, p
 #if defined (__ifs_fwd)
         exchange(:,4) = ice_temp(1:myDim_nod2d)           ! ice surface temperature [K] -> IFS
         exchange(:,5) = ice_alb(1:myDim_nod2d)            ! ice albedo [0-1] -> IFS
+        exchange(:,6) = ice%uice(1:myDim_nod2d)           ! ice velocity x [m/s] -> ocean TB04 mixing
+        exchange(:,7) = ice%vice(1:myDim_nod2d)           ! ice velocity y [m/s]
+#else
+        exchange(:,4) = ice%uice(1:myDim_nod2d)           ! ice velocity x [m/s] -> ocean TB04 mixing
+        exchange(:,5) = ice%vice(1:myDim_nod2d)           ! ice velocity y [m/s]
 #endif
      elseif (i.eq.OCN_SEND_ICE_STRESS) then
         ! ice->ocean momentum stress (drag), sent in ALL configs; computed by

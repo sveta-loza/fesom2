@@ -86,7 +86,7 @@ module ocean_coupling_interface
   ! under IFS; ice_to_ocean_stress: 2; ice_to_ocean_flux: 2;
   ! ice_to_ocean_thermo: 5 (evaporation, ice_sublimation, thdgr, thdgrsn,
   ! a_ice_old).
-  integer,           public, protected, save :: ocn_send_collection_size(OCN_NSEND) = [3, 2, 2, 6]
+  integer,           public, protected, save :: ocn_send_collection_size(OCN_NSEND) = [5, 2, 2, 6]   ! sea_ice_bundle: m_ice, m_snow, a_ice, uice, vice (+ ice_temp, ice_alb before them under IFS)
   character(len=32), parameter, public :: ocn_send_names(OCN_NSEND) = [character(len=32) :: &
        'sea_ice_bundle', &
        'ice_to_ocean_stress', &
@@ -193,8 +193,8 @@ contains
     ocn_recv_collection_size(OCN_RECV_OCEAN_TO_ICE_UV)     = 2
     OCN_NRECV = OCN_RECV_OCEAN_TO_ICE_UV
 
-    ocn_send_collection_size = [3, 2, 2, 6]
-    if (is_coupled_to_ifs) ocn_send_collection_size(OCN_SEND_SEA_ICE_BUNDLE) = 5
+    ocn_send_collection_size = [5, 2, 2, 6]   ! m_ice, m_snow, a_ice, uice, vice
+    if (is_coupled_to_ifs) ocn_send_collection_size(OCN_SEND_SEA_ICE_BUNDLE) = 7   ! + ice_temp, ice_alb (slots 4-5), uice/vice move to 6-7
   end subroutine ocn_cpl_set_layout
 
   ! dt_seconds: the time step the fields are registered with (in seconds;

@@ -246,9 +246,16 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
         m_ice(1:myDim_nod2d)       = exchange(:,1)  !  ice thickness [m]
         m_snow(1:myDim_nod2d)      = exchange(:,2)  !  snow thickness [m]
         a_ice(1:myDim_nod2d)       = exchange(:,3)  !  ice concentation [%]
+        ! ice drift: the ocean's TB04 Monin-Obukhov mixing (oce_mo_conv) uses the
+        ! ice speed for the under-ice turbulence source; without it the term was
+        ! silently zero in the split (Antarctic ice +12 %/yr, found 2026-11-10).
+        ice%uice(1:myDim_nod2d)    = exchange(:,4)  !  ice velocity x [m/s]
+        ice%vice(1:myDim_nod2d)    = exchange(:,5)  !  ice velocity y [m/s]
         call exchange_nod(m_ice, partit)
         call exchange_nod(m_snow, partit)
         call exchange_nod(a_ice, partit)
+        call exchange_nod(ice%uice, partit)
+        call exchange_nod(ice%vice, partit)
      elseif (i.eq.ICE_RECV_ICE_STRESS) then
         ! ice->ocean drag from FESIM; oce_fluxes_mom uses it in stress_node_surf.
         ice%stress_iceoce_x(1:myDim_nod2d) = exchange(:,1)  ! [Pa]
@@ -974,9 +981,13 @@ subroutine exchange_oce_ice_yac(istep, ice, tracers, dynamics, partit, mesh)
         m_ice(1:myDim_nod2d)  = exchange(:,1)   ! ice thickness [m]
         m_snow(1:myDim_nod2d) = exchange(:,2)   ! snow thickness [m]
         a_ice(1:myDim_nod2d)  = exchange(:,3)   ! ice concentration [%]
+        ice%uice(1:myDim_nod2d) = exchange(:,4) ! ice velocity x [m/s] (TB04 mixing needs the ice speed)
+        ice%vice(1:myDim_nod2d) = exchange(:,5) ! ice velocity y [m/s]
         call exchange_nod(m_ice, partit)
         call exchange_nod(m_snow, partit)
         call exchange_nod(a_ice, partit)
+        call exchange_nod(ice%uice, partit)
+        call exchange_nod(ice%vice, partit)
      elseif (i.eq.ICE_RECV_ICE_STRESS) then
         ice%stress_iceoce_x(1:myDim_nod2d) = exchange(:,1)  ! [Pa]
         ice%stress_iceoce_y(1:myDim_nod2d) = exchange(:,2)  ! [Pa]
@@ -1111,11 +1122,15 @@ subroutine exchange_oce_ice_ifs(istep, ice, tracers, dynamics, partit, mesh)
         a_ice(1:myDim_nod2d)    = exchange(:,3)   ! ice concentration [%]
         ice_temp(1:myDim_nod2d) = exchange(:,4)   ! ice surface temperature [K]
         ice_alb(1:myDim_nod2d)  = exchange(:,5)   ! ice albedo [0-1]
+        ice%uice(1:myDim_nod2d) = exchange(:,6)   ! ice velocity x [m/s] (TB04 mixing needs the ice speed)
+        ice%vice(1:myDim_nod2d) = exchange(:,7)   ! ice velocity y [m/s]
         call exchange_nod(m_ice, partit)
         call exchange_nod(m_snow, partit)
         call exchange_nod(a_ice, partit)
         call exchange_nod(ice_temp, partit)
         call exchange_nod(ice_alb, partit)
+        call exchange_nod(ice%uice, partit)
+        call exchange_nod(ice%vice, partit)
      elseif (i.eq.ICE_RECV_ICE_STRESS) then
         ice%stress_iceoce_x(1:myDim_nod2d) = exchange(:,1)  ! [Pa]
         ice%stress_iceoce_y(1:myDim_nod2d) = exchange(:,2)  ! [Pa]

@@ -127,9 +127,9 @@ module ice_coupling_interface
   ! sea_ice_bundle (3, or 5 for IFS) + ice_to_ocean_stress (2: stress_iceoce_x/y)
   ! + ice_to_ocean_flux (2: net_heat_flux, fresh_wa_flux) in standalone only.
 #if defined(__ifs_fwd)
-  integer, parameter, public :: ice_recv_collection_size(ICE_NRECV) = [5, 2, 2, 6]
+  integer, parameter, public :: ice_recv_collection_size(ICE_NRECV) = [7, 2, 2, 6]   ! sea_ice_bundle: m_ice, m_snow, a_ice, ice_temp, ice_alb, uice, vice
 #else
-  integer, parameter, public :: ice_recv_collection_size(ICE_NRECV) = [3, 2, 2, 6]
+  integer, parameter, public :: ice_recv_collection_size(ICE_NRECV) = [5, 2, 2, 6]   ! sea_ice_bundle: m_ice, m_snow, a_ice, uice, vice
 #endif
 
   ! YAC field names per slot. The "_to_ice" suffix distinguishes forwarded

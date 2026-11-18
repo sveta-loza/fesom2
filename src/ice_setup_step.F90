@@ -22,6 +22,8 @@ module ice_setup_step_module
     USE o_arrays
     USE g_read_other_NetCDF, only: read_other_NetCDF
     use ice_init_module, only: ice_init
+    use cpl_config, only: is_coupled_to_fesom
+    use fesim_ice_init, only: ice_cold_start_pending
 #if defined (__icepack)
     use icedrv_main,   only: step_icepack
 #endif
@@ -481,6 +483,11 @@ end if
 
     else if (.not. ini_ice_from_file) then
         if(partit%mype==0) write(*,*) 'initialize the sea ice: cold start'
+        ! The sea-ice component (FESIM) has no ocean state yet -- it arrives
+        ! from the ocean once the run starts -- so the loop below seeds
+        ! nothing; the cold start is completed from the first SST received
+        ! (fesim_ice_init).
+        if (is_coupled_to_fesom) ice_cold_start_pending = .true.
         !___________________________________________________________________________
         do i=1,partit%myDim_nod2D+partit%eDim_nod2D
             !_______________________________________________________________________

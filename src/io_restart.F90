@@ -486,8 +486,13 @@ subroutine read_initial_conditions(which_readr, ice, dynamics, tracers, partit, 
   legacy_ice_path = nc_restart_path_legacy('ice', yearold, RestartInPath)
   legacy_bio_path = nc_restart_path_legacy('bio', yearold, RestartInPath)
 
-  ! Initialize file groups for reading
-  call ini_ocean_io(dynamics, tracers, partit, mesh)
+  ! Initialize file groups for reading. The sea-ice component (FESIM) has no
+  ! ocean state of its own -- it arrives from the ocean every exchange -- so
+  ! it neither reads nor writes the ocean restart (on DARS that saved 54 s of
+  ! a 90 s startup and a 144 GB second copy per restart interval). Without
+  ! the group the raw and bin restarts, which loop over oce_files, are empty
+  ! for the ocean as well.
+  if (.not. is_coupled_to_fesom) call ini_ocean_io(dynamics, tracers, partit, mesh)
   if (use_ice) then
 #if defined(__icepack)    
       call ini_icepack_io(yearold, partit, mesh)
@@ -540,9 +545,11 @@ subroutine read_initial_conditions(which_readr, ice, dynamics, tracers, partit, 
     ! Read NetCDF restart
     which_readr = 0
     
-    ! Read OCEAN restart
-    if (partit%mype==RAW_RESTART_METADATA_RANK) print *, achar(27)//'[1;33m'//' --> read restarts from netcdf file: ocean'//achar(27)//'[0m'
-    call read_netcdf_restarts(read_oce_path, legacy_oce_path, oce_files, partit%MPI_COMM_FESOM, partit%mype)
+    ! Read OCEAN restart (not in the sea-ice component, see above)
+    if (.not. is_coupled_to_fesom) then
+      if (partit%mype==RAW_RESTART_METADATA_RANK) print *, achar(27)//'[1;33m'//' --> read restarts from netcdf file: ocean'//achar(27)//'[0m'
+      call read_netcdf_restarts(read_oce_path, legacy_oce_path, oce_files, partit%MPI_COMM_FESOM, partit%mype)
+    end if
     
     ! Read ICE/ICEPACK restart
     if (use_ice) then
@@ -666,7 +673,7 @@ subroutine write_initial_conditions(istep, nstart, ntotal, which_readr, ice, dyn
   ! Initialize file groups for writing on first call
   if(.not. initialized_io) then
     initialized_io = .true.
-    call ini_ocean_io(dynamics, tracers, partit, mesh)
+    if (.not. is_coupled_to_fesom) call ini_ocean_io(dynamics, tracers, partit, mesh)
     if (use_ice) then
 #if defined(__icepack)
         call ini_icepack_io(yearnew, partit, mesh)
@@ -766,8 +773,10 @@ subroutine write_initial_conditions(istep, nstart, ntotal, which_readr, ice, dyn
 #if defined (__cvmix)
         if (mod(mix_scheme_nmb,10)==7) call prepare_idemix2_restart()
 #endif
-        if (partit%mype==RAW_RESTART_METADATA_RANK) print *, achar(27)//'[1;33m'//' --> write restarts to netcdf file: ocean'//achar(27)//'[0m'
-        call write_netcdf_restarts(write_oce_path, oce_files, istep)
+        if (.not. is_coupled_to_fesom) then   ! not in the sea-ice component
+          if (partit%mype==RAW_RESTART_METADATA_RANK) print *, achar(27)//'[1;33m'//' --> write restarts to netcdf file: ocean'//achar(27)//'[0m'
+          call write_netcdf_restarts(write_oce_path, oce_files, istep)
+        end if
 #if defined(__recom) && defined(__usetp)
     endif !(partit%my_fesom_group == 0) then
 #endif

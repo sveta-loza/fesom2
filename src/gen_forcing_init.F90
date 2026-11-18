@@ -1,6 +1,6 @@
 module gen_forcing_init_module
     USE g_CONFIG
-    USE g_sbf, only: sbc_ini, l_mslp, l_cloud
+    USE g_sbf, only: sbc_ini, sbc_read_namelist, l_mslp, l_cloud
     USE mod_mesh
     USE MOD_PARTIT
     USE g_forcing_arrays
@@ -44,9 +44,13 @@ type(t_partit), intent(inout), target :: partit
 #if defined (__cpl_coupler)
      ! With a coupler the atmospheric forcing arrives through it, except for
      ! the ocean whose only partner is the sea ice (FESOM + FESIM): that one
-     ! reads forcing files, as a standalone run does. The sea ice reads none.
-     if (.not. is_coupled_to_atmosphere() .and. .not. is_coupled_to_fesom) &
+     ! reads forcing files, as a standalone run does. The sea ice reads none,
+     ! but its bulk thermodynamics needs the switches of nam_sbc (l_snow, ...).
+     if (is_coupled_to_fesom) then
+        call sbc_read_namelist(partit)
+     else if (.not. is_coupled_to_atmosphere()) then
         call sbc_ini(partit, mesh)
+     end if
 #else
      call sbc_ini(partit, mesh)         ! initialize forcing fields
 #endif

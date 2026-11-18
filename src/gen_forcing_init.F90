@@ -14,6 +14,9 @@ use g_sbf, only: sbc_ini_recom
 #elif defined (__cpl_yac)
   use cpl_yac_driver, only : nrecv
 #endif
+#if defined (__cpl_coupler)
+  use cpl_config, only: is_coupled_to_atmosphere, is_coupled_to_fesom
+#endif
 
     implicit none
 
@@ -38,7 +41,13 @@ type(t_partit), intent(inout), target :: partit
 #if defined(__recom)
      call sbc_ini_recom(partit)         ! initialize forcing fields
 #endif
-#if !defined (__cpl_coupler)
+#if defined (__cpl_coupler)
+     ! With a coupler the atmospheric forcing arrives through it, except for
+     ! the ocean whose only partner is the sea ice (FESOM + FESIM): that one
+     ! reads forcing files, as a standalone run does. The sea ice reads none.
+     if (.not. is_coupled_to_atmosphere() .and. .not. is_coupled_to_fesom) &
+        call sbc_ini(partit, mesh)
+#else
      call sbc_ini(partit, mesh)         ! initialize forcing fields
 #endif
   endif

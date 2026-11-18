@@ -20,6 +20,11 @@ module gen_forcing_couple_module
     USE g_support, only: integrate_nod
     USE par_support_module, only: par_abort
     USE cpl_config, only: is_coupled_to_echam, is_coupled_to_oifs
+#if defined (__cpl_yac)
+    USE cpl_config, only: is_coupled_to_fesim, is_coupled_to_ifs
+    USE cpl_fields, only: cpl_send_partner, cpl_recv_partner, &
+                          CPL_PARTNER_ATMOSPHERE, CPL_PARTNER_SEA_ICE
+#endif
 #if defined (__recom)
   use g_sbf, only: sbc_do_recom
 #endif
@@ -46,10 +51,15 @@ module gen_forcing_couple_module
     implicit none
 
     private
-#if defined (__cpl_yac)
-    public :: update_atm_forcing_yac
-#else /* if not defined  __cpl_yac */
     public :: update_atm_forcing
+#if defined (__cpl_yac)
+    public :: update_atm_forcing_yac, exchange_atm_ice_yac, exchange_oce_ice_yac
+
+    ! The atmospheric fluxes as last received from ICON, kept for forwarding
+    ! to the sea ice when it runs in FESIM (collection sizes as registered).
+    real(kind=WP), allocatable, save :: fwd_taux(:,:), fwd_tauy(:,:)
+    real(kind=WP), allocatable, save :: fwd_fresh_water(:,:), fwd_heat_flux(:,:)
+    real(kind=WP), allocatable, save :: fwd_atm_sea_ice_bundle(:,:)
 #endif
 #if defined (__cpl_coupler)
     public :: force_flux_consv, compute_residual, integrate_2D, &
@@ -61,6 +71,8 @@ contains
 ! Routines for updating ocean surface forcing fields
 !-------------------------------------------------------------------------
 #if defined (__cpl_yac)
+!> The atmosphere is ICON over YAC, the sea ice inside the ocean: send the
+!> ocean and ice state to the atmosphere, then receive its fluxes.
 subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
 
   implicit none
@@ -70,60 +82,67 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
   type(t_partit), intent(inout), target :: partit
   type(t_mesh),   intent(in),    target :: mesh
   type(t_dyn)   , intent(in), target :: dynamics
-  !_____________________________________________________________________________
-  integer                  :: i, itime,n2,n,nz,k,elem
-  real(kind=WP)            :: i_coef, aux
-  real(kind=WP)            :: dux, dvy,tx,ty,tvol
-  real(kind=WP)            :: t1, t2, net
-  real(kind=WP)                                    :: flux_global(2), flux_local(2), eff_vol(2)
-  real(kind=WP), dimension(:,:), allocatable , save  :: exchange
-  real(kind=WP), dimension(:), allocatable , save  :: mask !, weight
-  logical                                          :: action
-  logical                                          :: do_rotate_oce_wind=.false.
-  logical                                          :: do_rotate_ice_wind=.false.
-  INTEGER                                          :: my_global_rank, ierror
-  INTEGER                                          :: status(MPI_STATUS_SIZE)
-  !character(15)                         :: vari, filevari
-  !character(4)                          :: fileyear
-  !integer, parameter                    :: nci=192, ncj=94 ! T62 grid
-  !real(kind=WP), dimension(nci,ncj)     :: array_nc, array_nc2,array_nc3,x
-  !character(500)                        :: file
-  !_____________________________________________________________________________
-  ! pointer on necessary derived types
-  real(kind=WP), dimension(:), pointer  :: u_ice, v_ice, u_w, v_w
-  real(kind=WP), dimension(:), pointer  :: stress_atmice_x, stress_atmice_y
-  real(kind=WP), dimension(:), pointer  ::  oce_heat_flux, ice_heat_flux
-  real(kind=WP), dimension(:), pointer  :: a_ice, m_ice, m_snow
-    real(kind=WP)              , pointer  :: rhoair
-  u_ice            => ice%uice(:)
-  v_ice            => ice%vice(:)
-  u_w              => ice%srfoce_u(:)
-  v_w              => ice%srfoce_v(:)
-  stress_atmice_x  => ice%stress_atmice_x(:)
-  stress_atmice_y  => ice%stress_atmice_y(:)
-  a_ice            => ice%data(1)%values(:)
-  m_ice            => ice%data(2)%values(:)
-  m_snow           => ice%data(3)%values(:)
-  oce_heat_flux    => ice%atmcoupl%oce_flx_h(:)
-  ice_heat_flux    => ice%atmcoupl%ice_flx_h(:)
-  rhoair           => ice%thermo%rhoair
 
   stress_atmoce_x = 0.
   stress_atmoce_y = 0.
-  stress_atmice_x = 0.
-  stress_atmice_y = 0.
+  ice%stress_atmice_x = 0.
+  ice%stress_atmice_y = 0.
+  call send_to_atm_yac(ice, tracers, partit)
+  call recv_from_atm_yac(istep, ice, partit, mesh)
+
+end subroutine update_atm_forcing_yac
+
+!-------------------------------------------------------------------------
+!> The atmosphere is ICON over YAC and the sea ice runs in FESIM. Called every
+!> step: receive the atmosphere's fluxes, exchange with the sea ice every
+!> cpl_stride steps (forwarding the fluxes just received), then send the
+!> ocean and the received ice state to the atmosphere.
+!>
+!> The wind stresses are not zeroed before the receive, unlike in
+!> update_atm_forcing_yac: a step on which YAC does not couple then keeps the
+!> stresses of the last coupling (zero-order hold) instead of applying none.
+subroutine exchange_atm_ice_yac(istep, ice, tracers, dynamics, partit, mesh)
+
+  implicit none
+  integer,        intent(in)            :: istep
+  type(t_ice)   , intent(inout), target :: ice
+  type(t_tracer), intent(in),    target :: tracers
+  type(t_partit), intent(inout), target :: partit
+  type(t_mesh),   intent(in),    target :: mesh
+  type(t_dyn)   , intent(in), target :: dynamics
+
+  call recv_from_atm_yac(istep, ice, partit, mesh)
+  if (mod(istep-1, cpl_stride) == 0) &
+     call exchange_oce_ice_yac(istep, ice, tracers, dynamics, partit, mesh)
+  call send_to_atm_yac(ice, tracers, partit)
+
+end subroutine exchange_atm_ice_yac
+
+!-------------------------------------------------------------------------
+!> Send the fields registered for the atmosphere.
+subroutine send_to_atm_yac(ice, tracers, partit)
+
+  implicit none
+  type(t_ice)   , intent(inout), target :: ice
+  type(t_tracer), intent(in),    target :: tracers
+  type(t_partit), intent(inout), target :: partit
   !_____________________________________________________________________________
-  t1=MPI_Wtime()
+  integer                                            :: i
+  real(kind=WP), dimension(:,:), allocatable , save  :: exchange
+  logical                                            :: action
+  real(kind=WP), dimension(:), pointer               :: a_ice, m_ice, m_snow
+
+  a_ice            => ice%data(1)%values(:)
+  m_ice            => ice%data(2)%values(:)
+  m_snow           => ice%data(3)%values(:)
+
   if (.NOT. ALLOCATED(exchange)) then
      ALLOCATE(exchange(partit%myDim_nod2D, &
           MAX(MAXVAL(cpl_send_collection_size), MAXVAL(cpl_recv_collection_size))))
      exchange = 0
   end if
-!  if (.NOT. ALLOCATED(mask)) then
-!     ALLOCATE(mask(myDim_nod2D))
-!     mask = 1.
-!  end if
   do i=1,nsend
+     if (cpl_send_partner(i) /= CPL_PARTNER_ATMOSPHERE) cycle
      exchange  =0.
      select case (trim(cpl_send(i)))
      case ('sst_feom')
@@ -137,13 +156,49 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
         call par_abort(partit%MPI_COMM_FESOM, partit%mype)
      end select
      call cpl_yac_send(i, exchange(:,1:cpl_send_collection_size(i)), action)
-  enddo
 #ifdef VERBOSE
-  do i=1, nsend
      if (partit%mype==0) write(*,*) 'SEND: field ', i, ' max val:', maxval(exchange), ' . ACTION? ', action
-  enddo
 #endif
+  enddo
+
+end subroutine send_to_atm_yac
+
+!-------------------------------------------------------------------------
+!> Receive the fields registered from the atmosphere. With the sea ice in
+!> FESIM, a copy of each atmospheric flux is kept as received, for
+!> exchange_oce_ice_yac to forward.
+subroutine recv_from_atm_yac(istep, ice, partit, mesh)
+
+  implicit none
+  integer,        intent(in)            :: istep
+  type(t_ice)   , intent(inout), target :: ice
+  type(t_partit), intent(inout), target :: partit
+  type(t_mesh),   intent(in),    target :: mesh
+  !_____________________________________________________________________________
+  integer                  :: i, n
+  real(kind=WP)            :: t1, t2, net
+  real(kind=WP), dimension(:,:), allocatable , save  :: exchange
+  logical                                          :: action
+  logical                                          :: do_rotate_oce_wind=.false.
+  logical                                          :: do_rotate_ice_wind=.false.
+  !_____________________________________________________________________________
+  ! pointer on necessary derived types
+  real(kind=WP), dimension(:), pointer  :: stress_atmice_x, stress_atmice_y
+  real(kind=WP), dimension(:), pointer  ::  oce_heat_flux, ice_heat_flux
+  stress_atmice_x  => ice%stress_atmice_x(:)
+  stress_atmice_y  => ice%stress_atmice_y(:)
+  oce_heat_flux    => ice%atmcoupl%oce_flx_h(:)
+  ice_heat_flux    => ice%atmcoupl%ice_flx_h(:)
+
+  !_____________________________________________________________________________
+  t1=MPI_Wtime()
+  if (.NOT. ALLOCATED(exchange)) then
+     ALLOCATE(exchange(partit%myDim_nod2D, &
+          MAX(MAXVAL(cpl_send_collection_size), MAXVAL(cpl_recv_collection_size))))
+     exchange = 0
+  end if
   do i=1,nrecv
+     if (cpl_recv_partner(i) /= CPL_PARTNER_ATMOSPHERE) cycle
      exchange =0.0
      CALL cpl_yac_recv (i, exchange(:,1:cpl_recv_collection_size(i)), action)
 #ifdef VERBOSE
@@ -152,6 +207,7 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
      end if
 #endif
      if (.not. action) cycle
+     if (is_coupled_to_fesim) call keep_for_sea_ice(cpl_recv(i), exchange(:,1:cpl_recv_collection_size(i)))
      !Do not apply a correction at first time step!
      select case (trim(cpl_recv(i)))
      case ('taux')
@@ -213,9 +269,12 @@ subroutine update_atm_forcing_yac(istep, ice, tracers, dynamics, partit, mesh)
   end if
 #endif
 
-end subroutine update_atm_forcing_yac
+end subroutine recv_from_atm_yac
+#endif /* __cpl_yac */
 
-#else /* if not defined  __cpl_yac */
+! update_atm_forcing is compiled in every build. Under YAC it is the path
+! taken when the ocean's only partner is the sea ice (FESOM + FESIM): the
+! ocean reads its forcing files and runs its own bulk formulae.
 
 subroutine update_atm_forcing(istep, ice, tracers, dynamics, partit, mesh)
   use fesom_profiler, only: fesom_profiler_start, fesom_profiler_end
@@ -740,7 +799,245 @@ subroutine update_atm_forcing(istep, ice, tracers, dynamics, partit, mesh)
 
 end subroutine update_atm_forcing
 
+#if defined (__cpl_yac)
+!-------------------------------------------------------------------------
+!> Keep a copy of an atmospheric flux as received from ICON, for forwarding
+!> to the sea ice (FESIM converts on receive).
+subroutine keep_for_sea_ice(name, data)
+  implicit none
+  character(len=*), intent(in) :: name
+  real(kind=WP),    intent(in) :: data(:,:)
+
+  if (.not. allocated(fwd_taux)) call allocate_forwarded(size(data, 1))
+  select case (trim(name))
+  case ('taux')
+     fwd_taux = data
+  case ('tauy')
+     fwd_tauy = data
+  case ('surface_fresh_water_flux')
+     fwd_fresh_water = data
+  case ('total_heat_flux')
+     fwd_heat_flux = data
+  case ('atmosphere_sea_ice_bundle')
+     fwd_atm_sea_ice_bundle = data
+  end select   ! river_runoff is not forwarded as such: the ocean sends its runoff
+end subroutine keep_for_sea_ice
+
+subroutine allocate_forwarded(n)
+  implicit none
+  integer, intent(in) :: n
+  allocate(fwd_taux(n, 2), fwd_tauy(n, 2), fwd_fresh_water(n, 3), &
+           fwd_heat_flux(n, 4), fwd_atm_sea_ice_bundle(n, 2))
+  fwd_taux               = 0.0_WP
+  fwd_tauy               = 0.0_WP
+  fwd_fresh_water        = 0.0_WP
+  fwd_heat_flux          = 0.0_WP
+  fwd_atm_sea_ice_bundle = 0.0_WP
+end subroutine allocate_forwarded
+
+!-------------------------------------------------------------------------
+!> Ocean <-> sea-ice (FESIM) exchange over YAC, every cpl_stride steps. The
+!> ocean receives the ice state and the ice->ocean fluxes, and sends its
+!> surface state plus what it forwards from the atmosphere:
+!>  - ICON: the fluxes as last received (exchange_atm_ice_yac);
+!>  - IFS: the fluxes the IFS interface deposited in the ocean's arrays this
+!>    step, already in FESOM units and rotated (stress_atmoce stays here: it
+!>    drives the ocean). The ice surface temperature and albedo received back
+!>    are relayed to IFS by the interface. The ocean also adds the open-water
+!>    part of the atmospheric flux of this step itself (see below);
+!>  - no atmosphere: the raw atmospheric state from the forcing files, which
+!>    update_atm_forcing has just read.
+!> The fields are the ones define_cpl_fields registered for the sea ice.
+subroutine exchange_oce_ice_yac(istep, ice, tracers, dynamics, partit, mesh)
+  implicit none
+  integer,        intent(in)            :: istep
+  type(t_ice)   , intent(inout), target :: ice
+  type(t_tracer), intent(in),    target :: tracers
+  type(t_partit), intent(inout), target :: partit
+  type(t_mesh),   intent(in),    target :: mesh
+  type(t_dyn)   , intent(in),    target :: dynamics
+  integer :: i, n, nod2
+  integer :: k_drift   ! first component of the ice drift in sea_ice_bundle
+  logical :: action
+  real(kind=WP), dimension(:,:), allocatable, save :: exchange
+  real(kind=WP), dimension(:),   allocatable, save :: flx_h_ice, flx_fw_ice   ! ice-related part of the received flux (IFS)
+  real(kind=WP), dimension(:), pointer :: a_ice, m_ice, m_snow, ice_temp, ice_alb
+  real(kind=WP), dimension(:), pointer :: oce_heat_flux, ice_heat_flux, enthalpyoffuse
+
+  nod2   =  partit%myDim_nod2D
+  a_ice  => ice%data(1)%values(:)
+  m_ice  => ice%data(2)%values(:)
+  m_snow => ice%data(3)%values(:)
+  oce_heat_flux  => ice%atmcoupl%oce_flx_h(:)
+  ice_heat_flux  => ice%atmcoupl%ice_flx_h(:)
+#if defined (__cpl_enabled)
+  enthalpyoffuse => ice%atmcoupl%enthalpyoffuse(:)
 #endif
+  if (is_coupled_to_ifs) then
+     ! the ice surface tracer exists for the partners FESOM provides it to
+     ice_temp => ice%data(ice%ist_itracer_idx)%values(:)
+     ice_alb  => ice%atmcoupl%ice_alb(:)
+  end if
+
+  if (.NOT. ALLOCATED(exchange)) then
+     ALLOCATE(exchange(nod2, MAX(MAXVAL(cpl_send_collection_size), MAXVAL(cpl_recv_collection_size))))
+     exchange = 0
+     ALLOCATE(flx_h_ice(nod2+partit%eDim_nod2D), flx_fw_ice(nod2+partit%eDim_nod2D))
+     flx_h_ice  = 0.0_WP
+     flx_fw_ice = 0.0_WP
+  end if
+  if (.not. allocated(fwd_taux)) call allocate_forwarded(nod2)
+
+  ! ---- receive from the sea ice ------------------------------------------
+  do i=1,nrecv
+     if (cpl_recv_partner(i) /= CPL_PARTNER_SEA_ICE) cycle
+     exchange = 0.0
+     CALL cpl_yac_recv(i, exchange(:,1:cpl_recv_collection_size(i)), action)
+     if (.not. action) cycle
+     select case (trim(cpl_recv(i)))
+     case ('sea_ice_bundle')
+        m_ice(1:nod2)  = exchange(:,1)   ! ice thickness [m]
+        m_snow(1:nod2) = exchange(:,2)   ! snow thickness [m]
+        a_ice(1:nod2)  = exchange(:,3)   ! ice concentration
+        call exchange_nod(m_ice, partit)
+        call exchange_nod(m_snow, partit)
+        call exchange_nod(a_ice, partit)
+        k_drift = 4
+        if (is_coupled_to_ifs) then
+           ice_temp(1:nod2) = exchange(:,4)   ! ice surface temperature [K], relayed to IFS
+           ice_alb(1:nod2)  = exchange(:,5)   ! ice albedo, relayed to IFS
+           call exchange_nod(ice_temp, partit)
+           call exchange_nod(ice_alb, partit)
+           k_drift = 6
+        end if
+        ! ice drift: the ocean's under-ice mixing (TB04, oce_mo_conv) uses the ice speed
+        ice%uice(1:nod2) = exchange(:,k_drift)     ! [m/s]
+        ice%vice(1:nod2) = exchange(:,k_drift+1)   ! [m/s]
+        call exchange_nod(ice%uice, partit)
+        call exchange_nod(ice%vice, partit)
+     case ('ice_to_ocean_stress')
+        ! ice-ocean drag; oce_fluxes_mom uses it as received
+        ice%stress_iceoce_x(1:nod2) = exchange(:,1)  ! [Pa]
+        ice%stress_iceoce_y(1:nod2) = exchange(:,2)  ! [Pa]
+        call exchange_nod(ice%stress_iceoce_x, partit)
+        call exchange_nod(ice%stress_iceoce_y, partit)
+     case ('ice_to_ocean_flux')
+        ! net heat and freshwater flux; oce_fluxes applies heat_flux=-flx_h,
+        ! water_flux=-flx_fw, as with the built-in sea ice
+        ice%flx_h(1:nod2)  = exchange(:,1)  ! [W/m2]
+        ice%flx_fw(1:nod2) = exchange(:,2)  ! [m/s]
+        call exchange_nod(ice%flx_h, partit)
+        call exchange_nod(ice%flx_fw, partit)
+        flx_h_ice  = ice%flx_h
+        flx_fw_ice = ice%flx_fw
+     case ('ice_to_ocean_thermo')
+        ! the terms of the ice thermodynamics that oce_fluxes integrates for the
+        ! global freshwater balancing; the built-in sea ice sets them itself
+        evaporation(1:nod2)            = exchange(:,1)  ! [m/s], negative up
+        ice_sublimation(1:nod2)        = exchange(:,2)  ! [m/s]
+        ice%thermo%thdgr(1:nod2)       = exchange(:,3)  ! ice growth rate  [m/s]
+        ice%thermo%thdgrsn(1:nod2)     = exchange(:,4)  ! snow growth rate [m/s]
+        ice%data(1)%values_old(1:nod2) = exchange(:,5)  ! a_ice before the thermodynamics
+        real_salt_flux(1:nod2)         = exchange(:,6)  ! brine salt flux [m/s psu]
+        call exchange_nod(evaporation, partit)
+        call exchange_nod(ice_sublimation, partit)
+        call exchange_nod(ice%thermo%thdgr, partit)
+        call exchange_nod(ice%thermo%thdgrsn, partit)
+        call exchange_nod(ice%data(1)%values_old, partit)
+        call exchange_nod(real_salt_flux, partit)
+     case default
+        write(*,*) 'exchange_oce_ice_yac: no handler for the received field ', trim(cpl_recv(i))
+        call par_abort(partit%MPI_COMM_FESOM, partit%mype)
+     end select
+  end do
+
+  ! ---- send to the sea ice ------------------------------------------------
+  do i=1,nsend
+     if (cpl_send_partner(i) /= CPL_PARTNER_SEA_ICE) cycle
+     exchange = 0.
+     select case (trim(cpl_send(i)))
+     case ('sst_feom_to_ice')
+        ! the ocean surface state as ocean2ice prepares it for the built-in sea
+        ! ice, in degC (a Kelvin round trip leaves 1e-14 K that flips the
+        ! new-ice branch where the ocean sits at the freezing point)
+        exchange(:,1) = ice%srfoce_temp(1:nod2)
+     case ('ocean_to_ice_bundle')
+        exchange(:,1) = ice%srfoce_salt(1:nod2)  ! SSS [psu]
+        exchange(:,2) = ice%srfoce_ssh(1:nod2)   ! SSH [m]
+     case ('ocean_to_ice_uv')
+        exchange(:,1) = ice%srfoce_u(1:nod2)     ! surface velocity [m/s]
+        exchange(:,2) = ice%srfoce_v(1:nod2)
+     case ('runoff_to_ice')
+        ! river runoff [m/s]: with the built-in sea ice it enters the ocean
+        ! through the ice thermodynamics only, so the sea ice adds it there
+        exchange(:,1) = runoff(1:nod2)
+     ! ICON: the atmospheric fluxes as received
+     case ('taux_to_ice')
+        exchange(:,1:2) = fwd_taux
+     case ('tauy_to_ice')
+        exchange(:,1:2) = fwd_tauy
+     case ('surface_fresh_water_flux_to_ice')
+        exchange(:,1:3) = fwd_fresh_water
+     case ('total_heat_flux_to_ice')
+        exchange(:,1:4) = fwd_heat_flux
+     case ('atmosphere_sea_ice_bundle_to_ice')
+        exchange(:,1:2) = fwd_atm_sea_ice_bundle
+     ! IFS: the fluxes the interface deposited this step, in FESOM units
+     case ('atm_ice_flux_to_ice')
+        exchange(:,1)  = ice%stress_atmice_x(1:nod2) ! [Pa]
+        exchange(:,2)  = ice%stress_atmice_y(1:nod2) ! [Pa]
+        exchange(:,3)  = oce_heat_flux(1:nod2)       ! [W/m2]
+        exchange(:,4)  = ice_heat_flux(1:nod2)       ! [W/m2]
+        exchange(:,5)  = shortwave(1:nod2)           ! [W/m2]
+        exchange(:,6)  = prec_rain(1:nod2)           ! [m/s]
+        exchange(:,7)  = prec_snow(1:nod2)           ! [m/s]
+        exchange(:,8)  = evap_no_ifrac(1:nod2)       ! [m/s]
+        exchange(:,9)  = sublimation(1:nod2)         ! [m/s]
+        exchange(:,10) = enthalpyoffuse(1:nod2)      ! [W/m2]
+     ! no atmosphere: the raw state from the forcing files (FESIM converts)
+     case ('atm_state_to_ice')
+        exchange(:,1) = atmdata(i_xwind, 1:nod2)   ! u_wind    [m/s]
+        exchange(:,2) = atmdata(i_ywind, 1:nod2)   ! v_wind    [m/s]
+        exchange(:,3) = atmdata(i_tair , 1:nod2)   ! t_air     [K]
+        exchange(:,4) = atmdata(i_humi , 1:nod2)   ! shum      [kg/kg]
+        exchange(:,5) = atmdata(i_qsr  , 1:nod2)   ! shortwave [W/m2] down
+        exchange(:,6) = atmdata(i_qlw  , 1:nod2)   ! longwave  [W/m2] down
+        exchange(:,7) = atmdata(i_prec , 1:nod2)   ! prec_rain [kg/m2/s]
+        exchange(:,8) = atmdata(i_snow , 1:nod2)   ! prec_snow [kg/m2/s]
+        exchange(:,9) = atmdata(i_mslp , 1:nod2)   ! mslp      [Pa]
+     case default
+        write(*,*) 'exchange_oce_ice_yac: no handler for the sent field ', trim(cpl_send(i))
+        call par_abort(partit%MPI_COMM_FESOM, partit%mype)
+     end select
+     call cpl_yac_send(i, exchange(:,1:cpl_send_collection_size(i)), action)
+  enddo
+
+  ! IFS: open-water flux split. With the concurrent (lag-1) exchange the sea
+  ! ice returns only the ice-related part of its heat and freshwater flux
+  ! (thermodynamics_coupled subtracts (1-A)*a2ohf and the open-water P-E plus
+  ! runoff, A = its concentration before the thermodynamics = values_old
+  ! received above). The ocean adds the open-water part from the atmospheric
+  ! fluxes of THIS step, so ice-free water is forced without the exchange
+  ! lag; oce_fluxes then applies heat_flux = -flx_h, water_flux = -flx_fw.
+  if (is_coupled_to_ifs) then
+     do n = 1, nod2+partit%eDim_nod2D
+        if (mesh%ulevels_nod2D(n) > 1) then
+           ice%flx_h(n)  = flx_h_ice(n)
+           ice%flx_fw(n) = flx_fw_ice(n)
+        else
+           ice%flx_h(n)  = flx_h_ice(n)  + (1.0_WP-ice%data(1)%values_old(n))*(oce_heat_flux(n)+shortwave(n)+enthalpyoffuse(n))
+           ice%flx_fw(n) = flx_fw_ice(n) + (evap_no_ifrac(n)+prec_rain(n)+(1.0_WP-ice%data(1)%values_old(n))*prec_snow(n)+runoff(n)) &
+                                           *ice%thermo%rhofwt/ice%thermo%rhowat
+           ! the terms oce_fluxes integrates for the global freshwater balancing, from
+           ! the SAME step's atmospheric fluxes, as the built-in thermodynamics does
+           evaporation(n)     = evap_no_ifrac(n) + sublimation(n)
+           ice_sublimation(n) = sublimation(n)
+        end if
+     end do
+  end if
+
+end subroutine exchange_oce_ice_yac
+#endif /* __cpl_yac */
 
 !
 !------------------------------------------------------------------------------------

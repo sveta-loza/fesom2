@@ -35,10 +35,12 @@ module fesom_main_storage_module
   use ice_oce_coupling_module, only: ocean2ice
   use ice_oce_coupling_module, only: oce_fluxes, oce_fluxes_mom
   use oce_hosing_module, only: fw_surf_anomaly, fw_depth_anomaly
-#if defined (__cpl_yac)
-  use gen_forcing_couple_module, only: update_atm_forcing_yac
-#else
   use gen_forcing_couple_module, only: update_atm_forcing
+#if defined (__cpl_yac)
+  use gen_forcing_couple_module, only: update_atm_forcing_yac, &
+                                       exchange_atm_ice_yac, exchange_oce_ice_yac
+  use cpl_config, only: is_coupled_to_icon_a, is_coupled_to_fesim, &
+                        is_coupled_to_atmosphere
 #endif
   use oce_setup_step_module, only: before_oce_step
   use oce_ale_module, only: oce_timestep_ale, write_oce_step_times
@@ -674,7 +676,7 @@ contains
         ! --------------
 
 #if defined (__cpl_yac)
-        call cpl_yac_define_unstr(f%partit, f%mesh)
+        call cpl_yac_define_unstr(f%partit, f%mesh, f%total_nsteps)
         if(f%mype==0)  write(*,*) 'FESOM ---->     cpl_yac_define_unstr nsend, nrecv:',nsend, nrecv
 #endif
 
@@ -925,6 +927,12 @@ contains
     integer n, nstart, ntotal, tr_num, tracer_index
     logical :: do_cmor_0d_reset
     real(kind=WP_full) :: t_check
+    logical :: ice_external   ! the sea ice runs in its own component (FESIM)
+
+    ice_external = .false.
+#if defined (__cpl_yac)
+    ice_external = is_coupled_to_fesim
+#endif
 
 #if defined (__recom)
     type(tracers_info_type)               :: tracers_info
@@ -951,6 +959,14 @@ contains
 #if defined(__recom) && defined(__usetp)
         end if
 #endif 
+#if defined (__cpl_yac)
+    ! Ocean and sea ice alone in MPI_COMM_WORLD: synchronise them before the
+    ! loop timers start, so that the ocean's longer initialisation does not
+    ! show up as sea-ice wait in the first step. Not possible with an
+    ! atmosphere in the same world, whose ranks never reach this barrier.
+    if (ice_external .and. .not. is_coupled_to_atmosphere()) &
+       call MPI_Barrier(MPI_COMM_WORLD, f%MPIERR)
+#endif
     call MPI_Barrier(f%MPI_COMM_FESOM, f%MPIERR)   
     if (f%mype==0) then
 #if defined(__recom) && defined(__usetp)
@@ -1100,6 +1116,9 @@ contains
         end if
 #endif
             f%t_ice_o2iflx_s = MPI_Wtime()
+            ! Also with the sea ice in FESIM: ocean2ice prepares the ocean
+            ! surface state (ice%srfoce_*) that the ocean's own bulk formulae
+            ! use and that is sent to the sea ice.
             call ocean2ice(f%ice, f%dynamics, f%tracers, f%partit, f%mesh)
         end if
 
@@ -1117,7 +1136,14 @@ contains
         call fesom_profiler_start("update_atm_forcing")
 #endif
 #if defined (__cpl_yac)
-            call update_atm_forcing_yac(n, f%ice, f%tracers, f%dynamics, f%partit, f%mesh)
+            if (.not. is_coupled_to_atmosphere()) then
+                ! the ocean's only partner is the sea ice: forcing files
+                call update_atm_forcing(n, f%ice, f%tracers, f%dynamics, f%partit, f%mesh)
+            else if (is_coupled_to_icon_a .and. .not. ice_external) then
+                call update_atm_forcing_yac(n, f%ice, f%tracers, f%dynamics, f%partit, f%mesh)
+            end if
+            ! ICON with the sea ice in FESIM: the atmosphere and sea-ice
+            ! exchanges run together in place of the ice step below.
 #else
             call update_atm_forcing(n, f%ice, f%tracers, f%dynamics, f%partit, f%mesh)
 #endif
@@ -1148,7 +1174,22 @@ contains
 #if defined (FESOM_PROFILING)
         call fesom_profiler_start("ice_timestep")
 #endif
+#if defined (__cpl_yac)
+                if (ice_external) then
+                    ! The sea ice is FESIM: exchange with it instead of stepping
+                    ! the ice here, every cpl_stride steps (FESIM gates on the
+                    ! same n and cpl_stride, so puts and gets stay paired).
+                    if (is_coupled_to_icon_a) then
+                        call exchange_atm_ice_yac(n, f%ice, f%tracers, f%dynamics, f%partit, f%mesh)
+                    else if (mod(n-1, cpl_stride) == 0) then
+                        call exchange_oce_ice_yac(n, f%ice, f%tracers, f%dynamics, f%partit, f%mesh)
+                    end if
+                else
+                    call ice_timestep(n, f%ice, f%partit, f%mesh)
+                end if
+#else
                 call ice_timestep(n, f%ice, f%partit, f%mesh)
+#endif
 #if defined (FESOM_PROFILING)
         call fesom_profiler_end("ice_timestep")
 #endif

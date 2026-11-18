@@ -6,7 +6,9 @@ module cpl_yac_driver
   USE g_clock
   USE cpl_config, only : cpl_comp_name, cpl_grid_name, cpl_config_file
   USE cpl_fields, only : nsend, nrecv, cpl_send, cpl_recv, &
-                         cpl_send_collection_size, cpl_recv_collection_size
+                         cpl_send_collection_size, cpl_recv_collection_size, &
+                         cpl_send_partner, cpl_send_steps, cpl_recv_steps, &
+                         CPL_PARTNER_ATMOSPHERE
 
   implicit none
   save
@@ -16,6 +18,15 @@ module cpl_yac_driver
   real(kind=WP), dimension(:,:),   allocatable   :: a2o_fcorr_stat  !flux correction statistics for the output
   integer                    :: source_root, target_root   !this root/source in MPI_COMM_WORLD
   logical                    :: commRank       ! true for ranks doing YAC communication
+
+  ! One-shot check, on rank 0, that coupling_period in coupling.yaml equals the
+  ! exchange interval of the ocean <-> sea-ice fields (dt * cpl_stride).
+  ! Nothing else enforces it: with a longer period YAC couples only every Nth
+  ! call, and the component silently reuses the fields of the last coupling
+  ! (zero-order hold), which drove surface run-aways on high-resolution meshes.
+  integer, private :: n_put_ice = 0, n_put_ice_coupled = 0
+  logical, private :: period_checked = .false.
+  integer, private :: driver_mype = -1
 
   public nsend, nrecv
   public cpl_send, cpl_recv
@@ -81,11 +92,17 @@ contains
     mid(2) = PI/2 - acos(z_mid/sqrt(x_mid*x_mid + y_mid*y_mid + z_mid*z_mid))
   end subroutine compute_center
 
-  subroutine cpl_yac_define_unstr(partit, mesh)
+  !> nsteps: the time steps of this run. Without an atmosphere there is no
+  !> YAC time master, and the components define the end of the run as well:
+  !> start + nsteps*dt, from each one's own clock and namelist.config, so
+  !> coupling.yaml carries no dates (a date pinned there breaks every
+  !> restart). With an atmosphere, the atmosphere sets the end.
+  subroutine cpl_yac_define_unstr(partit, mesh, nsteps)
     use mod_mesh
     USE MOD_PARTIT
     use g_rotate_grid
     use g_config, only: dt
+    use cpl_config, only: is_coupled_to_atmosphere
 
     implicit none
 
@@ -98,18 +115,24 @@ contains
     integer :: nbr_connections, vtx_idx, c2v_idx
     integer :: curr_elem, curr_edge
     logical, allocatable :: node_is_boundary(:)
+    integer, intent(in) :: nsteps
     character(len=8)           :: dt_str
-    character(LEN=24) :: startdatetime
+    character(LEN=24) :: startdatetime, enddatetime
 
+    driver_mype = partit%mype
 
     WRITE(startdatetime, '(I4.4,"-",I2.2,"-",I2.2,"T",I2.2,":",I2.2,":",I2.2,".",I3.3, "Z")') &
          yearnew, month, day_in_month, &
          INT(timenew)/3600, MODULO(INT(timenew), 3600)/60, MODULO(INT(timenew), 60), &
          INT(MODULO(timenew, 1.0_WP)*1000)
 
-    WRITE(dt_str, '(I8.8)') INT(dt*1000)
-
-    CALL yac_fdef_datetime(startdatetime)
+    if (is_coupled_to_atmosphere()) then
+       CALL yac_fdef_datetime(startdatetime)
+    else
+       call run_end_datetime(nsteps, enddatetime)
+       CALL yac_fdef_datetime(startdatetime, enddatetime)
+       if (partit%mype == 0) write(*,*) '     YAC run period: ', startdatetime, ' -> ', enddatetime
+    end if
 
     ! find boundary nodes
     ALLOCATE(node_is_boundary(partit%myDim_nod2D))
@@ -241,13 +264,16 @@ contains
     ! define_cpl_fields (cpl_fields). They must match coupling.yaml.
     ALLOCATE(send_field_id(nsend), recv_field_id(nrecv))
 
+    ! Each field is registered with its own exchange interval (cpl_fields).
     DO i=1,nsend
+       WRITE(dt_str, '(I8.8)') INT(dt*cpl_send_steps(i)*1000)
        CALL yac_fdef_field(cpl_send(i), comp_id, [points_id], 1, &
             cpl_send_collection_size(i), &
             dt_str, YAC_TIME_UNIT_MILLISECOND, send_field_id(i))
     END DO
 
     DO i=1,nrecv
+       WRITE(dt_str, '(I8.8)') INT(dt*cpl_recv_steps(i)*1000)
        CALL yac_fdef_field(cpl_recv(i), comp_id, [points_id], 1, cpl_recv_collection_size(i), &
             dt_str, YAC_TIME_UNIT_MILLISECOND, recv_field_id(i))
     END DO
@@ -268,6 +294,12 @@ contains
     call yac_fput(send_field_id(ind), SIZE(data_array, 1), SIZE(data_array, 2), &
          data_array, info, ierr)
     action = info .eq. YAC_ACTION_COUPLING
+    if (info .eq. YAC_ACTION_OUT_OF_BOUND) call out_of_bound_abort('put', cpl_send(ind))
+    if (cpl_send_partner(ind) /= CPL_PARTNER_ATMOSPHERE) then
+       n_put_ice = n_put_ice + 1
+       if (action) n_put_ice_coupled = n_put_ice_coupled + 1
+       call check_coupling_period()
+    end if
   end subroutine cpl_yac_send
 
   subroutine cpl_yac_recv(ind, data_array, action)
@@ -281,7 +313,68 @@ contains
     call yac_fget(recv_field_id(ind), SIZE(data_array, 1), SIZE(data_array, 2),&
          data_array, info, ierr)
     action = info .eq. YAC_ACTION_COUPLING
+    if (info .eq. YAC_ACTION_OUT_OF_BOUND) call out_of_bound_abort('get', cpl_recv(ind))
   end subroutine cpl_yac_recv
+
+  !> End of the run: the clock walked forward by nsteps*dt seconds, as YAC
+  !> datetime string.
+  subroutine run_end_datetime(nsteps, enddatetime)
+    use g_config, only: dt
+    integer,           intent(in)  :: nsteps
+    character(len=24), intent(out) :: enddatetime
+    integer       :: eyear, eday, emonth, eday_in_month, fleap
+    real(kind=WP) :: esec
+
+    eyear = yearnew
+    eday  = daynew
+    esec  = timenew + real(nsteps, WP)*dt
+    call check_fleapyr(eyear, fleap)
+    do while (esec >= 86400.0_WP)
+       esec = esec - 86400.0_WP
+       eday = eday + 1
+       if (eday > 365 + fleap) then
+          eday  = 1
+          eyear = eyear + 1
+          call check_fleapyr(eyear, fleap)
+       end if
+    end do
+    eday_in_month = eday
+    do emonth = 1, 12
+       if (eday_in_month <= num_day_in_month(fleap, emonth)) exit
+       eday_in_month = eday_in_month - num_day_in_month(fleap, emonth)
+    end do
+    WRITE(enddatetime, '(I4.4,"-",I2.2,"-",I2.2,"T",I2.2,":",I2.2,":",I2.2,".",I3.3, "Z")') &
+         eyear, emonth, eday_in_month, &
+         INT(esec)/3600, MODULO(INT(esec), 3600)/60, MODULO(INT(esec), 60), &
+         INT(MODULO(esec, 1.0_WP)*1000)
+  end subroutine run_end_datetime
+
+  !> YAC answers a put/get outside the run period with YAC_ACTION_OUT_OF_BOUND
+  !> and only warns; the component then runs on with stale or zero partner
+  !> fields. A run that has left its coupling window is not valid: stop.
+  subroutine out_of_bound_abort(what, name)
+    use mpi
+    character(len=*), intent(in) :: what, name
+    integer :: ierr
+    write(*,'(a)') 'FATAL: YAC '//what//' of '//trim(name)//' returned YAC_ACTION_OUT_OF_BOUND:'
+    write(*,'(a)') '       the model clock is outside the run period known to YAC.'
+    call MPI_Abort(MPI_COMM_WORLD, 1, ierr)
+  end subroutine out_of_bound_abort
+
+  !> Fires once, some 40 sea-ice puts into the run, on rank 0 only.
+  subroutine check_coupling_period()
+    if (period_checked .or. n_put_ice < 40) return
+    period_checked = .true.
+    if (driver_mype /= 0) return
+    if (n_put_ice_coupled >= n_put_ice - 4) return   ! ~1:1, allowing for src/tgt_lag
+    write(*,*) 'WARNING: coupling_period in coupling.yaml does not match dt*cpl_stride:'
+    write(*,*) '  of ', n_put_ice, ' ocean/sea-ice puts only ', n_put_ice_coupled, ' coupled.'
+    write(*,*) '  The components then reuse the fields of the last coupling in between'
+    write(*,*) '  (zero-order hold), a known cause of surface run-aways. Set'
+    write(*,*) '  coupling_period to dt*cpl_stride, or average over the period with'
+    write(*,*) '  "time_reduction: average". Each component reads the coupling.yaml'
+    write(*,*) '  of its own run directory.'
+  end subroutine check_coupling_period
 
   subroutine cpl_yac_finalize ()
     implicit none

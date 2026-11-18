@@ -92,17 +92,17 @@ contains
     mid(2) = PI/2 - acos(z_mid/sqrt(x_mid*x_mid + y_mid*y_mid + z_mid*z_mid))
   end subroutine compute_center
 
-  !> nsteps: the time steps of this run. Without an atmosphere there is no
-  !> YAC time master, and the components define the end of the run as well:
-  !> start + nsteps*dt, from each one's own clock and namelist.config, so
-  !> coupling.yaml carries no dates (a date pinned there breaks every
-  !> restart). With an atmosphere, the atmosphere sets the end.
+  !> nsteps: the time steps of this run. Without an atmosphere among the YAC
+  !> components (ICON-A) there is no YAC time master, and the components
+  !> define the end of the run as well: start + nsteps*dt, from each one's own
+  !> clock and namelist.config, so coupling.yaml carries no dates (a date
+  !> pinned there breaks every restart). With ICON-A, ICON sets the end.
   subroutine cpl_yac_define_unstr(partit, mesh, nsteps)
     use mod_mesh
     USE MOD_PARTIT
     use g_rotate_grid
     use g_config, only: dt
-    use cpl_config, only: is_coupled_to_atmosphere
+    use cpl_config, only: is_coupled_to_icon_a
 
     implicit none
 
@@ -131,7 +131,7 @@ contains
          INT(timenew)/3600, MODULO(INT(timenew), 3600)/60, MODULO(INT(timenew), 60), &
          INT(MODULO(timenew, 1.0_WP)*1000)
 
-    if (is_coupled_to_atmosphere()) then
+    if (is_coupled_to_icon_a) then
        CALL yac_fdef_datetime(startdatetime)
     else
        call run_end_datetime(nsteps, enddatetime)

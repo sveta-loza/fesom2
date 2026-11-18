@@ -240,6 +240,12 @@ add_custom_target(fesom_version_info-generated.F90 ALL
 #endif()
 list(REMOVE_ITEM sources_Fortran ${src_home}/fvom_init.F90 ${src_home}/mod_mesh_utils.F90 ${src_home}/oce_local.F90 ${src_home}/gen_comm.F90)
 list(REMOVE_ITEM sources_Fortran ${src_home}/fesom_main.F90)
+# fesim.x, the sea-ice component of the FESOM/FESIM split, has its own main
+# program; its driver talks to the ocean over YAC.
+list(REMOVE_ITEM sources_Fortran ${src_home}/fesim_main.F90)
+if(NOT FESOM_COUPLING_IS_YAC)
+   list(REMOVE_ITEM sources_Fortran ${src_home}/fesim_module.F90 ${src_home}/fesim_ocean_exchange.F90)
+endif()
 
 find_package( NETCDF REQUIRED COMPONENTS C Fortran )
 find_package( MPI REQUIRED COMPONENTS C Fortran )
@@ -661,6 +667,15 @@ endif()
 add_executable(${PROJECT_NAME}.x ${src_home}/fesom_main.F90)
 target_compile_options(${PROJECT_NAME}.x PRIVATE ${FESOM_RUNTIME_CHECK_FLAGS} ${FESOM_BUILD_CHECK_FLAGS})
 target_link_libraries(${PROJECT_NAME}.x PUBLIC ${PROJECT_NAME})
+
+# fesim.x executable: the sea ice as a YAC component of its own (FESIM),
+# coupled to fesom.x run with is_coupled_to_fesim
+if(FESOM_COUPLING_IS_YAC)
+    add_executable(fesim.x ${src_home}/fesim_main.F90)
+    target_compile_options(fesim.x PRIVATE ${FESOM_RUNTIME_CHECK_FLAGS} ${FESOM_BUILD_CHECK_FLAGS})
+    target_link_libraries(fesim.x PUBLIC ${PROJECT_NAME})
+    set(additional_targets ${additional_targets} fesim.x)
+endif()
 
 # fesom_meshdiag executable (optional)
 if(BUILD_MESHDIAG)

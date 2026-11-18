@@ -6,7 +6,7 @@ MODULE io_RESTART
   use g_config
   use cpl_config, only: fesom_provides_ice_surface, is_coupled_to_fesim, is_coupled_to_fesom
   use o_arrays
-  use g_forcing_arrays, only: evaporation, ice_sublimation
+  use g_forcing_arrays, only: evaporation, ice_sublimation, real_salt_flux
   use g_backscatter
   use MOD_TRACER
   use MOD_ICE
@@ -383,6 +383,7 @@ subroutine ini_ice_io(ice, partit, mesh)
     call ice_files%def_node_var_optional('thdgr',           'thermodynamic ice growth rate',    'm/s',  ice%thermo%thdgr,   mesh, partit)
     call ice_files%def_node_var_optional('thdgrsn',         'thermodynamic snow growth rate',   'm/s',  ice%thermo%thdgrsn, mesh, partit)
     call ice_files%def_node_var_optional('area_old',        'ice concentration before the thermodynamics', '-', ice%data(1)%values_old, mesh, partit)
+    call ice_files%def_node_var_optional('real_salt_flux',  'brine salt flux from the sea ice', 'm/s psu', real_salt_flux, mesh, partit)
   end if
 #if defined (__cpl_enabled)
   !---wiso-code

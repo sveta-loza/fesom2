@@ -105,7 +105,7 @@ use o_param
 !   real(kind=WP), allocatable, dimension(:)         :: thdgr, thdgrsn
   real(kind=WP), allocatable, dimension(:)         :: flice
   real(kind=WP), allocatable, dimension(:)         :: hf_Qlat, hf_Qsen, hf_Qradtot, hf_Qswr, hf_Qlwr, hf_Qlwrout
-  real(kind=WP), allocatable, dimension(:)         :: real_salt_flux !PS
+  real(kind=WP), allocatable, dimension(:), target :: real_salt_flux !PS (target: registered in the ice restart)
 
   ! drag coefficient Cd_atm_oce and transfer coefficients for evaporation
   ! Ce_atm_oce and sensible heat Ch_atm_oce between atmosphere and ocean

@@ -115,6 +115,11 @@ contains
     integer :: nbr_connections, vtx_idx, c2v_idx
     integer :: curr_elem, curr_edge
     logical, allocatable :: node_is_boundary(:)
+    integer, allocatable :: nbnd_edges(:)        ! boundary edges per node: 0 interior, 2 one coastal arc, 2k k arcs
+    integer, allocatable :: star_vtx(:)
+    real(kind=WP), allocatable :: star_ang(:)
+    integer :: n_star, ed, l, itmp
+    real(kind=WP) :: dx, dy, atmp
     integer, intent(in) :: nsteps
     character(len=8)           :: dt_str
     character(LEN=24) :: startdatetime, enddatetime
@@ -134,21 +139,35 @@ contains
        if (partit%mype == 0) write(*,*) '     YAC run period: ', startdatetime, ' -> ', enddatetime
     end if
 
-    ! find boundary nodes
-    ALLOCATE(node_is_boundary(partit%myDim_nod2D))
-    node_is_boundary = .FALSE.
+    ! find boundary nodes and count the boundary edges per node: 2 = one coastal
+    ! arc (the usual coastal node), 2k = k separate arcs (a node touching land in
+    ! k places, e.g. at a one-element-wide strait; tORCA025 has 7 such nodes,
+    ! CORE2 and DART none)
+    ALLOCATE(nbnd_edges(partit%myDim_nod2D), node_is_boundary(partit%myDim_nod2D))
+    nbnd_edges = 0
     DO i=1,partit%myDim_edge2D
        IF (partit%myList_edge2D(i) > mesh%edge2D_in) THEN
           IF (mesh%edges(1,i) <= partit%myDim_nod2D) &
-               node_is_boundary(mesh%edges(1,i)) = .TRUE.
+               nbnd_edges(mesh%edges(1,i)) = nbnd_edges(mesh%edges(1,i)) + 1
           IF (mesh%edges(2,i) <= partit%myDim_nod2D) &
-               node_is_boundary(mesh%edges(2,i)) = .TRUE.
+               nbnd_edges(mesh%edges(2,i)) = nbnd_edges(mesh%edges(2,i)) + 1
        END IF
     END DO
+    ! single-arc coastal nodes get the node itself as an extra vertex and are
+    ! walked around element by element below; multi-arc nodes become a star
+    ! polygon without a node vertex
+    node_is_boundary = (nbnd_edges == 2)
     nbr_boundary_nodes = COUNT(node_is_boundary)
 
     nbr_vertices = partit%myDim_elem2D + partit%myDim_edge2D + nbr_boundary_nodes
     nbr_connections = 2*SUM(mesh%nod_in_elem2D_num(1:partit%myDim_nod2D)) + 2*nbr_boundary_nodes
+    DO i=1,partit%myDim_nod2D
+       IF (nbnd_edges(i) > 2) nbr_connections = nbr_connections + nbnd_edges(i)/2
+    END DO
+    IF (COUNT(nbnd_edges > 2) > 0) WRITE(*,*) 'YAC grid: rank ', partit%mype, ' builds ', &
+         COUNT(nbnd_edges > 2), ' star cell(s) for nodes touching the coast in several places'
+    ALLOCATE(star_vtx(2*MAXVAL(mesh%nod_in_elem2D_num(1:partit%myDim_nod2D)) + 16), &
+             star_ang(2*MAXVAL(mesh%nod_in_elem2D_num(1:partit%myDim_nod2D)) + 16))
 
     ALLOCATE(x_vertices(nbr_vertices))
     ALLOCATE(y_vertices(nbr_vertices))
@@ -177,6 +196,46 @@ contains
     c2v_idx = 0
     DO i=1,partit%myDim_nod2D
        nbr_vertices_per_cell(i) = 2*mesh%nod_in_elem2D_num(i)
+       IF (nbnd_edges(i) > 2) THEN
+          ! star polygon: all element centres and edge midpoints around the
+          ! node, ordered by azimuth. The element fan of such a node is not
+          ! connected, so the edge walk below cannot close the polygon; this one
+          ! spans the land wedges between the coastal arcs (a small over-estimate
+          ! of the cell area at these few nodes; the field points stay the node
+          ! coordinates, so nearest-neighbour exchanges are unaffected).
+          n_star = 0
+          DO j=1,mesh%nod_in_elem2D_num(i)
+             n_star = n_star + 1
+             star_vtx(n_star) = mesh%nod_in_elem2D(j,i)
+             DO k=1,3
+                ed = mesh%elem_edges(k, mesh%nod_in_elem2D(j,i))
+                IF (ALL(mesh%edges(1:2,ed) /= i)) CYCLE
+                IF (ANY(star_vtx(1:n_star) == partit%myDim_elem2D + ed)) CYCLE
+                n_star = n_star + 1
+                star_vtx(n_star) = partit%myDim_elem2D + ed
+             END DO
+          END DO
+          DO l=1,n_star
+             dx = x_vertices(star_vtx(l)) - mesh%geo_coord_nod2D(1,i)
+             IF (dx >  PI) dx = dx - 2.0_WP*PI
+             IF (dx < -PI) dx = dx + 2.0_WP*PI
+             dx = dx*COS(mesh%geo_coord_nod2D(2,i))
+             dy = y_vertices(star_vtx(l)) - mesh%geo_coord_nod2D(2,i)
+             star_ang(l) = ATAN2(dy, dx)
+          END DO
+          DO l=2,n_star                      ! insertion sort by azimuth
+             atmp = star_ang(l); itmp = star_vtx(l); k = l-1
+             DO WHILE (k >= 1)
+                IF (star_ang(k) <= atmp) EXIT
+                star_ang(k+1) = star_ang(k); star_vtx(k+1) = star_vtx(k); k = k-1
+             END DO
+             star_ang(k+1) = atmp; star_vtx(k+1) = itmp
+          END DO
+          nbr_vertices_per_cell(i) = n_star
+          cell_to_vertex(c2v_idx+1:c2v_idx+n_star) = star_vtx(1:n_star)
+          c2v_idx = c2v_idx + n_star
+          CYCLE
+       END IF
        curr_elem = mesh%nod_in_elem2D(1,i)
        curr_edge = mesh%elem_edges(1, curr_elem)
        IF (ALL(mesh%edges(1:2,curr_edge) /= i)) curr_edge = mesh%elem_edges(2, curr_elem)
@@ -236,6 +295,8 @@ contains
           cell_to_vertex(c2v_idx) = partit%myDim_elem2D + curr_edge
        END IF
     END DO
+
+    DEALLOCATE(star_vtx, star_ang, nbnd_edges)
 
     CALL yac_fdef_grid( &
          trim(cpl_grid_name), &

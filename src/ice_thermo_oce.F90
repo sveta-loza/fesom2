@@ -15,14 +15,16 @@ module ice_thermo_oce_module
 
     private
     public :: cut_off
-#if !defined (__cpl_enabled)
+    ! The bulk-formula scheme below is compiled in every build. A coupled
+    ! build uses it when no atmosphere provides the fluxes: in the sea-ice
+    ! component (FESIM) whose ocean reads forcing files and forwards the
+    ! atmospheric state (see thermodynamics in ice_thermo_cpl.F90).
     public :: thermodynamics, therm_ice, budget, obudget, flooding, &
               TFrez, compute_solar_zenith_angle, albw_taylor, &
               albw_briegleb, open_water_albedo_at
 #ifdef ENABLE_OPENACC
     public :: thermodynamics_acc, thermo_device_ok
     logical, save :: thermo_data_created = .false.
-#endif
 #endif
 
 contains
@@ -111,7 +113,6 @@ END DO
     end if
 end subroutine cut_off
 
-#if !defined (__cpl_enabled)
 !_______________________________________________________________________________
 ! Sea-ice thermodynamics routines
 !
@@ -1317,6 +1318,5 @@ subroutine thermodynamics_acc(ice, partit, mesh)
     end if
 end subroutine thermodynamics_acc
 #endif
-#endif /* !defined (__cpl_enabled) */
 
 end module ice_thermo_oce_module

@@ -30,7 +30,9 @@ subroutine thermodynamics(ice, partit, mesh)
                         fesom_receives_ice_flux_at_sent_surface,  &
                         fesom_receives_ice_flux_for_skin_balance, &
                         fesom_receives_area_weighted_evaporation, &
-                        is_coupled_to_icon_a
+                        is_coupled_to_icon_a, is_coupled_to_ifs,  &
+                        is_coupled_to_fesom, is_coupled_to_atmosphere
+  use ice_thermo_oce_module, only: thermodynamics_bulk => thermodynamics
   implicit none
   type(t_ice)   , intent(inout), target :: ice
   type(t_partit), intent(inout), target :: partit
@@ -92,6 +94,14 @@ subroutine thermodynamics(ice, partit, mesh)
   geo_coord_nod2D(1:2,1:myDim_nod2D+eDim_nod2D) => mesh%geo_coord_nod2D(:,:)
   u_ice         => ice%uice(:)
   v_ice         => ice%vice(:)
+  ! Without an atmosphere the fluxes are not provided but computed from the
+  ! atmospheric state with the bulk formulae: the sea-ice component (FESIM)
+  ! whose ocean reads forcing files and forwards that state.
+  if (.not. is_coupled_to_atmosphere()) then
+     call thermodynamics_bulk(ice, partit, mesh)
+     return
+  end if
+
   a_ice         => ice%data(1)%values(:)
   m_ice         => ice%data(2)%values(:)
   m_snow        => ice%data(3)%values(:)  
@@ -212,6 +222,20 @@ subroutine thermodynamics(ice, partit, mesh)
         ice_heat_qcon(inod) = qcon
      end if
      call ice_growth
+
+     ! Open-water flux split, in the sea-ice component (FESIM) under IFS: the
+     ! ocean applies the open-water atmospheric heat flux (1-A)*a2ohf and the
+     ! open-water freshwater flux (evaporation, rain, snow on open water,
+     ! runoff) itself at its current step (exchange_oce_ice_yac); only the
+     ! ice-related remainder of ehf/fw (ice/snow growth and melt, the heat
+     ! used for them) travels to the ocean with the lag-1 exchange. a_ice(inod)
+     ! still holds the concentration the thermodynamics started from (what the
+     ! ocean receives as values_old), so both sides weight with the same A.
+     ! evap/rain/snow/runo are not changed by ice_growth under IFS.
+     if (is_coupled_to_fesom .and. is_coupled_to_ifs) then
+        ehf = ehf - (1._WP-a_ice(inod))*a2ohf
+        fw  = fw  - (evap + rain + (1._WP-a_ice(inod))*snow + runo)*rhofwt/rhowat
+     end if
 
      !__________________________________________________________________________
      ! save old ice variables

@@ -20,6 +20,8 @@ module cpl_config
   public :: read_cpl_namelist, check_cpl_config
   public :: is_coupled_to_echam, is_coupled_to_oifs
   public :: is_coupled_to_icon_a, is_coupled_to_ifs
+  public :: is_coupled_to_fesim, is_coupled_to_fesom
+  public :: is_coupled_to_atmosphere
   public :: cpl_comp_name, cpl_grid_name, cpl_config_file
   public :: compute_oasis_corners
   public :: fesom_provides_ice_surface
@@ -58,8 +60,26 @@ module cpl_config
   logical :: is_coupled_to_ifs    = .false.
 #endif
 
+  ! The sea ice as a component of its own (FESIM, over YAC). The ocean and
+  ! the sea ice are two executables built from this source tree, and each
+  ! names the other as its partner:
+  !  - is_coupled_to_fesim, in the ocean: the sea ice runs in FESIM instead of
+  !    inside the ocean. With an atmosphere selected as well, the ocean
+  !    forwards the atmosphere's fluxes to the sea ice; without one, the ocean
+  !    reads forcing files and forwards the raw atmospheric state, from which
+  !    the sea ice computes its fluxes itself.
+  !  - is_coupled_to_fesom, in the sea ice: its partner is the ocean, and only
+  !    the ocean. An atmosphere flag set together with it names the atmosphere
+  !    of the OCEAN, i.e. what the ocean forwards; it is not a partner of the
+  !    sea ice itself and is not checked against this build's interface.
+  ! Both are off by default in every build, so the ocean keeps its built-in
+  ! sea ice unless a run directory asks otherwise.
+  logical :: is_coupled_to_fesim  = .false.
+  logical :: is_coupled_to_fesom  = .false.
+
   namelist /coupling_partner/ is_coupled_to_echam, is_coupled_to_oifs, &
-                              is_coupled_to_icon_a, is_coupled_to_ifs
+                              is_coupled_to_icon_a, is_coupled_to_ifs, &
+                              is_coupled_to_fesim, is_coupled_to_fesom
 
   !____________________________________________________________________________
   ! What FESOM provides to and receives from the configured atmosphere, as
@@ -189,7 +209,7 @@ contains
     call report_cpl_config(mype)
 
     !__________________________________________________________________________
-    ! Exactly one atmosphere.
+    ! At most one atmosphere, and at least one partner of any role.
     n_atm = 0
     if (is_coupled_to_echam)  n_atm = n_atm + 1
     if (is_coupled_to_oifs)   n_atm = n_atm + 1
@@ -197,11 +217,17 @@ contains
     if (is_coupled_to_ifs)    n_atm = n_atm + 1
 
 #if defined (__cpl_enabled)
-    if (n_atm == 0) then
+    if (n_atm == 0 .and. .not. (is_coupled_to_fesim .or. is_coupled_to_fesom)) then
        call cpl_config_abort(comm, mype, &
-            'no external atmosphere selected. Set exactly one of '// &
-            'is_coupled_to_echam / _oifs / _icon_a / _ifs in '// &
+            'no external component selected. Set one of '// &
+            'is_coupled_to_echam / _oifs / _icon_a / _ifs (at most one '// &
+            'atmosphere) and/or is_coupled_to_fesim in '// &
             '&coupling_partner of '//nmlfile)
+    end if
+    if (is_coupled_to_fesim .and. is_coupled_to_fesom) then
+       call cpl_config_abort(comm, mype, &
+            'is_coupled_to_fesim (set in the ocean) and is_coupled_to_fesom '// &
+            '(set in the sea ice) are both selected in '//nmlfile)
     end if
     if (n_atm > 1) then
        call cpl_config_abort(comm, mype, &
@@ -210,15 +236,25 @@ contains
             '. FESOM couples to at most one atmosphere.')
     end if
 #else
-    if (n_atm > 0) then
+    if (n_atm > 0 .or. is_coupled_to_fesim .or. is_coupled_to_fesom) then
        call cpl_config_abort(comm, mype, &
-            'an external atmosphere is selected in '//nmlfile// &
+            'an external component is selected in '//nmlfile// &
             ', but this is a standalone build (FESOM_COUPLING=standalone).')
     end if
 #endif
 
     !__________________________________________________________________________
-    ! Each partner needs the interface it talks over.
+    ! Each partner needs the interface it talks over. The ocean and the sea
+    ! ice talk over YAC.
+#if !defined (__cpl_yac)
+    if (is_coupled_to_fesim) &
+       call wrong_interface(comm, mype, 'fesim', 'yac')
+    if (is_coupled_to_fesom) &
+       call wrong_interface(comm, mype, 'fesom', 'yac')
+#endif
+    ! The atmosphere flags of the sea ice name the ocean's atmosphere, which
+    ! the sea ice does not talk to.
+    if (.not. is_coupled_to_fesom) then
 #if !defined (__cpl_oasis28)
     if (is_coupled_to_echam) &
        call wrong_interface(comm, mype, 'echam', 'oasis28')
@@ -235,6 +271,7 @@ contains
     if (is_coupled_to_ifs) &
        call wrong_interface(comm, mype, 'ifs', 'direct')
 #endif
+    end if
 
     !__________________________________________________________________________
     ! Settings that only mean something for one interface.
@@ -264,6 +301,16 @@ contains
   end subroutine check_cpl_config
 
   !____________________________________________________________________________
+  !> True when an atmosphere is selected: in the ocean, the atmosphere it
+  !> talks to; in the sea ice, the atmosphere whose fluxes the ocean forwards.
+  !> False when the ocean's only partner is the sea ice: the ocean then reads
+  !> its atmospheric forcing from files, as a standalone run does.
+  logical function is_coupled_to_atmosphere()
+    is_coupled_to_atmosphere = is_coupled_to_echam .or. is_coupled_to_oifs .or. &
+                               is_coupled_to_icon_a .or. is_coupled_to_ifs
+  end function is_coupled_to_atmosphere
+
+  !____________________________________________________________________________
   subroutine wrong_interface(comm, mype, partner, interface_name)
     integer,          intent(in) :: comm
     integer,          intent(in) :: mype
@@ -285,6 +332,11 @@ contains
     write(*,*) '        is_coupled_to_oifs   = ', is_coupled_to_oifs
     write(*,*) '        is_coupled_to_icon_a = ', is_coupled_to_icon_a
     write(*,*) '        is_coupled_to_ifs    = ', is_coupled_to_ifs
+    write(*,*) '        is_coupled_to_fesim  = ', is_coupled_to_fesim
+    write(*,*) '        is_coupled_to_fesom  = ', is_coupled_to_fesom
+    if (is_coupled_to_fesom) &
+    write(*,*) '        (sea-ice component: the atmosphere flags name what', &
+               ' the ocean forwards)'
     write(*,*) '        cpl_comp_name        = ', trim(cpl_comp_name)
     write(*,*) '        cpl_grid_name        = ', trim(cpl_grid_name)
 #if defined (__cpl_oasis)

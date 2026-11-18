@@ -53,14 +53,24 @@ compiled interface is assumed.
 Section &coupling_partner
 """""""""""""""""""""""""
 
-Exactly one atmosphere must be selected. Each partner requires the interface it
-talks over, and the model aborts at startup if none or several are selected, or
-if the selection does not match the compiled interface.
+At most one atmosphere may be selected, and at least one partner of any role.
+Each partner requires the interface it talks over, and the model aborts at
+startup if no partner or several atmospheres are selected, or if the selection
+does not match the compiled interface.
 
 - **is_coupled_to_echam=.false.** ECHAM6 atmosphere; requires ``oasis28``.
 - **is_coupled_to_oifs=.false.** OpenIFS atmosphere; requires ``oasis50``.
 - **is_coupled_to_icon_a=.false.** ICON-A atmosphere; requires ``yac``.
 - **is_coupled_to_ifs=.false.** IFS atmosphere; requires ``direct``.
+- **is_coupled_to_fesim=.false.** Set in the ocean: the sea ice runs as a
+  component of its own (FESIM) instead of inside the ocean; requires ``yac``.
+  With an atmosphere selected as well, the ocean forwards the atmosphere's
+  fluxes to the sea ice. Without one, the ocean reads its forcing files and
+  forwards the raw atmospheric state, and the sea ice computes its fluxes.
+- **is_coupled_to_fesom=.false.** Set in the sea ice: its partner is the ocean;
+  requires ``yac``. An atmosphere flag set together with it names the ocean's
+  atmosphere, i.e. what the ocean forwards, and is not checked against the
+  interface of the sea-ice build.
 
 The selection drives the exchanged field set, which ``define_cpl_fields`` in
 ``src/cpl_fields.F90`` registers by name; the names must match the

@@ -14,16 +14,24 @@
 ! ============================================================================
 ! EXTERNAL COMPONENTS
 ! ============================================================================
-! Exactly one atmosphere must be selected -- the model aborts at startup if
-! none or several are, and also if the chosen partner does not match the
-! compiled interface. If this file is absent altogether, the partner implied
-! by the compiled interface is assumed, which is how run directories that
-! predate this file keep working.
+! At most one atmosphere may be selected, and at least one partner of any
+! role -- the model aborts at startup if none or several atmospheres are, and
+! also if a chosen partner does not match the compiled interface. If this file
+! is absent altogether, the partner implied by the compiled interface is
+! assumed, which is how run directories that predate this file keep working.
+!
+! The sea ice can run as a component of its own (FESIM, over YAC). The ocean
+! then sets is_coupled_to_fesim; with an atmosphere selected as well it
+! forwards the atmosphere's fluxes to the sea ice, without one it reads
+! forcing files and forwards the raw atmospheric state. The sea ice sets
+! is_coupled_to_fesom, plus the atmosphere flag of the ocean it sits under.
 &coupling_partner
 is_coupled_to_echam  = .false.   ! ECHAM6 atmosphere   (needs oasis28)
 is_coupled_to_oifs   = .false.   ! OpenIFS atmosphere  (needs oasis50)
 is_coupled_to_icon_a = .false.   ! ICON-A atmosphere   (needs yac)
 is_coupled_to_ifs    = .false.   ! IFS atmosphere      (needs direct)
+is_coupled_to_fesim  = .false.   ! FESIM sea ice       (ocean side, needs yac)
+is_coupled_to_fesom  = .false.   ! FESOM ocean         (sea-ice side, needs yac)
 /
 
 ! ============================================================================

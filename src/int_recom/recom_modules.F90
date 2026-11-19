@@ -648,9 +648,22 @@ module recom_config
 !sl remove the ice shading altogether (the pre-e178dd77 defect). The broadband SW*(1 - a_ice) path is unchanged.
 !sl Default 0 = unchanged, bit-identical (the old expression is used when it is 0).
   Real(kind=8)           :: ice_light_transm = 0.0d0
+!sl ice_light_physical (light thread point 2, 19 Nov 2026): instead of a constant ice_light_transm, the transmission T
+!sl through the ice-covered part is computed per node and step from the ice state (h_i = m_ice/a_ice, h_s = m_snow/a_ice):
+!sl   snow (h_s >= ice_light_hs0): T = (1 - alb_snow) * exp(-ice_light_ksnow*h_s) * exp(-ice_light_kice*h_i)
+!sl   bare ice                  : T = (1 - alb_ice) * ice_light_i0 * exp(-ice_light_kice*h_i)
+!sl alb_* = FESOM &ice_therm albsn/albsnm/albi/albim, melting when the skin temperature t_skin >= 0 degC.
+!sl The OASIM arguments are shaded by (1 - a_ice) + a_ice*T. Overrides ice_light_transm. Spectral path only;
+!sl the broadband SW*(1 - a_ice) is unchanged. Offline estimate (obs_data/retune/light/ice_transm.py): T 0.002-0.07.
+!sl Default .false. = unchanged, bit-identical.
 !sl cdom_remin_dic (19 Nov 2026): credit the CDOM sinks (bacterial rho_cdom*arrFunc and photobleaching) to DIC, with O2
 !sl consumption at redO2C. Before, that carbon left the model (~1 PgC/yr in kdind15wco2sl1). Default .false. = bit-identical.
   Logical                :: cdom_remin_dic = .false.
+  Logical                :: ice_light_physical = .false.
+  Real(kind=8)           :: ice_light_kice  = 1.5d0    ! [1/m] PAR attenuation in the ice interior
+  Real(kind=8)           :: ice_light_ksnow = 15.0d0   ! [1/m] PAR attenuation in snow (wet ~7-10, dry ~20-40)
+  Real(kind=8)           :: ice_light_i0    = 0.7d0    ! [-] visible fraction passing the bare-ice surface scattering layer (CICE i0vis)
+  Real(kind=8)           :: ice_light_hs0   = 0.01d0   ! [m] snow depth above which the snow formula is used
 ! Maximum quantum yield of photosynthesis [mmol C (J)^{-1}], per PFT. In a
 ! spectral build these set the initial slope of the P-I curve through
 ! alphachl_nl_X = mQY_X * aphy_chl_ps_X (wavebands_init_vari), and they are the
@@ -765,6 +778,7 @@ module recom_config
 
   namelist /spectral/ RECOM_CDOM, RECOM_MARSHALL, RECOM_RADTRANS, OASIM, RECOM_BMASS, &
                       RECOM_CO2LIM_SPECTRAL, ice_light_transm, &
+                      ice_light_physical, ice_light_kice, ice_light_ksnow, ice_light_i0, ice_light_hs0, &
                       cdom_remin_dic, &
                       RECOM_CALC_ACDOM,  RECOM_CALC_APART, RECOM_CALC_APHYT,         &
                       RECOM_CALC_REFLEC, &

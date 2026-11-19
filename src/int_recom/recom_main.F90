@@ -124,6 +124,7 @@ subroutine recom(ice, dynamics, tracers, partit, mesh)
 #if defined(__RECOM_WAVEBANDS)
     real(kind=8),  allocatable :: Light_watercolumn(:,:,:)
     real(kind=8)               :: ice_fac_spec   !sl ice shading of the OASIM light (light test L2)
+    real(kind=8)               :: ice_T_phys, h_ice_loc, h_snow_loc, alb_loc   !sl physical ice/snow PAR transmission (ice_light_physical)
 #endif
 
 #include "../associate_part_def.h"
@@ -172,7 +173,32 @@ subroutine recom(ice, dynamics, tracers, partit, mesh)
         Loc_ice_conc = a_ice(n)
 #if defined(__RECOM_WAVEBANDS)
         !!---- Ice shading of the spectral (OASIM) light; the expression is unchanged when ice_light_transm = 0
-        if (ice_light_transm > 0.d0) then
+        if (ice_light_physical) then
+            !sl 19 Nov 2026: Beer-law PAR transmission through the ice-covered part of the cell (ice_light_physical),
+            !sl the formula of obs_data/retune/light/ice_transm.py. FESOM stores cell means, so h = m/a_ice.
+            !sl Albedos are the FESOM thermodynamic ones (namelist.ice &ice_therm), frozen/melting from the skin temperature.
+            ice_T_phys = 0.d0
+            if (a_ice(n) > 1.d-6) then
+                h_ice_loc  = ice%data(2)%values(n) / a_ice(n)
+                h_snow_loc = ice%data(3)%values(n) / a_ice(n)
+                if (h_snow_loc >= ice_light_hs0) then
+                    if (ice%thermo%t_skin(n) < 0.d0) then
+                        alb_loc = ice%thermo%albsn
+                    else
+                        alb_loc = ice%thermo%albsnm
+                    end if
+                    ice_T_phys = (1.d0 - alb_loc) * exp(-ice_light_ksnow * h_snow_loc) * exp(-ice_light_kice * h_ice_loc)
+                else
+                    if (ice%thermo%t_skin(n) < 0.d0) then
+                        alb_loc = ice%thermo%albi
+                    else
+                        alb_loc = ice%thermo%albim
+                    end if
+                    ice_T_phys = (1.d0 - alb_loc) * ice_light_i0 * exp(-ice_light_kice * h_ice_loc)
+                end if
+            end if
+            ice_fac_spec = (1.d0 - a_ice(n)) + a_ice(n) * ice_T_phys
+        else if (ice_light_transm > 0.d0) then
             ice_fac_spec = (1.d0 - a_ice(n)) + a_ice(n) * ice_light_transm
         else
             ice_fac_spec = 1.d0 - a_ice(n)

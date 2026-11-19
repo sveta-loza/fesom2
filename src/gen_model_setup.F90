@@ -127,6 +127,8 @@ subroutine setup_model(partit)
   !sl light test L2 (4 Nov 2026): echo the ice transmission when it is used
   if (ice_light_transm > 0.d0 .and. partit%mype==0) print *, 'spectral: ice_light_transm = ', ice_light_transm
   if (cdom_remin_dic .and. partit%mype==0) print *, 'spectral: cdom_remin_dic = T (CDOM sinks credited to DIC/O2)'
+  if (ice_light_physical .and. partit%mype==0) print *, 'spectral: ice_light_physical: kice, ksnow, i0, hs0 = ', &
+                         ice_light_kice, ice_light_ksnow, ice_light_i0, ice_light_hs0
 #endif
   close (fileunit)
 #endif

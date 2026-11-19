@@ -648,6 +648,9 @@ module recom_config
 !sl remove the ice shading altogether (the pre-e178dd77 defect). The broadband SW*(1 - a_ice) path is unchanged.
 !sl Default 0 = unchanged, bit-identical (the old expression is used when it is 0).
   Real(kind=8)           :: ice_light_transm = 0.0d0
+!sl cdom_remin_dic (19 Nov 2026): credit the CDOM sinks (bacterial rho_cdom*arrFunc and photobleaching) to DIC, with O2
+!sl consumption at redO2C. Before, that carbon left the model (~1 PgC/yr in kdind15wco2sl1). Default .false. = bit-identical.
+  Logical                :: cdom_remin_dic = .false.
 ! Maximum quantum yield of photosynthesis [mmol C (J)^{-1}], per PFT. In a
 ! spectral build these set the initial slope of the P-I curve through
 ! alphachl_nl_X = mQY_X * aphy_chl_ps_X (wavebands_init_vari), and they are the
@@ -762,6 +765,7 @@ module recom_config
 
   namelist /spectral/ RECOM_CDOM, RECOM_MARSHALL, RECOM_RADTRANS, OASIM, RECOM_BMASS, &
                       RECOM_CO2LIM_SPECTRAL, ice_light_transm, &
+                      cdom_remin_dic, &
                       RECOM_CALC_ACDOM,  RECOM_CALC_APART, RECOM_CALC_APHYT,         &
                       RECOM_CALC_REFLEC, &
                       DAR_NONSPECTRAL_BACKSCATTERING_RATIO, darwin_bbphy, &

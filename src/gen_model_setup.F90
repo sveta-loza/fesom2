@@ -126,6 +126,7 @@ subroutine setup_model(partit)
   read (fileunit, NML=spectral)
   !sl light test L2 (4 Nov 2026): echo the ice transmission when it is used
   if (ice_light_transm > 0.d0 .and. partit%mype==0) print *, 'spectral: ice_light_transm = ', ice_light_transm
+  if (cdom_remin_dic .and. partit%mype==0) print *, 'spectral: cdom_remin_dic = T (CDOM sinks credited to DIC/O2)'
 #endif
   close (fileunit)
 #endif

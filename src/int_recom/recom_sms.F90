@@ -6571,6 +6571,13 @@ if (RECOM_CDOM) then
             - rho_cdom * arrFunc        * cdomC                            & ! Bacterial degradation of CDOM
             - cdom_photo_rate           * cdomC                            & ! Photochemical degradation
                                                                           ) * dt_b + sms(k,icdom)
+!sl 19 Nov 2026 cdom_remin_dic: the CDOM sinks above were credited nowhere, a carbon leak of ~1 PgC/yr in the
+!sl 4-PFT reference (obs_data/retune/cdomleak/). With the switch on, both sinks go to DIC and consume O2 at redO2C,
+!sl like DOC remineralisation. No ciso terms. Default .false. = old behaviour, bit-identical.
+            if (cdom_remin_dic) then
+                sms(k,idic) = sms(k,idic) + (rho_cdom * arrFunc + cdom_photo_rate) * cdomC * dt_b
+                sms(k,ioxy) = sms(k,ioxy) - (rho_cdom * arrFunc + cdom_photo_rate) * cdomC * redO2C * dt_b
+            endif
 endif !/* RECOM_CDOM */
 #endif /* __RECOM_WAVEBANDS */
 

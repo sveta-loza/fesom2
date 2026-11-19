@@ -498,7 +498,12 @@ module recom_config
   Real(kind=8)                 :: res_ovf_d     = -1.0d0          !sl per-PFT overflow respiration for diatoms, coccolithophores and
   Real(kind=8)                 :: res_ovf_c     = -1.0d0          !   Phaeocystis (9 Oct 2026). -1 (default) = use res_ovf for that PFT, so
   Real(kind=8)                 :: res_ovf_p     = -1.0d0          !   existing namelists reproduce; set them to 0 for a small-phyto-only term.
-  namelist /paphytoplankton_C/ lossC, lossC_d, lossC_c, lossC_p, f_ovf, ovf_to_cdom, res_ovf, res_ovf_d, res_ovf_c, res_ovf_p
+  Logical                      :: npp_net_ovf   = .false.         !sl 19 Nov 2026: .true. = the NPP diagnostics (NPPn/d/c/p, 2D and 3D) also
+                                                                    !   subtract the overflow respiration res_ovf*(1-qN)*Cphot*C, so NPP is net
+                                                                    !   of all respiration. Diagnostic only, no effect on the state. .false. =
+                                                                    !   old NPP (gross of the overflow respiration), bit-identical.
+  namelist /paphytoplankton_C/ lossC, lossC_d, lossC_c, lossC_p, f_ovf, ovf_to_cdom, res_ovf, res_ovf_d, res_ovf_c, res_ovf_p, &
+                               npp_net_ovf
 !!------------------------------------------------------------------------------
 !! *** Phytoplankton ChlA ***
   Real(8)                      :: deg_Chl       = 0.25d0          ! [1/day]

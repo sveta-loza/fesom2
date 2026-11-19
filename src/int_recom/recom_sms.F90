@@ -7296,6 +7296,16 @@ endif !/* RECOM_CDOM */
                     ) * recipbiostep
                 endif
 
+                !sl 19 Nov 2026 npp_net_ovf: NPP net of the overflow respiration too (diagnostic only; default .false. = unchanged)
+                if (npp_net_ovf) then
+                    vertNPPn(k) = vertNPPn(k) - ovrRate     * PhyC * recipbiostep
+                    vertNPPd(k) = vertNPPd(k) - ovrRate_dia * DiaC * recipbiostep
+                    if (enable_coccos) then
+                        vertNPPc(k) = vertNPPc(k) - ovrRate_cocco * CoccoC * recipbiostep
+                        vertNPPp(k) = vertNPPp(k) - ovrRate_phaeo * PhaeoC * recipbiostep
+                    endif
+                endif
+
                 !===========================================================================
                 ! GROSS PRIMARY PRODUCTION (GPP)
                 !===========================================================================

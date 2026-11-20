@@ -585,8 +585,15 @@ module recom_config
   Real(kind=8)                 :: k_din_calc      = -1.d0         !sl [mmol N/m3] DIN half-saturation in the coccolithophore PIC:POC
                                                                    !   nitrogen term (PICPOCN). < 0 (default) = use k_din_c, the uptake value,
                                                                    !   as before; set >= 0 to change uptake (k_din_c) without moving calcification.
+  Real(kind=8)                 :: calc_scale_cocco = 1.d0          !sl [-] factor on the coccolithophore PIC production (recom_sms, enable_coccos branch):
+                                                                   !   calcification = calc_scale_cocco * Cphot_cocco * CoccoC * PICPOCtemp * PICPOCN [* PICPOCCO2].
+                                                                   !   1.0 (default) = as before. 20 Nov 2026: at 1.0 the 4-PFT runs calcify 7.4 PgC/yr
+                                                                   !   (literature ~0.5-1.6) and surface Alk drifts ~-12 mmol m-3/yr.
+  Logical                      :: calc_on_net_cocco = .false.      !sl .true.: coccolithophore PIC production scales with NET photosynthesis,
+                                                                   !   max(0, Cphot_cocco - phyRespRate_cocco), instead of gross Cphot_cocco.
+                                                                   !   .false. (default) = as before.
   namelist /pacalc/ calc_prod_ratio, calc_diss_guts, calc_diss_rate, calc_diss_rate2, calc_diss_omegac, calc_diss_exp, &  ! NEW DISS added calc_diss_omegac, calc_diss_exp
-                    k_din_calc
+                    k_din_calc, calc_scale_cocco, calc_on_net_cocco
 !!------------------------------------------------------------------------------
 !! *** Benthos ***
   Real(kind=8)                 :: decayRateBenN   = 0.005d0

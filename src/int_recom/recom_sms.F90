@@ -4491,7 +4491,12 @@ endif !/* RECOM_MARSHALL */
            ! Combine photosynthesis rate with all environmental modifiers
            ! Base rate × Temperature effect × Nutrient effect
 
-           calcification = 1.d0 * Cphot_cocco * CoccoC * PICPOCtemp * PICPOCN
+           if (calc_on_net_cocco) then
+               !sl 20 Nov 2026: PIC production on net photosynthesis (gross minus respiration, d-1)
+               calcification = calc_scale_cocco * max(0.d0, Cphot_cocco - phyRespRate_cocco) * CoccoC * PICPOCtemp * PICPOCN
+           else
+               calcification = calc_scale_cocco * Cphot_cocco * CoccoC * PICPOCtemp * PICPOCN   !sl was 1.d0 (calc_scale_cocco default 1.0)
+           end if
 
            ! Apply CO2 limitation if ocean acidification sensitivity is enabled
            if (CO2lim) then
